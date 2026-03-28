@@ -122,13 +122,15 @@ async function fetchAdzuna() {
     return 0;
   }
 
+  // Adzuna usa 'what_or' para buscar multiples keywords con OR
   const searches = [
-    { what: 'warehouse packhouse team leader', where: 'Christchurch', region: 'Christchurch', category: 'warehouse' },
-    { what: 'warehouse packhouse team leader', where: 'Bay of Plenty', region: 'Bay of Plenty', category: 'warehouse' },
-    { what: 'web developer freelance IT', where: 'New Zealand', region: 'Remote NZ', category: 'tech' },
-    { what: 'hospitality kitchen barista', where: 'Christchurch', region: 'Christchurch', category: 'hospitality' },
-    { what: 'driver delivery logistics', where: 'Christchurch', region: 'Christchurch', category: 'logistics' },
-    { what: 'construction labourer', where: 'Christchurch', region: 'Christchurch', category: 'construction' },
+    { what_or: 'warehouse packhouse', where: 'Christchurch', region: 'Christchurch', category: 'warehouse' },
+    { what_or: 'team leader supervisor', where: 'Christchurch', region: 'Christchurch', category: 'warehouse' },
+    { what_or: 'warehouse packhouse', where: 'Bay of Plenty', region: 'Bay of Plenty', category: 'warehouse' },
+    { what_or: 'developer programmer IT', where: 'New Zealand', region: 'Remote NZ', category: 'tech' },
+    { what_or: 'hospitality kitchen barista', where: 'Christchurch', region: 'Christchurch', category: 'hospitality' },
+    { what_or: 'driver delivery logistics', where: 'Christchurch', region: 'Christchurch', category: 'logistics' },
+    { what_or: 'construction labourer builder', where: 'Christchurch', region: 'Christchurch', category: 'construction' },
   ];
 
   let totalNew = 0;
@@ -139,10 +141,10 @@ async function fetchAdzuna() {
         app_id: ADZUNA_APP_ID,
         app_key: ADZUNA_APP_KEY,
         results_per_page: '20',
-        what: search.what,
+        what_or: search.what_or,
         where: search.where,
         sort_by: 'date',
-        max_days_old: '7',
+        max_days_old: '30',
       });
 
       const url = `https://api.adzuna.com/v1/api/jobs/nz/search/1?${params}`;
@@ -172,7 +174,7 @@ async function fetchAdzuna() {
         );
 
         if (!exists) {
-          const source = await ensureAdzunaSource(search.what, search.region);
+          const source = await ensureAdzunaSource(search.what_or, search.region);
           await db.query(
             `INSERT INTO job_listings (source_id, title, url, region, category)
              VALUES ($1, $2, $3, $4, $5)`,
@@ -182,9 +184,9 @@ async function fetchAdzuna() {
         }
       }
 
-      console.log(`💼 Adzuna ${search.what}@${search.where}: ${results.length} resultados, ${totalNew} nuevos`);
+      console.log(`💼 Adzuna ${search.what_or}@${search.where}: ${results.length} resultados, ${totalNew} nuevos`);
     } catch (err) {
-      console.error(`❌ Adzuna ${search.what}@${search.where}: ${err.message}`);
+      console.error(`❌ Adzuna ${search.what_or}@${search.where}: ${err.message}`);
     }
   }
 
