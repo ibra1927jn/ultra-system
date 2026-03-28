@@ -32,6 +32,7 @@ const financesRouter = require('./src/routes/finances');
 const opportunitiesRouter = require('./src/routes/opportunities');
 const logisticsRouter = require('./src/routes/logistics');
 const bioRouter = require('./src/routes/bio');
+const agentBusRouter = require("./src/routes/agentbus");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,6 +40,7 @@ const PORT = process.env.PORT || 3000;
 // ─── Middleware ────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store, no-cache, must-revalidate'); next(); });
 
 // ─── Archivos estáticos (Dashboard) ────────────────────────
 app.use(express.static(path.join(__dirname, 'public')));
@@ -52,6 +54,7 @@ app.use('/api/finances', apiKeyAuth, financesRouter);
 app.use('/api/opportunities', apiKeyAuth, opportunitiesRouter);
 app.use('/api/logistics', apiKeyAuth, logisticsRouter);
 app.use('/api/bio', apiKeyAuth, bioRouter);
+app.use("/api/agent-bus", agentBusRouter);
 
 // ─── Health endpoint (publico, sin auth para monitoreo) ───
 // Devuelve: estado DB, estado Telegram, pilares cargados, uptime

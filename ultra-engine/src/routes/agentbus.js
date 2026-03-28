@@ -1,0 +1,130 @@
+const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+
+const router = express.Router();
+const BUS_PATH = "/data/agent_bus.json";
+
+function readBus() {
+  try {
+    return JSON.parse(fs.readFileSync(BUS_PATH, "utf8"));
+  } catch {
+    return { pending_for_antigravity: [], pending_for_claude_code: [], completed: [], last_updated: null };
+  }
+}
+
+function writeBus(bus) {
+  bus.last_updated = new Date().toISOString();
+  fs.writeFileSync(BUS_PATH, JSON.stringify(bus, null, 2));
+}
+
+// GET /api/agent-bus/status — polling endpoint
+router.get("/status", (req, res) => {
+  const bus = readBus();
+  res.json({
+    ok: true,
+    last_updated: bus.last_updated,
+    queues: {
+      pending_for_antigravity: bus.pending_for_antigravity.length,
+      pending_for_claude_code: bus.pending_for_claude_code.length,
+      completed: bus.completed.length
+    },
+    pending_for_antigravity: bus.pending_for_antigravity,
+    pending_for_claude_code: bus.pending_for_claude_code,
+    recent_completed: (bus.completed || []).slice(-10)
+  });
+});
+
+// POST /api/agent-bus/git-push — webhook receiver
+router.post("/git-push", (req, res) => {
+  const body = req.body || {};
+  const commits = body.commits || [];
+  const repoName = (body.repository && body.repository.name) || body.repo || "unknown";
+  const bus = readBus();
+  const tasks = [];
+
+  for (const commit of commits) {
+    const message = commit.message || "";
+    const author = commit.author ? (commit.author.name || commit.author.username || "") : "";
+    const hash = (commit.id || commit.sha || "").substring(0, 8);
+    const files = [].concat(commit.added || [], commit.modified || [], commit.removed || []);
+
+    const isClaudeCode = message.includes("Co-Authored-By: Claude") || author.toLowerCase().includes("claude");
+    const isAntigravity = author.toLowerCase().includes("antigravity") || message.includes("antigravity");
+
+    let action = "review";
+    if (/^fix/i.test(message)) action = "fix";
+    else if (/^test/i.test(message)) action = "test";
+    else if (/^deploy|^release/i.test(message)) action = "deploy";
+
+    const task = {
+      id: crypto.randomUUID(),
+      from: isClaudeCode ? "claude_code" : isAntigravity ? "antigravity" : "human",
+      action,
+      repo: repoName,
+      commit: hash,
+      summary: message.split("\n")[0].substring(0, 200),
+      files_changed: files.length,
+      created_at: new Date().toISOString(),
+      status: "pending"
+    };
+
+    // Routing: si NO es de Claude Code, va a Claude Code queue
+    // Si NO es de Antigravity, va a Antigravity queue
+    // Si es de un humano, va a ambas
+    if (!isClaudeCode || task.from === "human") {
+      bus.pending_for_claude_code.push({ ...task });
+    }
+    if (!isAntigravity || task.from === "human") {
+      bus.pending_for_antigravity.push({ ...task });
+    }
+
+    tasks.push(task);
+  }
+
+  if (!tasks.length) {
+    const fallback = {
+      id: crypto.randomUUID(),
+      from: "unknown",
+      action: "review",
+      repo: repoName,
+      commit: "",
+      summary: "Push without parseable commits",
+      files_changed: 0,
+      created_at: new Date().toISOString(),
+      status: "pending"
+    };
+    bus.pending_for_claude_code.push(fallback);
+    tasks.push(fallback);
+  }
+
+  writeBus(bus);
+  res.json({ ok: true, tasks_created: tasks.length, tasks });
+});
+
+// POST /api/agent-bus/complete — mark task as done
+router.post("/complete", (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ ok: false, error: "Missing task id" });
+
+  const bus = readBus();
+  let found = false;
+
+  for (const queue of ["pending_for_antigravity", "pending_for_claude_code"]) {
+    const idx = bus[queue].findIndex(t => t.id === id);
+    if (idx !== -1) {
+      const [task] = bus[queue].splice(idx, 1);
+      task.status = "done";
+      task.completed_at = new Date().toISOString();
+      bus.completed.push(task);
+      found = true;
+    }
+  }
+
+  if (!found) return res.status(404).json({ ok: false, error: "Task not found" });
+  writeBus(bus);
+  res.json({ ok: true });
+});
+
+module.exports = router;
