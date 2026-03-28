@@ -52,6 +52,8 @@ services:
       TZ: ${TZ}
       PORT: 3000
       API_KEY: ${API_KEY}
+      ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
+      ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
     volumes:
       - engine_uploads:/app/uploads
       - /root/ultra-system/agent_bus.json:/data/agent_bus.json
