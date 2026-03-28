@@ -544,14 +544,15 @@ async function api(path) {
 
 /* ─── P1: News ─── */
 async function loadNews(src) {
-    const data = await api('/api/feeds/articles?limit=8');
+    const res = await api('/api/feeds/articles?limit=8');
     const el = document.getElementById('news-list');
-    if (!data || !data.articles || data.articles.length === 0) {
+    const items = res && res.data ? res.data : (res && res.articles ? res.articles : null);
+    if (!items || items.length === 0) {
         el.innerHTML = emptyState('No articles yet');
         document.getElementById('news-count').textContent = '0 articles';
         return;
     }
-    let articles = data.articles;
+    let articles = items;
     if (src && src !== 'all') articles = articles.filter(a => (a.source||'').toLowerCase().includes(src));
     document.getElementById('news-count').textContent = articles.length + ' articles';
     el.innerHTML = articles.map(a => `
@@ -567,18 +568,19 @@ async function loadNews(src) {
 
 /* ─── P2: Jobs ─── */
 async function loadJobs() {
-    const data = await api('/api/jobs?limit=10');
+    const res = await api('/api/jobs?limit=10');
     const el = document.getElementById('jobs-list');
     const srcEl = document.getElementById('jobs-sources');
-    if (!data || !data.jobs || data.jobs.length === 0) {
+    const jobs = res && res.data ? res.data : (res && res.jobs ? res.jobs : null);
+    if (!jobs || jobs.length === 0) {
         el.innerHTML = emptyState('No active listings — next scrape pending');
         document.getElementById('jobs-count').textContent = '0 active';
         srcEl.innerHTML = ['Seek','Indeed','TradeMe'].map(s=>`<span class="status-pill ok" style="font-size:0.7rem;">${s} ✓</span>`).join('');
         return;
     }
-    document.getElementById('jobs-count').textContent = data.jobs.length + ' active';
+    document.getElementById('jobs-count').textContent = jobs.length + ' active';
     srcEl.innerHTML = ['Seek','Indeed','TradeMe'].map(s=>`<span class="status-pill ok" style="font-size:0.7rem;">${s} ✓</span>`).join('');
-    el.innerHTML = data.jobs.map(j => `
+    el.innerHTML = jobs.map(j => `
         <div class="list-item">
             <div class="list-dot" style="background:var(--accent-blue)"></div>
             <div class="list-content">
@@ -591,63 +593,74 @@ async function loadJobs() {
 
 /* ─── P3: Finances ─── */
 async function loadFinances() {
-    const fin = await api('/api/finances');
-    const bud = await api('/api/budgets');
+    const finRes = await api('/api/finances');
+    const budRes = await api('/api/budgets');
+    const fin = finRes && finRes.data ? finRes.data : finRes;
+    const bud = budRes && budRes.data ? budRes.data : budRes;
     const metricsEl = document.getElementById('finance-metrics');
     const barsEl = document.getElementById('budget-bars');
     const expEl = document.getElementById('recent-expenses');
-    if (!fin) {
+    const txList = Array.isArray(fin) ? fin : [];
+    if (txList.length === 0 && !fin) {
         metricsEl.innerHTML = '';
         document.getElementById('finance-balance').textContent = '--';
         barsEl.innerHTML = emptyState('No financial data');
         return;
     }
-    const bal = fin.balance != null ? '$' + Number(fin.balance).toLocaleString() : '--';
-    document.getElementById('finance-balance').textContent = bal + ' NZD';
+    const income = txList.filter(t => t.type === 'income').reduce((s,t) => s + Number(t.amount), 0);
+    const expense = txList.filter(t => t.type === 'expense').reduce((s,t) => s + Number(t.amount), 0);
+    const bal = income - expense;
+    document.getElementById('finance-balance').textContent = '$' + bal.toLocaleString() + ' NZD';
     metricsEl.innerHTML = `
-        <div class="metric-card"><div class="metric-label">Balance</div><div class="metric-value">${bal}</div><div class="metric-trend neutral">NZD</div></div>
-        <div class="metric-card"><div class="metric-label">This Month</div><div class="metric-value">$${fin.month_spent != null ? Number(fin.month_spent).toLocaleString() : '--'}</div><div class="metric-trend down">spent</div></div>
+        <div class="metric-card"><div class="metric-label">Balance</div><div class="metric-value">$${bal.toLocaleString()}</div><div class="metric-trend neutral">NZD</div></div>
+        <div class="metric-card"><div class="metric-label">This Month</div><div class="metric-value">$${expense.toLocaleString()}</div><div class="metric-trend down">spent</div></div>
     `;
-    if (bud && bud.budgets && bud.budgets.length) {
-        barsEl.innerHTML = bud.budgets.map(b => {
+    const budgets = Array.isArray(bud) ? bud : (bud && bud.budgets ? bud.budgets : []);
+    if (budgets.length) {
+        barsEl.innerHTML = budgets.map(b => {
             const pct = Math.min(100, Math.round((b.spent/b.limit)*100));
             return `<div class="progress-item"><div class="progress-label-row"><span class="progress-name">${b.category}</span><span class="progress-pct">${pct}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${pct}%;background:${budgetColor(pct)}"></div></div></div>`;
         }).join('');
     } else { barsEl.innerHTML = ''; }
-    if (fin.recent_expenses && fin.recent_expenses.length) {
-        expEl.innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);font-family:var(--font-data);margin-bottom:6px;">RECENT</div>' + fin.recent_expenses.slice(0,5).map(e => `<div class="list-item"><div class="list-dot" style="background:var(--accent-coral)"></div><div class="list-content"><div class="list-title">${e.description||'Expense'}</div><div class="list-sub">$${e.amount} · ${relTime(e.date)}</div></div></div>`).join('');
+    const recentExp = txList.filter(t => t.type === 'expense').slice(0, 5);
+    if (recentExp.length) {
+        expEl.innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);font-family:var(--font-data);margin-bottom:6px;">RECENT</div>' + recentExp.map(e => `<div class="list-item"><div class="list-dot" style="background:var(--accent-coral)"></div><div class="list-content"><div class="list-title">${e.description||e.category||'Expense'}</div><div class="list-sub">$${e.amount} · ${relTime(e.date)}</div></div></div>`).join('');
     }
 }
 
 /* ─── P4: Documents ─── */
 async function loadDocs() {
-    const data = await api('/api/documents');
+    const res = await api('/api/documents');
     const el = document.getElementById('docs-list');
-    if (!data || !data.documents || data.documents.length === 0) {
+    const docItems = res && res.data ? res.data : (res && res.documents ? res.documents : null);
+    if (!docItems || docItems.length === 0) {
         el.innerHTML = emptyState('No documents tracked');
         document.getElementById('docs-count').textContent = '0 tracked';
         return;
     }
-    const docs = data.documents.sort((a,b) => (a.days_remaining||999)-(b.days_remaining||999));
+    const docs = docItems.sort((a,b) => (a.days_remaining||999)-(b.days_remaining||999));
     document.getElementById('docs-count').textContent = docs.length + ' tracked';
     const typeColors = { passport:'var(--accent-coral)', visa:'var(--accent-blue)', insurance:'var(--accent-teal)', wof:'var(--accent-amber)' };
     el.innerHTML = docs.map(d => {
         const days = d.days_remaining != null ? d.days_remaining : '?';
         const color = days !== '?' && days < 30 ? 'var(--accent-coral)' : days < 90 ? 'var(--accent-amber)' : 'var(--accent-teal)';
-        const bg = typeColors[(d.type||'').toLowerCase()] || 'var(--text-muted)';
-        return `<div class="doc-item"><div class="doc-icon" style="background:${bg}22;color:${bg}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><div class="doc-info"><div class="doc-name">${d.name||'Document'}</div><div class="doc-type">${d.type||''}</div></div><div class="doc-countdown"><div class="doc-days" style="color:${color}">${days}</div><div class="doc-days-label">days left</div></div></div>`;
+        const dtype = d.document_type || d.type || '';
+        const dname = d.document_name || d.name || 'Document';
+        const bg = typeColors[dtype.toLowerCase()] || 'var(--text-muted)';
+        return `<div class="doc-item"><div class="doc-icon" style="background:${bg}22;color:${bg}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><div class="doc-info"><div class="doc-name">${dname}</div><div class="doc-type">${dtype}</div></div><div class="doc-countdown"><div class="doc-days" style="color:${color}">${days}</div><div class="doc-days-label">days left</div></div></div>`;
     }).join('');
 }
 
 /* ─── P5: Logistics ─── */
 async function loadLogistics() {
-    const data = await api('/api/logistics');
+    const res = await api('/api/logistics');
     const el = document.getElementById('logistics-timeline');
-    if (!data || !data.items || data.items.length === 0) {
+    const items = res && res.data ? res.data : (res && res.items ? res.items : null);
+    if (!items || items.length === 0) {
         el.innerHTML = emptyState('No items in next 48h');
         return;
     }
-    el.innerHTML = data.items.map(it => {
+    el.innerHTML = items.map(it => {
         const dotClass = it.overdue ? 'urgent' : it.priority === 'high' ? 'warn' : '';
         return `<div class="timeline-item"><div class="timeline-dot ${dotClass}"></div><div class="timeline-time">${it.time||''}</div><div class="timeline-title">${it.description||it.title||''}</div></div>`;
     }).join('');
@@ -655,41 +668,50 @@ async function loadLogistics() {
 
 /* ─── P6: Opportunities ─── */
 async function loadOpps() {
-    const data = await api('/api/opportunities');
+    const res = await api('/api/opportunities');
     ['detected','applied','followup','closed'].forEach(s => document.getElementById('kanban-'+s).innerHTML = '');
-    if (!data || !data.opportunities || data.opportunities.length === 0) {
+    const opps = res && res.data ? res.data : (res && res.opportunities ? res.opportunities : null);
+    if (!opps || opps.length === 0) {
         document.getElementById('kanban-detected').innerHTML = '<div class="empty-state" style="padding:12px;">None yet</div>';
         document.getElementById('opps-count').textContent = '0 pipeline';
         return;
     }
-    document.getElementById('opps-count').textContent = data.opportunities.length + ' pipeline';
-    data.opportunities.forEach(o => {
-        const col = (o.stage||'detected').toLowerCase().replace('-','');
+    document.getElementById('opps-count').textContent = opps.length + ' pipeline';
+    const stageMap = { new:'detected', contacted:'applied', applied:'followup', won:'closed', rejected:'closed' };
+    opps.forEach(o => {
+        const col = stageMap[(o.status||'new').toLowerCase()] || 'detected';
         const target = document.getElementById('kanban-'+col) || document.getElementById('kanban-detected');
-        target.innerHTML += `<div class="kanban-card" style="border-color:${o.deadline_soon?'var(--accent-amber)':'var(--accent-teal)'}">${o.name||o.title||'?'}<br><span style="font-size:0.68rem;color:var(--text-muted)">${o.type||''}</span></div>`;
+        target.innerHTML += `<div class="kanban-card" style="border-color:${o.deadline?'var(--accent-amber)':'var(--accent-teal)'}">${o.title||o.name||'?'}<br><span style="font-size:0.68rem;color:var(--text-muted)">${o.category||o.type||''}</span></div>`;
     });
 }
 
 /* ─── P7: Bio ─── */
 async function loadBio() {
-    const data = await api('/api/bio');
+    const res = await api('/api/bio');
     const metricsEl = document.getElementById('bio-metrics');
     const insightsEl = document.getElementById('bio-insights');
-    if (!data) {
+    const checks = res && res.data ? res.data : null;
+    if (!checks || !checks.length) {
         metricsEl.innerHTML = '';
         insightsEl.innerHTML = emptyState('No health data yet');
         return;
     }
-    const m = data.metrics || {};
+    // Calcular promedios de los ultimos checks
+    const avgSleep = (checks.reduce((s,c) => s + Number(c.sleep_hours||0), 0) / checks.length).toFixed(1);
+    const avgEnergy = (checks.reduce((s,c) => s + Number(c.energy_level||0), 0) / checks.length).toFixed(1);
+    const avgMood = (checks.reduce((s,c) => s + Number(c.mood||0), 0) / checks.length).toFixed(1);
+    const avgExercise = Math.round(checks.reduce((s,c) => s + Number(c.exercise_minutes||0), 0) / checks.length);
     metricsEl.innerHTML = [
-        { l:'Sleep', v:m.sleep_avg||'--', u:'h/night' },
-        { l:'Weight', v:m.weight||'--', u:'kg' },
-        { l:'Exercise', v:m.exercise||'--', u:'days/wk' },
-        { l:'Mood', v:m.mood||'--', u:'/10' },
+        { l:'Sleep', v:avgSleep, u:'h/night' },
+        { l:'Energy', v:avgEnergy, u:'/10' },
+        { l:'Exercise', v:avgExercise, u:'min/day' },
+        { l:'Mood', v:avgMood, u:'/10' },
     ].map(x => `<div class="metric-card"><div class="metric-label">${x.l}</div><div class="metric-value">${x.v}</div><div class="metric-trend neutral">${x.u}</div></div>`).join('');
-    if (data.insights && data.insights.length) {
-        insightsEl.innerHTML = '<div style="margin-top:12px;font-size:0.75rem;color:var(--text-muted);font-family:var(--font-data);margin-bottom:6px;">INSIGHTS</div>' + data.insights.map(i => `<div class="list-item"><div class="list-dot" style="background:var(--accent-teal)"></div><div class="list-content"><div class="list-title">${i}</div></div></div>`).join('');
-    }
+    // Mostrar checks recientes como insights
+    insightsEl.innerHTML = '<div style="margin-top:12px;font-size:0.75rem;color:var(--text-muted);font-family:var(--font-data);margin-bottom:6px;">RECENT CHECKS</div>' + checks.slice(0,5).map(c => {
+        const d = new Date(c.date||c.created_at).toLocaleDateString('en-NZ',{weekday:'short',day:'numeric',month:'short'});
+        return `<div class="list-item"><div class="list-dot" style="background:${c.mood>=7?'var(--accent-teal)':c.mood>=4?'var(--accent-amber)':'var(--accent-coral)'}"></div><div class="list-content"><div class="list-title">${d} — Sleep ${c.sleep_hours}h · Energy ${c.energy_level} · Mood ${c.mood}</div><div class="list-sub">${c.notes||''}</div></div></div>`;
+    }).join('');
 }
 
 /* ─── Agent Bus ─── */
