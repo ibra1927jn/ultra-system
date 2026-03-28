@@ -52,4 +52,14 @@ router.post('/sources/:id/check', async (req, res) => {
   }
 });
 
+// ─── POST /api/jobs/scrape ─ Forzar scrape de todas las fuentes ──
+router.post('/scrape', async (req, res) => {
+  try {
+    const count = await scraper.checkAll();
+    res.json({ ok: true, new_listings: count });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

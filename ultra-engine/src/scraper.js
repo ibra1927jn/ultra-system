@@ -123,12 +123,12 @@ async function fetchAdzuna() {
   }
 
   const searches = [
-    { what: 'warehouse packhouse team leader', where: 'Canterbury', region: 'Christchurch', category: 'warehouse' },
+    { what: 'warehouse packhouse team leader', where: 'Christchurch', region: 'Christchurch', category: 'warehouse' },
     { what: 'warehouse packhouse team leader', where: 'Bay of Plenty', region: 'Bay of Plenty', category: 'warehouse' },
     { what: 'web developer freelance IT', where: 'New Zealand', region: 'Remote NZ', category: 'tech' },
-    { what: 'hospitality kitchen barista', where: 'Canterbury', region: 'Christchurch', category: 'hospitality' },
-    { what: 'driver delivery logistics', where: 'Canterbury', region: 'Christchurch', category: 'logistics' },
-    { what: 'construction labourer', where: 'Canterbury', region: 'Christchurch', category: 'construction' },
+    { what: 'hospitality kitchen barista', where: 'Christchurch', region: 'Christchurch', category: 'hospitality' },
+    { what: 'driver delivery logistics', where: 'Christchurch', region: 'Christchurch', category: 'logistics' },
+    { what: 'construction labourer', where: 'Christchurch', region: 'Christchurch', category: 'construction' },
   ];
 
   let totalNew = 0;
