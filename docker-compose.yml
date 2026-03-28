@@ -49,11 +49,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-not_configured}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-not_configured}
-      API_KEY: ${API_KEY}
       TZ: ${TZ}
       PORT: 3000
+      API_KEY: ${API_KEY}
     volumes:
       - engine_uploads:/app/uploads
+      - /root/ultra-system/agent_bus.json:/data/agent_bus.json
     networks:
       - ultra_net
 
