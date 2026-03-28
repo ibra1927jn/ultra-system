@@ -38,13 +38,18 @@
 - [2026-03-28] | scripts/backup.sh mejorado: compatible con prod (/backups) y local, PATH explícito para cron
 - [2026-03-28] | docker-compose.prod.yml: restart always, health checks, límites memoria (512MB engine, 256MB db), volumen backup, logging controlado
 
+## Completado (Production Readiness) ✅
+- [2026-03-28] | API_KEY: placeholder generado en .env.example con instrucciones para cambiar en produccion
+- [2026-03-28] | scripts/rebuild_db.js: migracion idempotente de todas las tablas (15 tablas, 22+ indices). Seguro sobre datos existentes
+- [2026-03-28] | scripts/backup_db.sh: dump PostgreSQL + gzip + rotacion 7 dias. Compatible local/prod
+- [2026-03-28] | scripts/setup_production.sh: checklist completo (env vars, DB, Telegram, migracion, cron backup, reporte final)
+
 ## Pendiente ⏳
 - Ejecución completa con agentes de IA autónomos.
 - Actualización de paquetes.
-- Agregar API_KEY al .env de produccion (generar con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-- Rebuild DB (docker compose down -v && docker compose up -d) para crear todas las tablas nuevas (P3, P5, P6, P7 + rss_keywords, budgets, columnas relevance_score y cost)
+- Agregar API_KEY real al .env de produccion (generar con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+- Ejecutar setup_production.sh en Hetzner: bash scripts/setup_production.sh
 - Crear directorio /backups en Hetzner antes de usar docker-compose.prod.yml: mkdir -p /backups
-- Agregar cron en Hetzner: crontab -e → 0 3 * * * /root/vida-control/scripts/backup.sh >> /var/log/ultra-backup.log 2>&1
 
 ## Bloqueado 🚫
 
