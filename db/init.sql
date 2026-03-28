@@ -109,6 +109,10 @@ CREATE TABLE IF NOT EXISTS job_listings (
     url             TEXT UNIQUE NOT NULL,
     region          VARCHAR(50),
     category        VARCHAR(50) DEFAULT 'other',
+    status          VARCHAR(20) DEFAULT 'new',
+    company         VARCHAR(255),
+    salary          VARCHAR(100),
+    description     TEXT,
     is_seen         BOOLEAN DEFAULT FALSE,
     found_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

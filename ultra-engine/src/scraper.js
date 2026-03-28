@@ -175,10 +175,14 @@ async function fetchAdzuna() {
 
         if (!exists) {
           const source = await ensureAdzunaSource(search.what_or, search.region);
+          const salary = job.salary_min && job.salary_max
+            ? `$${Math.round(job.salary_min)}-$${Math.round(job.salary_max)}`
+            : job.salary_min ? `From $${Math.round(job.salary_min)}` : null;
+          const desc = job.description ? job.description.substring(0, 500) : null;
           await db.query(
-            `INSERT INTO job_listings (source_id, title, url, region, category)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [source.id, `${title}${company ? ' — ' + company : ''}`, jobUrl, search.region, search.category || 'other']
+            `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [source.id, title, jobUrl, search.region, search.category || 'other', company || null, salary, desc]
           );
           totalNew++;
         }
@@ -287,4 +291,55 @@ function hashContent(content) {
   return hash.toString(36);
 }
 
-module.exports = { addSource, getSources, checkSource, checkAll, getListings, fetchAdzuna };
+/**
+ * Busqueda custom en Adzuna — el usuario escribe un query libre
+ */
+async function searchAdzuna(query, location = 'New Zealand') {
+  if (!ADZUNA_APP_ID || !ADZUNA_APP_KEY) return [];
+
+  const params = new URLSearchParams({
+    app_id: ADZUNA_APP_ID,
+    app_key: ADZUNA_APP_KEY,
+    results_per_page: '20',
+    what: query,
+    where: location,
+    sort_by: 'date',
+    max_days_old: '30',
+  });
+
+  const url = `https://api.adzuna.com/v1/api/jobs/nz/search/1?${params}`;
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'UltraSystem/1.0' },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) return [];
+  const data = await response.json();
+  const results = data.results || [];
+  let newCount = 0;
+
+  for (const job of results) {
+    const jobUrl = job.redirect_url || job.url || '';
+    const title = job.title || '';
+    const company = job.company ? job.company.display_name : '';
+    if (!title || !jobUrl) continue;
+
+    const exists = await db.queryOne('SELECT id FROM job_listings WHERE url = $1', [jobUrl]);
+    if (!exists) {
+      const source = await ensureAdzunaSource(query, location);
+      const salary = job.salary_min && job.salary_max
+        ? `$${Math.round(job.salary_min)}-$${Math.round(job.salary_max)}`
+        : job.salary_min ? `From $${Math.round(job.salary_min)}` : null;
+      await db.query(
+        `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [source.id, title, jobUrl, location, 'custom', company || null, salary, (job.description || '').substring(0, 500)]
+      );
+      newCount++;
+    }
+  }
+
+  return { total: results.length, new_listings: newCount };
+}
+
+module.exports = { addSource, getSources, checkSource, checkAll, getListings, fetchAdzuna, searchAdzuna };

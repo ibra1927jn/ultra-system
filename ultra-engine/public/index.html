@@ -355,7 +355,18 @@ body::before {
                 </div>
             </div>
             <div class="card-body">
-                <div id="jobs-sources" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;"></div>
+                <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;" id="jobs-tabs">
+                    <button class="tab-btn active" onclick="filterJobs('all')">All</button>
+                    <button class="tab-btn" onclick="filterJobs('warehouse')">Warehouse</button>
+                    <button class="tab-btn" onclick="filterJobs('tech')">Tech</button>
+                    <button class="tab-btn" onclick="filterJobs('hospitality')">Hospitality</button>
+                    <button class="tab-btn" onclick="filterJobs('construction')">Construction</button>
+                    <button class="tab-btn" onclick="filterJobs('logistics')">Logistics</button>
+                </div>
+                <div style="display:flex;gap:6px;margin-bottom:12px;">
+                    <input type="text" id="jobs-search" placeholder="Search jobs..." style="flex:1;padding:6px 10px;background:var(--bg-card);border:1px solid var(--border-glass);border-radius:6px;color:var(--text-primary);font-size:0.8rem;">
+                    <button class="tab-btn" onclick="searchJobs()" style="white-space:nowrap;">Search</button>
+                </div>
                 <div id="jobs-list"></div>
             </div>
         </div>
@@ -530,9 +541,9 @@ function budgetColor(pct) {
     if (pct < 80) return 'var(--accent-amber)';
     return 'var(--accent-coral)';
 }
-async function api(path) {
+async function api(path, opts) {
     try {
-        const r = await fetch(API + path, { cache: 'no-store' });
+        const r = await fetch(API + path, { cache: 'no-store', ...opts });
         if (!r.ok) return null;
         return await r.json();
     } catch(e) { return null; }
@@ -556,39 +567,96 @@ async function loadNews(src) {
     if (src && src !== 'all') articles = articles.filter(a => (a.feed_name||a.source||'').toLowerCase().includes(src));
     document.getElementById('news-count').textContent = articles.length + ' articles';
     el.innerHTML = articles.map(a => `
-        <div class="list-item">
-            <div class="list-dot" style="background:${a.score > 7 ? 'var(--accent-teal)' : a.score > 4 ? 'var(--accent-amber)' : 'var(--text-muted)'}"></div>
+        <div class="list-item" style="cursor:pointer;" onclick="window.open('${(a.url||'').replace(/'/g,"\\'")}','_blank')">
+            <div class="list-dot" style="background:${a.relevance_score > 7 ? 'var(--accent-teal)' : a.relevance_score > 4 ? 'var(--accent-amber)' : 'var(--text-muted)'}"></div>
             <div class="list-content">
-                <div class="list-title">${(a.title||'').replace(/\b(AI|NZ|tech|crypto|startup)\b/gi, '<span class="kw">$1</span>')}</div>
-                <div class="list-sub">${a.feed_name||a.source||'?'} · ${relTime(a.published_at||a.created_at)}</div>
+                <div class="list-title"><a href="${a.url||'#'}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--text-primary);text-decoration:none;">${(a.title||'').replace(/\b(AI|NZ|tech|crypto|startup)\b/gi, '<span class="kw">$1</span>')}</a></div>
+                <div class="list-sub">${a.feed_name||a.source||'?'} · ${relTime(a.published_at||a.created_at)} ${a.relevance_score ? '· ⭐'+a.relevance_score : ''}</div>
             </div>
         </div>
     `).join('');
 }
 
 /* ─── P2: Jobs ─── */
-async function loadJobs() {
-    const res = await api('/api/jobs?limit=10');
+let allJobs = [];
+let currentJobFilter = 'all';
+
+async function loadJobs(category) {
+    const cat = category || currentJobFilter || 'all';
+    currentJobFilter = cat;
+    const q = cat !== 'all' ? `&category=${cat}` : '';
+    const res = await api(`/api/jobs?limit=50${q}`);
     const el = document.getElementById('jobs-list');
-    const srcEl = document.getElementById('jobs-sources');
-    const jobs = res && res.data ? res.data : (res && res.jobs ? res.jobs : null);
-    if (!jobs || jobs.length === 0) {
-        el.innerHTML = emptyState('No active listings — next scrape pending');
-        document.getElementById('jobs-count').textContent = '0 active';
-        srcEl.innerHTML = ['Seek','Indeed','TradeMe'].map(s=>`<span class="status-pill ok" style="font-size:0.7rem;">${s} ✓</span>`).join('');
+    allJobs = res && res.data ? res.data : [];
+
+    // Aplicar filtro de busqueda local si hay texto
+    const searchText = (document.getElementById('jobs-search')?.value || '').toLowerCase();
+    let filtered = allJobs;
+    if (searchText) filtered = filtered.filter(j => (j.title||'').toLowerCase().includes(searchText) || (j.company||'').toLowerCase().includes(searchText));
+
+    document.getElementById('jobs-count').textContent = filtered.length + ' active';
+
+    if (!filtered.length) {
+        el.innerHTML = emptyState('No listings found — try a different filter or search');
         return;
     }
-    document.getElementById('jobs-count').textContent = jobs.length + ' active';
-    srcEl.innerHTML = ['Seek','Indeed','TradeMe'].map(s=>`<span class="status-pill ok" style="font-size:0.7rem;">${s} ✓</span>`).join('');
-    el.innerHTML = jobs.map(j => `
-        <div class="list-item">
-            <div class="list-dot" style="background:var(--accent-blue)"></div>
-            <div class="list-content">
-                <div class="list-title">${j.title||'Untitled'}</div>
-                <div class="list-sub">${j.company||''} · ${j.location||''} ${j.salary ? '· '+j.salary : ''}</div>
+
+    // Ordenar: saved primero, luego new, applied al final
+    const order = { saved: 0, new: 1, applied: 2, rejected: 3 };
+    filtered.sort((a, b) => (order[a.status] || 1) - (order[b.status] || 1));
+
+    el.innerHTML = filtered.map(j => {
+        const statusIcon = j.status === 'saved' ? '⭐' : j.status === 'applied' ? '✅' : j.status === 'rejected' ? '❌' : '';
+        const statusColor = j.status === 'saved' ? 'var(--accent-amber)' : j.status === 'applied' ? 'var(--accent-teal)' : 'var(--accent-blue)';
+        const dimClass = j.status === 'applied' || j.status === 'rejected' ? 'opacity:0.5;' : '';
+        return `
+        <div class="list-item" style="${dimClass}cursor:pointer;" onclick="toggleJobDetail(${j.id})">
+            <div class="list-dot" style="background:${statusColor}"></div>
+            <div class="list-content" style="flex:1;min-width:0;">
+                <div class="list-title" style="display:flex;align-items:center;gap:4px;">
+                    ${statusIcon} <a href="${j.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--text-primary);text-decoration:none;">${j.title||'Untitled'}</a>
+                </div>
+                <div class="list-sub">${j.company||''} ${j.region ? '· '+j.region : ''} ${j.salary ? '· <strong>'+j.salary+'</strong>' : ''} · ${relTime(j.found_at)}</div>
+                <div id="job-detail-${j.id}" style="display:none;margin-top:8px;padding:8px;background:var(--bg-glass);border-radius:6px;font-size:0.78rem;">
+                    ${j.description ? '<div style="color:var(--text-secondary);margin-bottom:8px;">'+j.description+'</div>' : ''}
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <button class="tab-btn" onclick="event.stopPropagation();updateJobStatus(${j.id},'saved')" ${j.status==='saved'?'style="background:var(--accent-amber);color:#000;"':''}>⭐ Save</button>
+                        <button class="tab-btn" onclick="event.stopPropagation();updateJobStatus(${j.id},'applied')" ${j.status==='applied'?'style="background:var(--accent-teal);color:#000;"':''}>✅ Applied</button>
+                        <button class="tab-btn" onclick="event.stopPropagation();updateJobStatus(${j.id},'rejected')">❌ Skip</button>
+                        <a href="${j.url}" target="_blank" rel="noopener" class="tab-btn" onclick="event.stopPropagation()" style="text-decoration:none;">🔗 Open</a>
+                    </div>
+                </div>
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
+}
+
+function toggleJobDetail(id) {
+    const el = document.getElementById('job-detail-' + id);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function filterJobs(cat) {
+    document.querySelectorAll('#jobs-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    loadJobs(cat);
+}
+
+async function searchJobs() {
+    const query = document.getElementById('jobs-search')?.value?.trim();
+    if (!query) { loadJobs(); return; }
+    // Buscar en Adzuna y recargar
+    await api('/api/jobs/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
+    loadJobs('all');
+}
+
+async function updateJobStatus(id, status) {
+    await fetch(API + '/api/jobs/' + id + '/status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+    });
+    loadJobs();
 }
 
 /* ─── P3: Finances ─── */
@@ -681,7 +749,9 @@ async function loadOpps() {
     opps.forEach(o => {
         const col = stageMap[(o.status||'new').toLowerCase()] || 'detected';
         const target = document.getElementById('kanban-'+col) || document.getElementById('kanban-detected');
-        target.innerHTML += `<div class="kanban-card" style="border-color:${o.deadline?'var(--accent-amber)':'var(--accent-teal)'}">${o.title||o.name||'?'}<br><span style="font-size:0.68rem;color:var(--text-muted)">${o.category||o.type||''}</span></div>`;
+        const link = o.url ? `<a href="${o.url}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none;">${o.title||o.name||'?'}</a>` : (o.title||o.name||'?');
+        const deadline = o.deadline ? `<br><span style="font-size:0.65rem;color:var(--accent-amber);">⏰ ${new Date(o.deadline).toLocaleDateString('en-NZ')}</span>` : '';
+        target.innerHTML += `<div class="kanban-card" style="border-color:${o.deadline?'var(--accent-amber)':'var(--accent-teal)');cursor:pointer;">${link}<br><span style="font-size:0.68rem;color:var(--text-muted)">${o.category||o.type||''} ${o.source?'· '+o.source:''}</span>${deadline}</div>`;
     });
 }
 

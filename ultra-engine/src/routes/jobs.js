@@ -62,4 +62,36 @@ router.post('/scrape', async (req, res) => {
   }
 });
 
+// ─── POST /api/jobs/search ─ Busqueda custom en Adzuna ──
+router.post('/search', async (req, res) => {
+  try {
+    const { query, location } = req.body;
+    if (!query) return res.status(400).json({ ok: false, error: 'Missing query' });
+    const result = await scraper.searchAdzuna(query, location || 'New Zealand');
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── PATCH /api/jobs/:id/status ─ Actualizar estado de oferta ──
+router.patch('/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    const valid = ['new', 'saved', 'applied', 'rejected'];
+    if (!valid.includes(status)) {
+      return res.status(400).json({ ok: false, error: `Status must be: ${valid.join(', ')}` });
+    }
+    const db = require('../db');
+    const result = await db.queryOne(
+      'UPDATE job_listings SET status = $1 WHERE id = $2 RETURNING *',
+      [status, req.params.id]
+    );
+    if (!result) return res.status(404).json({ ok: false, error: 'Job not found' });
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;
