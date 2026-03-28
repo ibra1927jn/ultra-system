@@ -1,6 +1,6 @@
 // ╔══════════════════════════════════════════════════════════╗
 // ║  ULTRA ENGINE — API: Oportunidades (P5)                  ║
-// ║  CRUD de oportunidades freelance, ideas, negocios        ║
+// ║  CRUD + pipeline + conversion rates + follow-up alerts   ║
 // ╚══════════════════════════════════════════════════════════╝
 
 const express = require('express');
@@ -15,13 +15,11 @@ router.get('/', async (req, res) => {
     let sql = 'SELECT * FROM opportunities WHERE 1=1';
     const params = [];
 
-    // Filtro por status
     if (status) {
       params.push(status);
       sql += ` AND status = $${params.length}`;
     }
 
-    // Filtro por categoria
     if (category) {
       params.push(category);
       sql += ` AND category = $${params.length}`;
@@ -33,6 +31,88 @@ router.get('/', async (req, res) => {
 
     const rows = await db.queryAll(sql, params);
     res.json({ ok: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  PIPELINE — Funnel de oportunidades con tasas de conversion
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/opportunities/pipeline ─ Funnel + rates ───
+router.get('/pipeline', async (req, res) => {
+  try {
+    // Conteo por status
+    const counts = await db.queryAll(
+      `SELECT status, COUNT(*) as count
+       FROM opportunities
+       GROUP BY status
+       ORDER BY
+         CASE status
+           WHEN 'new' THEN 1
+           WHEN 'contacted' THEN 2
+           WHEN 'applied' THEN 3
+           WHEN 'rejected' THEN 4
+           WHEN 'won' THEN 5
+         END`
+    );
+
+    const total = await db.queryOne('SELECT COUNT(*) as total FROM opportunities');
+    const totalCount = parseInt(total.total) || 0;
+
+    // Mapa de conteos para calcular tasas
+    const statusMap = {};
+    for (const row of counts) {
+      statusMap[row.status] = parseInt(row.count);
+    }
+
+    const newCount = statusMap['new'] || 0;
+    const contacted = statusMap['contacted'] || 0;
+    const applied = statusMap['applied'] || 0;
+    const rejected = statusMap['rejected'] || 0;
+    const won = statusMap['won'] || 0;
+
+    // Tasas de conversion (porcentaje sobre el total)
+    const conversionRates = {
+      new_to_contacted: totalCount > 0 ? Math.round((contacted + applied + won) / totalCount * 100) : 0,
+      contacted_to_applied: (contacted + applied + won) > 0 ? Math.round((applied + won) / (contacted + applied + won) * 100) : 0,
+      applied_to_won: (applied + won + rejected) > 0 ? Math.round(won / (applied + won + rejected) * 100) : 0,
+      overall_win_rate: totalCount > 0 ? Math.round(won / totalCount * 100) : 0,
+    };
+
+    // Oportunidades que necesitan follow-up (contacted > 7 dias sin cambio)
+    const needFollowUp = await db.queryAll(
+      `SELECT id, title, source, created_at,
+         (CURRENT_DATE - created_at::date) as days_since_created
+       FROM opportunities
+       WHERE status = 'contacted'
+         AND created_at < NOW() - INTERVAL '7 days'
+       ORDER BY created_at ASC`
+    );
+
+    // Deadlines proximos (3 dias)
+    const upcomingDeadlines = await db.queryAll(
+      `SELECT id, title, deadline, status,
+         (deadline - CURRENT_DATE) as days_until
+       FROM opportunities
+       WHERE deadline IS NOT NULL
+         AND deadline >= CURRENT_DATE
+         AND deadline <= CURRENT_DATE + 3
+         AND status NOT IN ('rejected', 'won')
+       ORDER BY deadline ASC`
+    );
+
+    res.json({
+      ok: true,
+      data: {
+        total: totalCount,
+        by_status: counts,
+        conversion_rates: conversionRates,
+        need_follow_up: needFollowUp,
+        upcoming_deadlines: upcomingDeadlines,
+      },
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

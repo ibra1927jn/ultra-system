@@ -1,6 +1,7 @@
 // ╔══════════════════════════════════════════════════════════╗
 // ║  ULTRA ENGINE — Bot de Telegram                          ║
-// ║  Reemplaza n8n para envío de alertas + comandos          ║
+// ║  Reemplaza n8n para envio de alertas + comandos          ║
+// ║  Comandos smart: budget, pipeline, bio, logistica        ║
 // ╚══════════════════════════════════════════════════════════╝
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -21,7 +22,7 @@ function init() {
   }
 
   if (!chatId || chatId === 'not_configured') {
-    console.warn('⚠️ TELEGRAM_CHAT_ID no configurado. Alertas automáticas no funcionarán.');
+    console.warn('⚠️ TELEGRAM_CHAT_ID no configurado. Alertas automaticas no funcionaran.');
   }
 
   try {
@@ -34,7 +35,7 @@ function init() {
 
   console.log('📲 Bot de Telegram conectado (chat_id:', chatId, ')');
 
-  // ─── Comandos ─────────────────────────────────────────
+  // ─── Comandos basicos ─────────────────────────────────
   bot.onText(/\/start/, (msg) => {
     send(msg.chat.id, '🌎 *ULTRA SYSTEM* activo\\.\nUsa /help para ver comandos\\.', 'MarkdownV2');
   });
@@ -43,15 +44,31 @@ function init() {
     const help = [
       '🤖 *Comandos disponibles:*',
       '',
+      '📋 _Basicos:_',
       '/status — Estado general del sistema',
-      '/docs — Documentos próximos a caducar',
+      '/docs — Documentos proximos a caducar',
       '/alertas — Historial de alertas enviadas',
-      '/feeds — Últimas noticias',
-      '/finanzas — Resumen financiero mensual',
-      '/oportunidades — Oportunidades activas',
-      '/logistica — Próximos 7 días',
-      '/bio — Resumen semanal de salud',
       '/ping — Verificar que el bot funciona',
+      '',
+      '📰 _P1 Noticias:_',
+      '/feeds — Ultimas noticias',
+      '/noticias\\_config — Keywords de scoring RSS',
+      '',
+      '💰 _P3 Finanzas:_',
+      '/finanzas — Resumen financiero mensual',
+      '/presupuesto — Budget + runway + alertas',
+      '',
+      '🎯 _P5 Oportunidades:_',
+      '/oportunidades — Oportunidades activas',
+      '/pipeline — Funnel de conversion',
+      '',
+      '🗺️ _P6 Logistica:_',
+      '/logistica — Proximos 7 dias',
+      '/proximas — Proximas 48 horas',
+      '',
+      '🧬 _P7 Bio-Check:_',
+      '/bio — Resumen semanal de salud',
+      '/biosemana — Resumen + correlaciones',
     ].join('\n');
     send(msg.chat.id, help, 'Markdown');
   });
@@ -64,7 +81,7 @@ function init() {
     try {
       const health = await db.healthCheck();
       const docsResult = await db.queryOne(
-        `SELECT COUNT(*) as total, 
+        `SELECT COUNT(*) as total,
          COUNT(*) FILTER (WHERE (expiry_date - CURRENT_DATE) <= alert_days AND (expiry_date - CURRENT_DATE) >= 0) as urgentes
          FROM document_alerts WHERE is_active = TRUE`
       );
@@ -86,10 +103,10 @@ function init() {
   bot.onText(/\/docs/, async (msg) => {
     try {
       const docs = await db.queryAll(
-        `SELECT document_name, document_type, expiry_date, 
+        `SELECT document_name, document_type, expiry_date,
          (expiry_date - CURRENT_DATE) AS days_remaining, notes
-         FROM document_alerts 
-         WHERE is_active = TRUE 
+         FROM document_alerts
+         WHERE is_active = TRUE
          ORDER BY expiry_date ASC LIMIT 10`
       );
 
@@ -108,8 +125,8 @@ function init() {
   bot.onText(/\/alertas/, async (msg) => {
     try {
       const logs = await db.queryAll(
-        `SELECT message, channel, sent_at, status 
-         FROM notification_log 
+        `SELECT message, channel, sent_at, status
+         FROM notification_log
          ORDER BY sent_at DESC LIMIT 5`
       );
 
@@ -118,7 +135,7 @@ function init() {
         return;
       }
 
-      const lines = ['📬 *Últimas alertas enviadas:*', ''];
+      const lines = ['📬 *Ultimas alertas enviadas:*', ''];
       for (const log of logs) {
         const date = new Date(log.sent_at).toLocaleDateString('es-ES');
         lines.push(`${log.status === 'sent' ? '✅' : '❌'} ${date} — ${log.channel}`);
@@ -129,7 +146,46 @@ function init() {
     }
   });
 
-  // ─── P3: Finanzas ─────────────────────────────────────
+  // ═══════════════════════════════════════════════════════
+  //  P1: NOTICIAS — Configuracion de keywords
+  // ═══════════════════════════════════════════════════════
+
+  bot.onText(/\/noticias_config/, async (msg) => {
+    try {
+      const keywords = await db.queryAll(
+        'SELECT * FROM rss_keywords ORDER BY weight DESC, keyword ASC'
+      );
+
+      if (!keywords.length) {
+        send(msg.chat.id, '📰 No hay keywords configurados.\nUsa la API: POST /api/feeds/keywords');
+        return;
+      }
+
+      const lines = [
+        '📰 *ULTRA SYSTEM — Keywords RSS*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `Umbral de alerta: score >= 8`,
+        '',
+      ];
+
+      for (const kw of keywords) {
+        // Barra visual del peso
+        const bar = '█'.repeat(kw.weight) + '░'.repeat(10 - kw.weight);
+        lines.push(`${bar} ${kw.weight} — *${kw.keyword}*`);
+      }
+
+      lines.push('', '━━━━━━━━━━━━━━━━━━━━━━━━');
+      lines.push(`📊 ${keywords.length} keywords activos`);
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════
+  //  P3: FINANZAS — Resumen + Presupuesto + Runway
+  // ═══════════════════════════════════════════════════════
+
   bot.onText(/\/finanzas/, async (msg) => {
     try {
       const month = new Date().toISOString().slice(0, 7);
@@ -145,7 +201,6 @@ function init() {
       const expense = parseFloat(summary.find(r => r.type === 'expense')?.total || 0);
       const balance = income - expense;
 
-      // Top 3 categorias de gasto
       const topExpenses = await db.queryAll(
         `SELECT category, SUM(amount) as total
          FROM finances
@@ -177,7 +232,72 @@ function init() {
     }
   });
 
-  // ─── P5: Oportunidades ──────────────────────────────
+  bot.onText(/\/presupuesto/, async (msg) => {
+    try {
+      const month = new Date().toISOString().slice(0, 7);
+
+      // Totales del mes
+      const incomeRow = await db.queryOne(
+        `SELECT COALESCE(SUM(amount), 0) as total FROM finances
+         WHERE type = 'income' AND TO_CHAR(date, 'YYYY-MM') = $1`, [month]
+      );
+      const expenseRow = await db.queryOne(
+        `SELECT COALESCE(SUM(amount), 0) as total FROM finances
+         WHERE type = 'expense' AND TO_CHAR(date, 'YYYY-MM') = $1`, [month]
+      );
+
+      const income = parseFloat(incomeRow.total);
+      const expense = parseFloat(expenseRow.total);
+      const remaining = income - expense;
+
+      // Burn rate
+      const dayOfMonth = new Date().getDate();
+      const dailyBurn = dayOfMonth > 0 ? expense / dayOfMonth : 0;
+      const runway = dailyBurn > 0 ? Math.floor(remaining / dailyBurn) : (remaining > 0 ? 999 : 0);
+
+      // Alertas de budget
+      const budgetAlerts = await db.queryAll(
+        `SELECT b.category, b.monthly_limit, COALESCE(SUM(f.amount), 0) as spent,
+           ROUND((COALESCE(SUM(f.amount), 0) / b.monthly_limit * 100)::numeric, 1) as pct
+         FROM budgets b
+         LEFT JOIN finances f ON LOWER(f.category) = LOWER(b.category)
+           AND f.type = 'expense' AND TO_CHAR(f.date, 'YYYY-MM') = $1
+         GROUP BY b.category, b.monthly_limit
+         HAVING COALESCE(SUM(f.amount), 0) >= b.monthly_limit * 0.8
+         ORDER BY pct DESC`, [month]
+      );
+
+      const lines = [
+        '💰 *ULTRA SYSTEM — Presupuesto*',
+        `📅 ${month}`,
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `📈 Ingresos: $${income.toFixed(2)}`,
+        `📉 Gastos: $${expense.toFixed(2)}`,
+        `💵 Restante: $${remaining.toFixed(2)}`,
+        '',
+        `🔥 Burn diario: $${dailyBurn.toFixed(2)}/dia`,
+        `⏳ Runway: ${runway} dias`,
+      ];
+
+      if (budgetAlerts.length) {
+        lines.push('', '⚠️ *Categorias excediendo 80%:*');
+        for (const a of budgetAlerts) {
+          const emoji = parseFloat(a.pct) >= 100 ? '🔴' : '🟡';
+          lines.push(`${emoji} ${a.category}: $${parseFloat(a.spent).toFixed(2)}/$${parseFloat(a.monthly_limit).toFixed(2)} (${a.pct}%)`);
+        }
+      }
+
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════
+  //  P5: OPORTUNIDADES — Listado + Pipeline
+  // ═══════════════════════════════════════════════════════
+
   bot.onText(/\/oportunidades/, async (msg) => {
     try {
       const opps = await db.queryAll(
@@ -215,7 +335,73 @@ function init() {
     }
   });
 
-  // ─── P6: Logistica ──────────────────────────────────
+  bot.onText(/\/pipeline/, async (msg) => {
+    try {
+      // Conteos por status
+      const counts = await db.queryAll(
+        `SELECT status, COUNT(*) as count FROM opportunities GROUP BY status`
+      );
+      const total = await db.queryOne('SELECT COUNT(*) as total FROM opportunities');
+
+      const statusMap = {};
+      for (const row of counts) statusMap[row.status] = parseInt(row.count);
+
+      const newC = statusMap['new'] || 0;
+      const contacted = statusMap['contacted'] || 0;
+      const applied = statusMap['applied'] || 0;
+      const rejected = statusMap['rejected'] || 0;
+      const won = statusMap['won'] || 0;
+      const totalC = parseInt(total.total) || 0;
+
+      // Visualizacion text-based del funnel
+      const maxBar = 20;
+      const barFor = (val) => {
+        if (totalC === 0) return '';
+        const len = Math.max(1, Math.round(val / totalC * maxBar));
+        return '█'.repeat(len);
+      };
+
+      const winRate = totalC > 0 ? Math.round(won / totalC * 100) : 0;
+
+      // Follow-ups necesarios
+      const followUps = await db.queryAll(
+        `SELECT title FROM opportunities
+         WHERE status = 'contacted' AND created_at < NOW() - INTERVAL '7 days'
+         LIMIT 5`
+      );
+
+      const lines = [
+        '🎯 *ULTRA SYSTEM — Pipeline*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `Total: ${totalC} oportunidades`,
+        '',
+        `🆕 Nuevas:      ${barFor(newC)} ${newC}`,
+        `📧 Contactadas: ${barFor(contacted)} ${contacted}`,
+        `📨 Aplicadas:   ${barFor(applied)} ${applied}`,
+        `❌ Rechazadas:  ${barFor(rejected)} ${rejected}`,
+        `✅ Ganadas:     ${barFor(won)} ${won}`,
+        '',
+        `📊 Win rate: ${winRate}%`,
+      ];
+
+      if (followUps.length) {
+        lines.push('', '⚠️ *Necesitan follow-up (>7 dias):*');
+        for (const f of followUps) {
+          lines.push(`   • ${f.title}`);
+        }
+      }
+
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════
+  //  P6: LOGISTICA — 7 dias + Proximas 48h
+  // ═══════════════════════════════════════════════════════
+
   bot.onText(/\/logistica/, async (msg) => {
     try {
       const items = await db.queryAll(
@@ -229,13 +415,13 @@ function init() {
       );
 
       if (!items.length) {
-        send(msg.chat.id, '✅ Nada programado en los próximos 7 días.');
+        send(msg.chat.id, '✅ Nada programado en los proximos 7 dias.');
         return;
       }
 
       const typeEmoji = { transport: '🚌', accommodation: '🏠', visa: '🛂', appointment: '📋' };
       const lines = [
-        '🗺️ *ULTRA SYSTEM — Logística (7 días)*',
+        '🗺️ *ULTRA SYSTEM — Logistica (7 dias)*',
         '━━━━━━━━━━━━━━━━━━━━━━━━',
       ];
 
@@ -244,7 +430,7 @@ function init() {
         const dateStr = new Date(item.date).toISOString().split('T')[0];
         const statusIcon = item.status === 'confirmed' ? '✅' : '⏳';
         lines.push(`${emoji} ${statusIcon} *${item.title}*`);
-        lines.push(`   📅 ${dateStr} (en ${item.days_until} días)`);
+        lines.push(`   📅 ${dateStr} (en ${item.days_until} dias)`);
         if (item.location) lines.push(`   📍 ${item.location}`);
         lines.push('');
       }
@@ -256,8 +442,55 @@ function init() {
     }
   });
 
-  // ─── P7: Bio-Check ──────────────────────────────────
-  bot.onText(/\/bio/, async (msg) => {
+  bot.onText(/\/proximas/, async (msg) => {
+    try {
+      const items = await db.queryAll(
+        `SELECT type, title, date, location, status,
+         (date - CURRENT_DATE) AS days_until
+         FROM logistics
+         WHERE date >= CURRENT_DATE
+           AND date <= CURRENT_DATE + INTERVAL '2 days'
+           AND status != 'done'
+         ORDER BY date ASC`
+      );
+
+      if (!items.length) {
+        send(msg.chat.id, '✅ Nada programado en las proximas 48 horas.');
+        return;
+      }
+
+      const typeEmoji = { transport: '🚌', accommodation: '🏠', visa: '🛂', appointment: '📋' };
+      const urgencyEmoji = { 0: '🔴', 1: '🟡', 2: '🟢' };
+      const lines = [
+        '🗺️ *ULTRA SYSTEM — Proximas 48h*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+      ];
+
+      for (const item of items) {
+        const emoji = typeEmoji[item.type] || '📌';
+        const urgency = urgencyEmoji[item.days_until] || '🟢';
+        const dateStr = new Date(item.date).toISOString().split('T')[0];
+        const statusIcon = item.status === 'confirmed' ? '✅' : '⏳';
+        const label = item.days_until === 0 ? 'HOY' : item.days_until === 1 ? 'MANANA' : `en ${item.days_until} dias`;
+
+        lines.push(`${urgency} ${emoji} ${statusIcon} *${item.title}*`);
+        lines.push(`   📅 ${dateStr} — ${label}`);
+        if (item.location) lines.push(`   📍 ${item.location}`);
+        lines.push('');
+      }
+
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════
+  //  P7: BIO-CHECK — Resumen semanal + correlaciones
+  // ═══════════════════════════════════════════════════════
+
+  bot.onText(/\/bio$/, async (msg) => {
     try {
       const weekly = await db.queryOne(
         `SELECT
@@ -275,7 +508,6 @@ function init() {
         return;
       }
 
-      // Barra visual simple para niveles 1-10
       const bar = (val) => {
         const filled = Math.round(parseFloat(val));
         return '█'.repeat(filled) + '░'.repeat(10 - filled);
@@ -286,13 +518,90 @@ function init() {
         '━━━━━━━━━━━━━━━━━━━━━━━━',
         `📊 Registros: ${weekly.entries}/7`,
         '',
-        `😴 Sueño: ${weekly.avg_sleep}h`,
-        `⚡ Energía: ${bar(weekly.avg_energy)} ${weekly.avg_energy}/10`,
-        `😊 Ánimo: ${bar(weekly.avg_mood)} ${weekly.avg_mood}/10`,
-        `🏃 Ejercicio: ${weekly.avg_exercise} min/día`,
+        `😴 Sueno: ${weekly.avg_sleep}h`,
+        `⚡ Energia: ${bar(weekly.avg_energy)} ${weekly.avg_energy}/10`,
+        `😊 Animo: ${bar(weekly.avg_mood)} ${weekly.avg_mood}/10`,
+        `🏃 Ejercicio: ${weekly.avg_exercise} min/dia`,
         '━━━━━━━━━━━━━━━━━━━━━━━━',
       ];
 
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  bot.onText(/\/biosemana/, async (msg) => {
+    try {
+      // Promedios semanales
+      const weekly = await db.queryOne(
+        `SELECT
+           COUNT(*) AS entries,
+           ROUND(AVG(sleep_hours)::numeric, 1) AS avg_sleep,
+           ROUND(AVG(energy_level)::numeric, 1) AS avg_energy,
+           ROUND(AVG(mood)::numeric, 1) AS avg_mood,
+           ROUND(AVG(exercise_minutes)::numeric, 0) AS avg_exercise
+         FROM bio_checks
+         WHERE date >= CURRENT_DATE - 7`
+      );
+
+      if (!weekly || parseInt(weekly.entries) === 0) {
+        send(msg.chat.id, '📭 No hay registros de bio-check esta semana.');
+        return;
+      }
+
+      // Correlaciones (ultimos 30 dias)
+      const data = await db.queryAll(
+        `SELECT sleep_hours, energy_level, mood, exercise_minutes
+         FROM bio_checks WHERE date >= CURRENT_DATE - 30 ORDER BY date DESC`
+      );
+
+      const bar = (val) => {
+        const filled = Math.round(parseFloat(val));
+        return '█'.repeat(Math.min(10, Math.max(0, filled))) + '░'.repeat(Math.max(0, 10 - filled));
+      };
+
+      const lines = [
+        '🧬 *ULTRA SYSTEM — Bio Resumen Semanal*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `📊 Registros: ${weekly.entries}/7`,
+        '',
+        `😴 Sueno: ${weekly.avg_sleep}h`,
+        `⚡ Energia: ${bar(weekly.avg_energy)} ${weekly.avg_energy}/10`,
+        `😊 Animo: ${bar(weekly.avg_mood)} ${weekly.avg_mood}/10`,
+        `🏃 Ejercicio: ${weekly.avg_exercise} min/dia`,
+      ];
+
+      // Alertas
+      const avgSleep = parseFloat(weekly.avg_sleep);
+      const avgEnergy = parseFloat(weekly.avg_energy);
+      if (avgSleep < 6) lines.push('', `⚠️ Sueno bajo (${avgSleep}h) — prioriza descanso`);
+      if (avgEnergy < 4) lines.push('', `⚠️ Energia baja (${avgEnergy}/10) — revisa rutina`);
+
+      // Correlaciones si hay suficientes datos
+      if (data.length >= 3) {
+        const sleep = data.map(d => parseFloat(d.sleep_hours));
+        const energy = data.map(d => parseInt(d.energy_level));
+        const mood = data.map(d => parseInt(d.mood));
+        const exercise = data.map(d => parseInt(d.exercise_minutes));
+
+        const corrs = [
+          { label: 'Sueno → Energia', val: pearson(sleep, energy) },
+          { label: 'Sueno → Animo', val: pearson(sleep, mood) },
+          { label: 'Ejercicio → Energia', val: pearson(exercise, energy) },
+        ];
+
+        lines.push('', '📈 *Correlaciones (30 dias):*');
+        for (const c of corrs) {
+          if (c.val !== null) {
+            const arrow = c.val > 0 ? '↑' : '↓';
+            const strength = Math.abs(c.val) >= 0.7 ? '💪' : Math.abs(c.val) >= 0.4 ? '📊' : '〰️';
+            lines.push(`${strength} ${c.label}: ${c.val} ${arrow}`);
+          }
+        }
+      }
+
+      lines.push('', '━━━━━━━━━━━━━━━━━━━━━━━━');
       send(msg.chat.id, lines.join('\n'), 'Markdown');
     } catch (err) {
       send(msg.chat.id, `❌ Error: ${err.message}`);
@@ -306,6 +615,30 @@ function init() {
   return bot;
 }
 
+// ═══════════════════════════════════════════════════════════
+//  UTILIDADES
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Correlacion de Pearson entre dos arrays
+ */
+function pearson(x, y) {
+  const n = x.length;
+  if (n < 3 || n !== y.length) return null;
+
+  const sumX = x.reduce((a, b) => a + b, 0);
+  const sumY = y.reduce((a, b) => a + b, 0);
+  const sumXY = x.reduce((a, b, i) => a + b * y[i], 0);
+  const sumX2 = x.reduce((a, b) => a + b * b, 0);
+  const sumY2 = y.reduce((a, b) => a + b * b, 0);
+
+  const numerator = n * sumXY - sumX * sumY;
+  const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+
+  if (denominator === 0) return null;
+  return Math.round((numerator / denominator) * 100) / 100;
+}
+
 // ─── Emojis por tipo de documento ──────────────────────
 const TYPE_EMOJI = {
   visa: '🛂',
@@ -317,14 +650,14 @@ const TYPE_EMOJI = {
   default: '📄',
 };
 
-const urgencyEmoji = (days) => {
+const urgencyEmojiDoc = (days) => {
   if (days <= 7) return '🔴';
   if (days <= 30) return '🟡';
   return '🟢';
 };
 
 /**
- * Formatea alertas de documentos (misma estética que el workflow original de n8n)
+ * Formatea alertas de documentos
  */
 function formatDocumentAlert(docs) {
   let message = '📋 *ULTRA SYSTEM — Alertas de Documentos*\n';
@@ -332,11 +665,11 @@ function formatDocumentAlert(docs) {
 
   for (const d of docs) {
     const emoji = TYPE_EMOJI[d.document_type] || TYPE_EMOJI.default;
-    const urgent = urgencyEmoji(d.days_remaining);
+    const urgent = urgencyEmojiDoc(d.days_remaining);
     const expDate = new Date(d.expiry_date).toISOString().split('T')[0];
 
     message += `${urgent} ${emoji} *${d.document_name}*\n`;
-    message += `   ⏳ Caduca en: *${d.days_remaining} días* (${expDate})\n`;
+    message += `   ⏳ Caduca en: *${d.days_remaining} dias* (${expDate})\n`;
     if (d.notes) message += `   💬 ${d.notes}\n`;
     message += '\n';
   }
@@ -347,7 +680,7 @@ function formatDocumentAlert(docs) {
 }
 
 /**
- * Envía mensaje al chat configurado
+ * Envia mensaje al chat configurado
  */
 async function send(chatId, text, parseMode) {
   if (!bot) return;
@@ -361,14 +694,14 @@ async function send(chatId, text, parseMode) {
 }
 
 /**
- * Envía alerta al chat del usuario (para el scheduler)
+ * Envia alerta al chat del usuario (para el scheduler)
  */
 async function sendAlert(text, parseMode = 'Markdown') {
   await send(process.env.TELEGRAM_CHAT_ID, text, parseMode);
 }
 
 /**
- * Registra la notificación en la DB
+ * Registra la notificacion en la DB
  */
 async function logNotification(alertId, message, status = 'sent') {
   try {
@@ -378,8 +711,15 @@ async function logNotification(alertId, message, status = 'sent') {
       [alertId, message, status]
     );
   } catch (err) {
-    console.error('❌ Error registrando notificación:', err.message);
+    console.error('❌ Error registrando notificacion:', err.message);
   }
 }
 
-module.exports = { init, send, sendAlert, logNotification, formatDocumentAlert };
+/**
+ * Devuelve si el bot esta activo y conectado
+ */
+function isActive() {
+  return bot !== null;
+}
+
+module.exports = { init, send, sendAlert, logNotification, formatDocumentAlert, isActive };

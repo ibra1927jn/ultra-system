@@ -53,9 +53,61 @@ app.use('/api/opportunities', apiKeyAuth, opportunitiesRouter);
 app.use('/api/logistics', apiKeyAuth, logisticsRouter);
 app.use('/api/bio', apiKeyAuth, bioRouter);
 
-// ─── Health endpoint (público, sin auth para monitoreo) ───
+// ─── Health endpoint (publico, sin auth para monitoreo) ───
+// Devuelve: estado DB, estado Telegram, pilares cargados, uptime
+const startTime = Date.now();
+
 app.get('/api/health', async (req, res) => {
-  const health = await db.healthCheck();
+  // Estado de PostgreSQL
+  const dbHealth = await db.healthCheck();
+
+  // Estado del bot de Telegram
+  const telegramOk = telegram.isActive ? telegram.isActive() : false;
+
+  // Verificar que los 7 pilares estan cargados (rutas registradas)
+  const pillars = [
+    { name: 'P1 Noticias', route: '/api/feeds', loaded: !!feedsRouter },
+    { name: 'P2 Empleo', route: '/api/jobs', loaded: !!jobsRouter },
+    { name: 'P3 Finanzas', route: '/api/finances', loaded: !!financesRouter },
+    { name: 'P4 Burocracia', route: '/api/documents', loaded: !!documentsRouter },
+    { name: 'P5 Oportunidades', route: '/api/opportunities', loaded: !!opportunitiesRouter },
+    { name: 'P6 Logistica', route: '/api/logistics', loaded: !!logisticsRouter },
+    { name: 'P7 Bio-Check', route: '/api/bio', loaded: !!bioRouter },
+  ];
+  const allPillarsLoaded = pillars.every(p => p.loaded);
+
+  // Uptime del proceso
+  const uptimeMs = Date.now() - startTime;
+  const uptimeSec = Math.floor(uptimeMs / 1000);
+  const uptimeHours = Math.floor(uptimeSec / 3600);
+  const uptimeMinutes = Math.floor((uptimeSec % 3600) / 60);
+
+  const health = {
+    ok: dbHealth.ok && allPillarsLoaded,
+    uptime: `${uptimeHours}h ${uptimeMinutes}m`,
+    uptime_seconds: uptimeSec,
+    db: {
+      ok: dbHealth.ok,
+      time: dbHealth.time || null,
+      database: dbHealth.database || null,
+      db_size: dbHealth.db_size || null,
+      table_count: dbHealth.table_count || 0,
+      error: dbHealth.error || null,
+    },
+    telegram: {
+      ok: telegramOk,
+    },
+    pillars: {
+      loaded: pillars.filter(p => p.loaded).length,
+      total: 7,
+      all_loaded: allPillarsLoaded,
+      detail: pillars,
+    },
+    environment: process.env.NODE_ENV || 'development',
+    node_version: process.version,
+    timestamp: new Date().toISOString(),
+  };
+
   res.status(health.ok ? 200 : 503).json(health);
 });
 

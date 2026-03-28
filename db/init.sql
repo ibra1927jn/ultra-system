@@ -220,3 +220,49 @@ CREATE TABLE IF NOT EXISTS bio_checks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_bio_date ON bio_checks(date);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1: NOTICIAS — Keywords para scoring RSS
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS rss_keywords (
+    id              SERIAL PRIMARY KEY,
+    keyword         VARCHAR(100) NOT NULL UNIQUE,
+    weight          INTEGER DEFAULT 5 CHECK (weight BETWEEN 1 AND 10),
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Columna de score en articulos RSS (relevancia segun keywords)
+DO $$ BEGIN
+  ALTER TABLE rss_articles ADD COLUMN relevance_score INTEGER DEFAULT 0;
+EXCEPTION WHEN duplicate_column THEN null;
+END $$;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P3: FINANZAS — Budgets por categoria
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS budgets (
+    id              SERIAL PRIMARY KEY,
+    category        VARCHAR(100) NOT NULL UNIQUE,
+    monthly_limit   NUMERIC(12, 2) NOT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P6: LOGISTICA — Columna de costo para presupuesto viaje
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DO $$ BEGIN
+  ALTER TABLE logistics ADD COLUMN cost NUMERIC(12, 2) DEFAULT 0;
+EXCEPTION WHEN duplicate_column THEN null;
+END $$;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  INDICES ADICIONALES (Smart upgrades)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE INDEX IF NOT EXISTS idx_rss_keywords_keyword ON rss_keywords(keyword);
+CREATE INDEX IF NOT EXISTS idx_rss_articles_score ON rss_articles(relevance_score);
+CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category);
+CREATE INDEX IF NOT EXISTS idx_logistics_cost ON logistics(cost);

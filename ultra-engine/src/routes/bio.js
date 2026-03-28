@@ -1,6 +1,6 @@
 // ╔══════════════════════════════════════════════════════════╗
 // ║  ULTRA ENGINE — API: Bio-Check (P7)                      ║
-// ║  Seguimiento de sueno, energia, animo, ejercicio         ║
+// ║  Seguimiento salud + correlaciones + alertas             ║
 // ╚══════════════════════════════════════════════════════════╝
 
 const express = require('express');
@@ -25,7 +25,6 @@ router.get('/', async (req, res) => {
 // ─── GET /api/bio/trends ─ Promedios semanales ──────────
 router.get('/trends', async (req, res) => {
   try {
-    // Ultimas 4 semanas por defecto
     const weeks = parseInt(req.query.weeks) || 4;
 
     const trends = await db.queryAll(
@@ -43,7 +42,6 @@ router.get('/trends', async (req, res) => {
       [weeks]
     );
 
-    // Resumen global del periodo
     const overall = await db.queryOne(
       `SELECT
          COUNT(*) AS total_entries,
@@ -62,12 +60,153 @@ router.get('/trends', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════
+//  CORRELACIONES — Pearson entre metricas de salud (30 dias)
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/bio/correlations ─ Correlaciones entre metricas
+router.get('/correlations', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+
+    // Obtener datos crudos de los ultimos N dias
+    const data = await db.queryAll(
+      `SELECT sleep_hours, energy_level, mood, exercise_minutes
+       FROM bio_checks
+       WHERE date >= CURRENT_DATE - $1
+       ORDER BY date DESC`,
+      [days]
+    );
+
+    if (data.length < 3) {
+      return res.json({
+        ok: true,
+        data: null,
+        message: 'Necesitas al menos 3 registros para calcular correlaciones',
+        entries: data.length,
+      });
+    }
+
+    // Extraer arrays numericos
+    const sleep = data.map(d => parseFloat(d.sleep_hours));
+    const energy = data.map(d => parseInt(d.energy_level));
+    const mood = data.map(d => parseInt(d.mood));
+    const exercise = data.map(d => parseInt(d.exercise_minutes));
+
+    const correlations = {
+      sleep_vs_energy: pearson(sleep, energy),
+      sleep_vs_mood: pearson(sleep, mood),
+      exercise_vs_energy: pearson(exercise, energy),
+      exercise_vs_mood: pearson(exercise, mood),
+      sleep_vs_exercise: pearson(sleep, exercise),
+      energy_vs_mood: pearson(energy, mood),
+    };
+
+    // Interpretacion humana
+    const insights = [];
+    for (const [key, val] of Object.entries(correlations)) {
+      if (val === null) continue;
+      const [a, , b] = key.split('_');
+      const strength = Math.abs(val) >= 0.7 ? 'fuerte' : Math.abs(val) >= 0.4 ? 'moderada' : 'debil';
+      const direction = val > 0 ? 'positiva' : 'negativa';
+      if (Math.abs(val) >= 0.4) {
+        insights.push(`${a}/${b}: correlacion ${strength} ${direction} (${val})`);
+      }
+    }
+
+    res.json({
+      ok: true,
+      data: {
+        period_days: days,
+        entries: data.length,
+        correlations,
+        insights,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  ALERTAS — Deteccion de patrones negativos
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/bio/alerts ─ Alertas de salud ─────────────
+router.get('/alerts', async (req, res) => {
+  try {
+    // Promedios de los ultimos 3 dias
+    const recent = await db.queryOne(
+      `SELECT
+         COUNT(*) as entries,
+         ROUND(AVG(sleep_hours)::numeric, 1) as avg_sleep,
+         ROUND(AVG(energy_level)::numeric, 1) as avg_energy,
+         ROUND(AVG(mood)::numeric, 1) as avg_mood,
+         ROUND(AVG(exercise_minutes)::numeric, 0) as avg_exercise
+       FROM bio_checks
+       WHERE date >= CURRENT_DATE - 3`
+    );
+
+    const alerts = [];
+
+    if (recent && parseInt(recent.entries) > 0) {
+      const avgSleep = parseFloat(recent.avg_sleep);
+      const avgEnergy = parseFloat(recent.avg_energy);
+      const avgMood = parseFloat(recent.avg_mood);
+      const avgExercise = parseFloat(recent.avg_exercise);
+
+      if (avgSleep < 6) {
+        alerts.push({
+          type: 'sleep',
+          severity: avgSleep < 5 ? 'critical' : 'warning',
+          message: `Promedio de sueno bajo: ${avgSleep}h (ultimos 3 dias). Minimo recomendado: 7h`,
+        });
+      }
+
+      if (avgEnergy < 4) {
+        alerts.push({
+          type: 'energy',
+          severity: avgEnergy < 3 ? 'critical' : 'warning',
+          message: `Energia baja: ${avgEnergy}/10 (ultimos 3 dias). Revisa sueno y alimentacion`,
+        });
+      }
+
+      if (avgMood < 4) {
+        alerts.push({
+          type: 'mood',
+          severity: avgMood < 3 ? 'critical' : 'warning',
+          message: `Animo bajo: ${avgMood}/10 (ultimos 3 dias). Considera un descanso o cambio de rutina`,
+        });
+      }
+
+      if (avgExercise < 10) {
+        alerts.push({
+          type: 'exercise',
+          severity: 'info',
+          message: `Poco ejercicio: ${avgExercise} min/dia (ultimos 3 dias). Intenta moverte mas`,
+        });
+      }
+    }
+
+    res.json({
+      ok: true,
+      data: {
+        period: '3 dias',
+        averages: recent,
+        alerts,
+        alert_count: alerts.length,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ─── POST /api/bio ─ Registrar check diario ─────────────
 router.post('/', async (req, res) => {
   try {
     const { date, sleep_hours, energy_level, mood, exercise_minutes, notes } = req.body;
 
-    // Validaciones basicas
     if (sleep_hours == null || energy_level == null || mood == null) {
       return res.status(400).json({ ok: false, error: 'Faltan campos obligatorios: sleep_hours, energy_level, mood' });
     }
@@ -100,5 +239,31 @@ router.post('/', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+// ═══════════════════════════════════════════════════════════
+//  UTILS — Correlacion de Pearson
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Calcula coeficiente de correlacion de Pearson entre dos arrays
+ * Retorna valor entre -1 y 1, o null si no se puede calcular
+ */
+function pearson(x, y) {
+  const n = x.length;
+  if (n < 3 || n !== y.length) return null;
+
+  const sumX = x.reduce((a, b) => a + b, 0);
+  const sumY = y.reduce((a, b) => a + b, 0);
+  const sumXY = x.reduce((a, b, i) => a + b * y[i], 0);
+  const sumX2 = x.reduce((a, b) => a + b * b, 0);
+  const sumY2 = y.reduce((a, b) => a + b * b, 0);
+
+  const numerator = n * sumXY - sumX * sumY;
+  const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+
+  if (denominator === 0) return null;
+
+  return Math.round((numerator / denominator) * 100) / 100;
+}
 
 module.exports = router;

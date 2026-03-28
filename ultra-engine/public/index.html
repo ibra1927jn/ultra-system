@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Ultra System — Panel de control de inteligencia personal">
+  <title>Ultra System — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌎</text></svg>">
+</head>
+<body>
+  <!-- ─── Header ─────────────────────────────────────── -->
+  <header class="header">
+    <div class="header__brand">
+      <span class="header__logo">🌎</span>
+      <div>
+        <h1 class="header__title">ULTRA SYSTEM</h1>
+        <p class="header__subtitle">Sistema de Inteligencia Personal</p>
+      </div>
+    </div>
+    <div class="header__status" id="systemStatus">
+      <span class="status-dot"></span>
+      <span id="uptimeText">Conectando...</span>
+    </div>
+  </header>
+
+  <!-- ─── Stats Bar ──────────────────────────────────── -->
+  <section class="stats-bar" id="statsBar">
+    <div class="stat-card">
+      <span class="stat-card__icon">📄</span>
+      <div class="stat-card__info">
+        <span class="stat-card__value" id="docsTotal">—</span>
+        <span class="stat-card__label">Documentos</span>
+      </div>
+    </div>
+    <div class="stat-card stat-card--warning">
+      <span class="stat-card__icon">⚠️</span>
+      <div class="stat-card__info">
+        <span class="stat-card__value" id="docsUrgent">—</span>
+        <span class="stat-card__label">Urgentes</span>
+      </div>
+    </div>
+    <div class="stat-card">
+      <span class="stat-card__icon">📰</span>
+      <div class="stat-card__info">
+        <span class="stat-card__value" id="newsCount">—</span>
+        <span class="stat-card__label">Noticias</span>
+      </div>
+    </div>
+    <div class="stat-card">
+      <span class="stat-card__icon">💼</span>
+      <div class="stat-card__info">
+        <span class="stat-card__value" id="jobsCount">—</span>
+        <span class="stat-card__label">Ofertas</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Main Grid ──────────────────────────────────── -->
+  <main class="dashboard">
+    <!-- ─── P4: Burocracia ───────────────────────────── -->
+    <section class="panel panel--full" id="panelDocs">
+      <div class="panel__header">
+        <h2 class="panel__title">📂 Pilar 4 — Guardián de Documentos</h2>
+        <div class="panel__actions">
+          <button class="btn btn--ghost" onclick="openUploadModal()">📤 Subir Doc</button>
+          <button class="btn btn--primary" onclick="openDocModal()">+ Añadir Alerta</button>
+        </div>
+      </div>
+      <div class="panel__body" id="docsList">
+        <div class="loading-shimmer"></div>
+      </div>
+    </section>
+
+    <!-- ─── P1: Noticias ─────────────────────────────── -->
+    <section class="panel" id="panelNews">
+      <div class="panel__header">
+        <h2 class="panel__title">📰 Pilar 1 — Noticias</h2>
+        <button class="btn btn--ghost" onclick="openFeedModal()">+ Feed</button>
+      </div>
+      <div class="panel__body" id="newsList">
+        <div class="empty-state">
+          <span class="empty-state__icon">📡</span>
+          <p>Añade feeds RSS para empezar</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── P2: Empleo ───────────────────────────────── -->
+    <section class="panel" id="panelJobs">
+      <div class="panel__header">
+        <h2 class="panel__title">💼 Pilar 2 — Empleo</h2>
+        <button class="btn btn--ghost" onclick="openJobSourceModal()">+ Fuente</button>
+      </div>
+      <div class="panel__body" id="jobsList">
+        <div class="empty-state">
+          <span class="empty-state__icon">🔍</span>
+          <p>Añade fuentes de empleo para vigilar</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Scheduler ────────────────────────────────── -->
+    <section class="panel" id="panelScheduler">
+      <div class="panel__header">
+        <h2 class="panel__title">⏰ Scheduler</h2>
+      </div>
+      <div class="panel__body" id="schedulerList">
+        <div class="loading-shimmer"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ─── Modal: Añadir Documento ────────────────────── -->
+  <div class="modal-overlay" id="docModal">
+    <div class="modal">
+      <div class="modal__header">
+        <h3>📄 Nueva Alerta de Documento</h3>
+        <button class="modal__close" onclick="closeModal('docModal')">&times;</button>
+      </div>
+      <form class="modal__form" onsubmit="submitDocument(event)">
+        <div class="form-group">
+          <label>Nombre del documento</label>
+          <input type="text" id="docName" required placeholder="Ej: Visa Working Holiday NZ">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="docType" required>
+              <option value="visa">🛂 Visa</option>
+              <option value="pasaporte">📕 Pasaporte</option>
+              <option value="seguro">🛡️ Seguro</option>
+              <option value="wof">🚗 WOF</option>
+              <option value="rego">🚙 Rego</option>
+              <option value="ird">💰 IRD</option>
+              <option value="otro">📄 Otro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Fecha de caducidad</label>
+            <input type="date" id="docExpiry" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Alertar días antes</label>
+            <input type="number" id="docAlertDays" value="60" min="1" max="365">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Notas</label>
+          <textarea id="docNotes" rows="2" placeholder="Notas adicionales..."></textarea>
+        </div>
+        <button type="submit" class="btn btn--primary btn--full">Guardar alerta</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Subir Archivo ───────────────────────── -->
+  <div class="modal-overlay" id="uploadModal">
+    <div class="modal">
+      <div class="modal__header">
+        <h3>📤 Subir Documento (OCR)</h3>
+        <button class="modal__close" onclick="closeModal('uploadModal')">&times;</button>
+      </div>
+      <form class="modal__form" onsubmit="submitUpload(event)">
+        <div class="form-group">
+          <label>Archivo (PDF o imagen)</label>
+          <div class="file-drop" id="fileDrop">
+            <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp" required>
+            <span class="file-drop__text">📎 Arrastra un archivo o haz clic</span>
+          </div>
+        </div>
+        <div id="ocrResult" class="ocr-result" style="display:none">
+          <h4>🔍 Texto extraído (OCR)</h4>
+          <pre id="ocrText"></pre>
+        </div>
+        <button type="submit" class="btn btn--primary btn--full" id="uploadBtn">Subir y procesar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Añadir Feed RSS ─────────────────────── -->
+  <div class="modal-overlay" id="feedModal">
+    <div class="modal">
+      <div class="modal__header">
+        <h3>📡 Añadir Feed RSS</h3>
+        <button class="modal__close" onclick="closeModal('feedModal')">&times;</button>
+      </div>
+      <form class="modal__form" onsubmit="submitFeed(event)">
+        <div class="form-group">
+          <label>Nombre</label>
+          <input type="text" id="feedName" required placeholder="Ej: El País">
+        </div>
+        <div class="form-group">
+          <label>URL del feed</label>
+          <input type="url" id="feedUrl" required placeholder="https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/portada">
+        </div>
+        <div class="form-group">
+          <label>Categoría</label>
+          <input type="text" id="feedCategory" value="general" placeholder="general, tech, empleo...">
+        </div>
+        <button type="submit" class="btn btn--primary btn--full">Añadir feed</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Añadir Fuente Empleo ────────────────── -->
+  <div class="modal-overlay" id="jobSourceModal">
+    <div class="modal">
+      <div class="modal__header">
+        <h3>🔍 Añadir Fuente de Empleo</h3>
+        <button class="modal__close" onclick="closeModal('jobSourceModal')">&times;</button>
+      </div>
+      <form class="modal__form" onsubmit="submitJobSource(event)">
+        <div class="form-group">
+          <label>Nombre</label>
+          <input type="text" id="jobSourceName" required placeholder="Ej: TradeMe Jobs">
+        </div>
+        <div class="form-group">
+          <label>URL</label>
+          <input type="url" id="jobSourceUrl" required placeholder="https://www.trademe.co.nz/a/jobs">
+        </div>
+        <div class="form-group">
+          <label>Selector CSS (para links de ofertas)</label>
+          <input type="text" id="jobSourceSelector" required placeholder="a.job-listing__title">
+        </div>
+        <div class="form-group">
+          <label>Región</label>
+          <input type="text" id="jobSourceRegion" value="NZ" placeholder="NZ, ESP, AUS...">
+        </div>
+        <button type="submit" class="btn btn--primary btn--full">Añadir fuente</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── Toast ──────────────────────────────────────── -->
+  <div class="toast-container" id="toasts"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
