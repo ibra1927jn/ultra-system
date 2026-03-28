@@ -7,6 +7,10 @@ const cheerio = require('cheerio');
 const db = require('./db');
 const telegram = require('./telegram');
 
+// Adzuna API — keys desde .env (registrarse en developer.adzuna.com)
+const ADZUNA_APP_ID = process.env.ADZUNA_APP_ID || '';
+const ADZUNA_APP_KEY = process.env.ADZUNA_APP_KEY || '';
+
 /**
  * Añade una fuente de empleo para vigilar
  */
@@ -109,13 +113,126 @@ async function checkSource(sourceId) {
 }
 
 /**
- * Chequea todas las fuentes activas
+ * Busca ofertas via Adzuna API (NZ)
+ * Queries configuradas para packhouse, warehouse, team leader en Canterbury y Bay of Plenty
  */
-async function checkAll() {
-  const sources = await getSources();
+async function fetchAdzuna() {
+  if (!ADZUNA_APP_ID || !ADZUNA_APP_KEY) {
+    console.log('⚠️ Adzuna API keys no configuradas — saltando');
+    return 0;
+  }
+
+  const searches = [
+    { what: 'packhouse', where: 'Canterbury', region: 'Christchurch' },
+    { what: 'warehouse', where: 'Canterbury', region: 'Christchurch' },
+    { what: 'team leader warehouse', where: 'Canterbury', region: 'Christchurch' },
+    { what: 'packhouse', where: 'Bay of Plenty', region: 'Bay of Plenty' },
+    { what: 'warehouse', where: 'Bay of Plenty', region: 'Bay of Plenty' },
+  ];
+
   let totalNew = 0;
 
+  for (const search of searches) {
+    try {
+      const params = new URLSearchParams({
+        app_id: ADZUNA_APP_ID,
+        app_key: ADZUNA_APP_KEY,
+        results_per_page: '20',
+        what: search.what,
+        where: search.where,
+        sort_by: 'date',
+        max_days_old: '7',
+      });
+
+      const url = `https://api.adzuna.com/v1/api/jobs/nz/search/1?${params}`;
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'UltraSystem/1.0' },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!response.ok) {
+        console.error(`❌ Adzuna ${search.what}@${search.where}: HTTP ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+      const results = data.results || [];
+
+      for (const job of results) {
+        const jobUrl = job.redirect_url || job.url || '';
+        const title = job.title || '';
+        const company = job.company ? job.company.display_name : '';
+
+        if (!title || !jobUrl) continue;
+
+        const exists = await db.queryOne(
+          'SELECT id FROM job_listings WHERE url = $1',
+          [jobUrl]
+        );
+
+        if (!exists) {
+          // Usar source_id=1 para Adzuna (o crear una source virtual)
+          const source = await ensureAdzunaSource(search.what, search.region);
+          await db.query(
+            `INSERT INTO job_listings (source_id, title, url, region)
+             VALUES ($1, $2, $3, $4)`,
+            [source.id, `${title}${company ? ' — ' + company : ''}`, jobUrl, search.region]
+          );
+          totalNew++;
+        }
+      }
+
+      console.log(`💼 Adzuna ${search.what}@${search.where}: ${results.length} resultados, ${totalNew} nuevos`);
+    } catch (err) {
+      console.error(`❌ Adzuna ${search.what}@${search.where}: ${err.message}`);
+    }
+  }
+
+  // Notificar si hay nuevas ofertas
+  if (totalNew > 0) {
+    const msg = `💼 *Nuevas ofertas de empleo*\n🆕 ${totalNew} ofertas encontradas via Adzuna\n🔗 Ver en el dashboard`;
+    await telegram.sendAlert(msg);
+  }
+
+  return totalNew;
+}
+
+/**
+ * Crea o reutiliza una source virtual para Adzuna
+ */
+async function ensureAdzunaSource(keyword, region) {
+  const name = `Adzuna — ${keyword} (${region})`;
+  let source = await db.queryOne(
+    'SELECT * FROM job_sources WHERE name = $1',
+    [name]
+  );
+  if (!source) {
+    source = await db.queryOne(
+      `INSERT INTO job_sources (url, name, css_selector, region)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (url) DO UPDATE SET name = $2
+       RETURNING *`,
+      [`https://api.adzuna.com/nz/${keyword}/${region}`, name, 'api', region]
+    );
+  }
+  return source;
+}
+
+/**
+ * Chequea todas las fuentes activas (Cheerio + Adzuna)
+ */
+async function checkAll() {
+  let totalNew = 0;
+
+  // Primero intentar Adzuna API (fuente principal)
+  const adzunaNew = await fetchAdzuna();
+  totalNew += adzunaNew;
+
+  // Luego las fuentes Cheerio (si hay alguna que funcione)
+  const sources = await getSources();
   for (const source of sources) {
+    // Saltar fuentes Adzuna virtuales (css_selector = 'api')
+    if (source.css_selector === 'api') continue;
     const count = await checkSource(source.id);
     totalNew += count;
   }
@@ -161,4 +278,4 @@ function hashContent(content) {
   return hash.toString(36);
 }
 
-module.exports = { addSource, getSources, checkSource, checkAll, getListings };
+module.exports = { addSource, getSources, checkSource, checkAll, getListings, fetchAdzuna };
