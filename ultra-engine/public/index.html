@@ -1,456 +1,755 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Ultra System — Panel de control de inteligencia personal">
-  <title>Ultra System — Dashboard</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌎</text></svg>">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ULTRA SYSTEM — Mission Control</title>
+    <meta name="description" content="Personal mission control dashboard for life management from the road.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+/* ═══════════════════════════════════════════════════
+   DESIGN SYSTEM — Mission Control
+   ═══════════════════════════════════════════════════ */
+:root {
+    --bg-deep: #0a0e1a;
+    --bg-surface: rgba(255,255,255,0.03);
+    --bg-surface-hover: rgba(255,255,255,0.06);
+    --bg-elevated: rgba(255,255,255,0.05);
+    --border: rgba(255,255,255,0.06);
+    --border-hover: rgba(255,255,255,0.12);
+    --text-primary: #e8ecf4;
+    --text-secondary: #8892a8;
+    --text-muted: #555f75;
+    --accent-teal: #00d4aa;
+    --accent-teal-dim: rgba(0,212,170,0.12);
+    --accent-amber: #f59e0b;
+    --accent-amber-dim: rgba(245,158,11,0.12);
+    --accent-coral: #ef4444;
+    --accent-coral-dim: rgba(239,68,68,0.12);
+    --accent-blue: #3b82f6;
+    --accent-blue-dim: rgba(59,130,246,0.12);
+    --accent-purple: #a78bfa;
+    --accent-purple-dim: rgba(167,139,250,0.12);
+    --font-data: 'JetBrains Mono', monospace;
+    --font-heading: 'Outfit', sans-serif;
+    --font-body: 'DM Sans', sans-serif;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+}
+
+/* ─── Reset ─── */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { font-size: 14px; }
+body {
+    font-family: var(--font-body);
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: -1;
+    background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0,212,170,0.06), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(59,130,246,0.04), transparent);
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
+
+/* ═══ HEADER ═══ */
+.header {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px;
+    background: rgba(10,14,26,0.85);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+}
+.header-left { display: flex; align-items: center; gap: 14px; }
+.logo-mark {
+    width: 34px; height: 34px; position: relative;
+    display: flex; align-items: center; justify-content: center;
+}
+.logo-mark svg { width: 34px; height: 34px; }
+.logo-text {
+    font-family: var(--font-heading); font-weight: 800;
+    font-size: 1.25rem; letter-spacing: 2px;
+    background: linear-gradient(135deg, var(--accent-teal), var(--accent-blue));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.header-right { display: flex; align-items: center; gap: 16px; }
+
+/* ─── Status Pills ─── */
+.status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 20px;
+    font-family: var(--font-data); font-size: 0.78rem; font-weight: 500;
+    border: 1px solid transparent; white-space: nowrap;
+}
+.status-pill.ok { background: rgba(0,212,170,0.08); color: var(--accent-teal); border-color: rgba(0,212,170,0.2); }
+.status-pill.warn { background: var(--accent-amber-dim); color: var(--accent-amber); border-color: rgba(245,158,11,0.2); }
+.status-pill.danger { background: var(--accent-coral-dim); color: var(--accent-coral); border-color: rgba(239,68,68,0.2); }
+.status-pill .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+    animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%,100% { opacity:1; box-shadow: 0 0 0 0 currentColor; }
+    50% { opacity:.7; box-shadow: 0 0 0 4px transparent; }
+}
+
+/* ═══ MAIN GRID ═══ */
+.dashboard { max-width: 1440px; margin: 0 auto; padding: 24px 24px 48px; }
+.grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+.grid-full { grid-column: 1 / -1; }
+
+/* ═══ CARD ═══ */
+.card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    transition: border-color 0.25s;
+}
+.card:hover { border-color: var(--border-hover); }
+.card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none;
+}
+.card-header-left { display: flex; align-items: center; gap: 10px; }
+.card-icon {
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+}
+.card-icon svg { width: 18px; height: 18px; stroke-width: 2; }
+.card-title {
+    font-family: var(--font-heading); font-weight: 600;
+    font-size: 0.95rem; color: var(--text-primary);
+}
+.card-header-right { display: flex; align-items: center; gap: 8px; }
+.card-meta { font-family: var(--font-data); font-size: 0.72rem; color: var(--text-muted); }
+.chevron {
+    width: 18px; height: 18px; color: var(--text-muted);
+    transition: transform 0.25s;
+}
+.card.collapsed .chevron { transform: rotate(-90deg); }
+.card.collapsed .card-body { display: none; }
+.card-body { padding: 16px 20px 20px; }
+
+/* ═══ METRIC CARD ═══ */
+.metric-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.metric-card {
+    flex: 1; min-width: 100px;
+    background: var(--bg-elevated); border-radius: var(--radius-md);
+    padding: 12px 14px;
+}
+.metric-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; }
+.metric-value { font-family: var(--font-data); font-size: 1.4rem; font-weight: 700; color: #fff; margin: 4px 0 2px; }
+.metric-trend { font-family: var(--font-data); font-size: 0.72rem; font-weight: 500; }
+.metric-trend.up { color: var(--accent-teal); }
+.metric-trend.down { color: var(--accent-coral); }
+.metric-trend.neutral { color: var(--text-muted); }
+
+/* ═══ PROGRESS BAR ═══ */
+.progress-item { margin-bottom: 10px; }
+.progress-label-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.progress-name { font-size: 0.82rem; color: var(--text-secondary); }
+.progress-pct { font-family: var(--font-data); font-size: 0.75rem; color: var(--text-muted); }
+.progress-track {
+    width: 100%; height: 6px; border-radius: 3px;
+    background: rgba(255,255,255,0.04);
+}
+.progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+
+/* ═══ LIST ITEMS ═══ */
+.list-item {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+.list-item:last-child { border-bottom: none; }
+.list-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    margin-top: 6px; flex-shrink: 0;
+}
+.list-content { flex: 1; min-width: 0; }
+.list-title { font-size: 0.88rem; color: var(--text-primary); line-height: 1.4; }
+.list-title .kw { color: var(--accent-teal); font-weight: 600; }
+.list-sub { font-family: var(--font-data); font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+/* ═══ TIMELINE ═══ */
+.timeline { position: relative; padding-left: 20px; }
+.timeline::before {
+    content: ''; position: absolute; left: 5px; top: 8px; bottom: 8px;
+    width: 1px; background: var(--border);
+}
+.timeline-item { position: relative; padding: 8px 0; display: flex; gap: 12px; }
+.timeline-dot {
+    position: absolute; left: -20px; top: 14px;
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--accent-teal); background: var(--bg-deep);
+}
+.timeline-dot.urgent { border-color: var(--accent-coral); background: var(--accent-coral); }
+.timeline-dot.warn { border-color: var(--accent-amber); }
+.timeline-time { font-family: var(--font-data); font-size: 0.75rem; color: var(--text-muted); min-width: 44px; padding-top: 2px; }
+.timeline-title { font-size: 0.85rem; color: var(--text-primary); }
+
+/* ═══ KANBAN ═══ */
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.kanban-col-title {
+    font-family: var(--font-data); font-size: 0.68rem; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; text-align: center;
+}
+.kanban-card {
+    background: var(--bg-elevated); border-radius: var(--radius-sm);
+    padding: 8px 10px; font-size: 0.78rem; color: var(--text-secondary);
+    border-left: 2px solid var(--accent-teal); margin-bottom: 6px;
+}
+
+/* ═══ DOCUMENT CARD ═══ */
+.doc-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    background: var(--bg-elevated); border-radius: var(--radius-md);
+    margin-bottom: 8px;
+}
+.doc-icon { width: 32px; height: 32px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0; }
+.doc-info { flex: 1; min-width: 0; }
+.doc-name { font-size: 0.85rem; font-weight: 500; }
+.doc-type { font-size: 0.72rem; color: var(--text-muted); }
+.doc-countdown { text-align: right; }
+.doc-days { font-family: var(--font-data); font-size: 1.2rem; font-weight: 700; }
+.doc-days-label { font-size: 0.65rem; color: var(--text-muted); }
+
+/* ═══ TAB BAR ═══ */
+.tab-bar { display: flex; gap: 4px; margin-bottom: 14px; }
+.tab-btn {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-muted); padding: 5px 14px; border-radius: 20px;
+    font-family: var(--font-data); font-size: 0.72rem; cursor: pointer;
+    transition: all 0.2s;
+}
+.tab-btn.active, .tab-btn:hover {
+    background: var(--accent-teal-dim); color: var(--accent-teal);
+    border-color: rgba(0,212,170,0.25);
+}
+
+/* ═══ EMPTY STATE ═══ */
+.empty-state {
+    text-align: center; padding: 28px 16px;
+    color: var(--text-muted); font-size: 0.85rem;
+}
+.empty-state svg { width: 32px; height: 32px; margin-bottom: 8px; opacity: 0.3; }
+
+/* ═══ BUS PANEL ═══ */
+.bus-task {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; background: var(--bg-elevated);
+    border-radius: var(--radius-sm); margin-bottom: 6px;
+}
+.bus-agent { font-family: var(--font-data); font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.bus-agent.antigravity { background: var(--accent-purple-dim); color: var(--accent-purple); }
+.bus-agent.claude-code { background: var(--accent-teal-dim); color: var(--accent-teal); }
+.bus-agent.claude-chat { background: var(--accent-blue-dim); color: var(--accent-blue); }
+.bus-summary { flex: 1; font-size: 0.8rem; color: var(--text-secondary); }
+.bus-time { font-family: var(--font-data); font-size: 0.68rem; color: var(--text-muted); }
+
+/* ═══ BUTTONS ═══ */
+.btn-ghost {
+    background: transparent; border: 1px dashed var(--border);
+    color: var(--text-muted); padding: 6px 14px; border-radius: var(--radius-sm);
+    font-family: var(--font-data); font-size: 0.72rem; cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-ghost:hover { border-color: var(--accent-teal); color: var(--accent-teal); }
+
+/* ═══ RESPONSIVE ═══ */
+@media (max-width: 1200px) {
+    .dashboard { padding: 16px; }
+    .grid-2col { gap: 14px; }
+}
+@media (max-width: 768px) {
+    .header { padding: 12px 16px; }
+    .grid-2col { grid-template-columns: 1fr; }
+    .kanban { grid-template-columns: repeat(2, 1fr); }
+    .metric-row { flex-direction: column; }
+    .header-right .status-pill span.hide-mobile { display: none; }
+}
+    </style>
 </head>
 <body>
-  <!-- ─── Header ─────────────────────────────────────── -->
-  <header class="header">
-    <div class="header__brand">
-      <span class="header__logo">🌎</span>
-      <div>
-        <h1 class="header__title">ULTRA SYSTEM</h1>
-        <p class="header__subtitle">Sistema de Inteligencia Personal</p>
-      </div>
+
+<!-- ═══ HEADER ═══ -->
+<header class="header">
+    <div class="header-left">
+        <div class="logo-mark">
+            <svg viewBox="0 0 40 40" fill="none"><polygon points="20,2 37,11 37,29 20,38 3,29 3,11" stroke="url(#lg)" stroke-width="2" fill="rgba(0,212,170,0.06)"/><text x="20" y="25" text-anchor="middle" fill="url(#lg)" font-family="Outfit" font-weight="800" font-size="16">U</text><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#00d4aa"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient></defs></svg>
+        </div>
+        <span class="logo-text">ULTRA SYSTEM</span>
     </div>
-    <div class="header__status" id="systemStatus">
-      <span class="status-dot"></span>
-      <span id="uptimeText">Conectando...</span>
+    <div class="header-right">
+        <div class="status-pill ok"><div class="dot"></div><span id="hdr-status">Active</span></div>
+        <div class="status-pill ok" id="hdr-nz-time" style="color:var(--text-secondary);background:var(--bg-elevated);border-color:var(--border);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span>--:--</span>
+        </div>
+        <div class="status-pill ok" id="hdr-bus">Bus: <span>0</span></div>
+        <div class="status-pill ok" id="hdr-rss" style="color:var(--text-secondary);background:var(--bg-elevated);border-color:var(--border);">RSS: --</div>
     </div>
-  </header>
+</header>
 
-  <!-- ─── Stats Bar ──────────────────────────────────── -->
-  <section class="stats-bar" id="statsBar">
-    <div class="stat-card">
-      <span class="stat-card__icon">📄</span>
-      <div class="stat-card__info">
-        <span class="stat-card__value" id="docsTotal">—</span>
-        <span class="stat-card__label">Documentos</span>
-      </div>
+<!-- ═══ DASHBOARD GRID ═══ -->
+<main class="dashboard">
+    <div class="grid-2col" id="main-grid">
+
+        <!-- ═══ P1: NOTICIAS ═══ -->
+        <div class="card" id="card-news">
+            <div class="card-header" onclick="toggleCard('card-news')">
+                <div class="card-header-left">
+                    <div class="card-icon" style="background:var(--accent-teal-dim)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-teal)" stroke-width="2"><path d="M4 22h16a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 01-2 2zm0 0a2 2 0 01-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/></svg>
+                    </div>
+                    <span class="card-title">News Feed</span>
+                </div>
+                <div class="card-header-right">
+                    <span class="card-meta" id="news-count">0 articles</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="tab-bar" id="news-tabs">
+                    <button class="tab-btn active" data-src="all">All</button>
+                    <button class="tab-btn" data-src="hn">HN</button>
+                    <button class="tab-btn" data-src="rnz">RNZ</button>
+                    <button class="tab-btn" data-src="bbc">BBC</button>
+                    <button class="tab-btn" data-src="nyt">NYT</button>
+                </div>
+                <div id="news-list"></div>
+            </div>
+        </div>
+
+        <!-- ═══ P2: EMPLEO ═══ -->
+        <div class="card" id="card-jobs">
+            <div class="card-header" onclick="toggleCard('card-jobs')">
+                <div class="card-header-left">
+                    <div class="card-icon" style="background:var(--accent-blue-dim)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+                    </div>
+                    <span class="card-title">Employment</span>
+                </div>
+                <div class="card-header-right">
+                    <span class="card-meta" id="jobs-count">0 active</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="jobs-sources" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;"></div>
+                <div id="jobs-list"></div>
+            </div>
+        </div>
+
+        <!-- ═══ P3: FINANZAS ═══ -->
+        <div class="card" id="card-finance">
+            <div class="card-header" onclick="toggleCard('card-finance')">
+                <div class="card-header-left">
+                    <div class="card-icon" style="background:rgba(16,185,129,0.12)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                    </div>
+                    <span class="card-title">Finances</span>
+                </div>
+                <div class="card-header-right">
+                    <span class="card-meta" id="finance-balance">--</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="metric-row" id="finance-metrics"></div>
+                <div id="budget-bars"></div>
+                <div id="recent-expenses" style="margin-top:14px;"></div>
+            </div>
+        </div>
+
+        <!-- ═══ P4: DOCUMENTOS ═══ -->
+        <div class="card" id="card-docs">
+            <div class="card-header" onclick="toggleCard('card-docs')">
+                <div class="card-header-left">
+                    <div class="card-icon" style="background:rgba(245,158,11,0.12)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+                    </div>
+                    <span class="card-title">Documents</span>
+                </div>
+                <div class="card-header-right">
+                    <span class="card-meta" id="docs-count">0 tracked</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+            </div>
+            <div class="card-body" id="docs-list"></div>
+        </div>
+
+        <!-- ═══ P5: LOGÍSTICA ═══ -->
+        <div class="card" id="card-logistics">
+            <div class="card-header" onclick="toggleCard('card-logistics')">
+                <div class="card-header-left">
+                    <div class="card-icon" style="background:rgba(168,85,247,0.12)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    </div>
+                    <span class="card-title">Logistics</span>
+                </div>
+                <div class="card-header-right">
+                    <span class="card-meta">Next 48h</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="timeline" id="logistics-timeline"></div>
+            </div>
+        </div>
+
+        <!-- ═══ P6: OPORTUNIDADES ═══ -->
+        <div class="card" id="card-opps">
+            <div class="card-header" onclick="toggleCard('card-opps')">
+                <div class="card-header-left">
+                    <div class="card-icon" style="background:rgba(236,72,153,0.12)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    </div>
+                    <span class="card-title">Opportunities</span>
+                </div>
+                <div class="card-header-right">
+                    <span class="card-meta" id="opps-count">0 pipeline</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="kanban" id="opps-kanban">
+                    <div><div class="kanban-col-title">Detected</div><div id="kanban-detected"></div></div>
+                    <div><div class="kanban-col-title">Applied</div><div id="kanban-applied"></div></div>
+                    <div><div class="kanban-col-title">Follow-up</div><div id="kanban-followup"></div></div>
+                    <div><div class="kanban-col-title">Closed</div><div id="kanban-closed"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ P7: BIO/SALUD ═══ -->
+        <div class="card" id="card-bio">
+            <div class="card-header" onclick="toggleCard('card-bio')">
+                <div class="card-header-left">
+                    <div class="card-icon" style="background:rgba(244,63,94,0.12)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+                    </div>
+                    <span class="card-title">Bio / Health</span>
+                </div>
+                <div class="card-header-right">
+                    <span class="card-meta">Weekly</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="metric-row" id="bio-metrics"></div>
+                <div id="bio-insights"></div>
+            </div>
+        </div>
+
+        <!-- ═══ AGENT BUS ═══ -->
+        <div class="card" id="card-bus">
+            <div class="card-header" onclick="toggleCard('card-bus')">
+                <div class="card-header-left">
+                    <div class="card-icon" style="background:var(--accent-purple-dim)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-purple)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    </div>
+                    <span class="card-title">Agent Bus</span>
+                </div>
+                <div class="card-header-right">
+                    <span class="card-meta" id="bus-meta">--</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="bus-pending"></div>
+                <div style="margin-top:12px;"><span style="font-size:0.75rem;color:var(--text-muted);font-family:var(--font-data);">RECENT COMPLETED</span></div>
+                <div id="bus-completed" style="margin-top:6px;"></div>
+            </div>
+        </div>
+
     </div>
-    <div class="stat-card stat-card--warning">
-      <span class="stat-card__icon">⚠️</span>
-      <div class="stat-card__info">
-        <span class="stat-card__value" id="docsUrgent">—</span>
-        <span class="stat-card__label">Urgentes</span>
-      </div>
-    </div>
-    <div class="stat-card">
-      <span class="stat-card__icon">📰</span>
-      <div class="stat-card__info">
-        <span class="stat-card__value" id="newsCount">—</span>
-        <span class="stat-card__label">Noticias</span>
-      </div>
-    </div>
-    <div class="stat-card">
-      <span class="stat-card__icon">💼</span>
-      <div class="stat-card__info">
-        <span class="stat-card__value" id="jobsCount">—</span>
-        <span class="stat-card__label">Ofertas</span>
-      </div>
-    </div>
-  </section>
+</main>
 
-  <!-- ─── Main Grid ──────────────────────────────────── -->
-  <main class="dashboard">
-    <!-- ─── P4: Burocracia ───────────────────────────── -->
-    <section class="panel panel--full" id="panelDocs">
-      <div class="panel__header">
-        <h2 class="panel__title">📂 Pilar 4 — Guardián de Documentos</h2>
-        <div class="panel__actions">
-          <button class="btn btn--ghost" onclick="openUploadModal()">📤 Subir Doc</button>
-          <button class="btn btn--primary" onclick="openDocModal()">+ Añadir Alerta</button>
-        </div>
-      </div>
-      <div class="panel__body" id="docsList">
-        <div class="loading-shimmer"></div>
-      </div>
-    </section>
+<script>
+/* Will be added in Batch 2 */
+const API = 'http://95.217.158.7';
 
-    <!-- ─── P1: Noticias ─────────────────────────────── -->
-    <section class="panel" id="panelNews">
-      <div class="panel__header">
-        <h2 class="panel__title">📰 Pilar 1 — Noticias</h2>
-        <button class="btn btn--ghost" onclick="openFeedModal()">+ Feed</button>
-      </div>
-      <div class="panel__body" id="newsList">
-        <div class="empty-state">
-          <span class="empty-state__icon">📡</span>
-          <p>Añade feeds RSS para empezar</p>
-        </div>
-      </div>
-    </section>
+/* ─── Card collapse toggle ─── */
+function toggleCard(id) {
+    document.getElementById(id).classList.toggle('collapsed');
+}
 
-    <!-- ─── P2: Empleo ───────────────────────────────── -->
-    <section class="panel" id="panelJobs">
-      <div class="panel__header">
-        <h2 class="panel__title">💼 Pilar 2 — Empleo</h2>
-        <button class="btn btn--ghost" onclick="openJobSourceModal()">+ Fuente</button>
-      </div>
-      <div class="panel__body" id="jobsList">
-        <div class="empty-state">
-          <span class="empty-state__icon">🔍</span>
-          <p>Añade fuentes de empleo para vigilar</p>
-        </div>
-      </div>
-    </section>
+/* ─── Tab switching ─── */
+document.querySelectorAll('.tab-bar').forEach(bar => {
+    bar.addEventListener('click', e => {
+        if (!e.target.classList.contains('tab-btn')) return;
+        bar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        if (bar.id === 'news-tabs') loadNews(e.target.dataset.src);
+    });
+});
 
-    <!-- ─── P3: Finanzas ────────────────────────────── -->
-    <section class="panel" id="panelFinances">
-      <div class="panel__header">
-        <h2 class="panel__title">💰 Pilar 3 — Finanzas</h2>
-        <button class="btn btn--primary" onclick="openFinanceModal()">+ Transacción</button>
-      </div>
-      <div class="panel__body" id="financesList">
-        <div class="loading-shimmer"></div>
-      </div>
-    </section>
+/* ─── NZ Time updater ─── */
+function updateNZTime() {
+    const nz = new Date().toLocaleTimeString('en-NZ', { timeZone:'Pacific/Auckland', hour:'2-digit', minute:'2-digit', hour12:false });
+    const el = document.getElementById('hdr-nz-time');
+    if (el) el.querySelector('span').textContent = nz + ' NZST';
+}
+updateNZTime();
+setInterval(updateNZTime, 10000);
 
-    <!-- ─── P5: Oportunidades ────────────────────────── -->
-    <section class="panel" id="panelOpportunities">
-      <div class="panel__header">
-        <h2 class="panel__title">🚀 Pilar 5 — Oportunidades</h2>
-        <button class="btn btn--primary" onclick="openOpportunityModal()">+ Oportunidad</button>
-      </div>
-      <div class="panel__body" id="opportunitiesList">
-        <div class="loading-shimmer"></div>
-      </div>
-    </section>
+/* ─── Helpers ─── */
+function relTime(iso) {
+    if (!iso) return '';
+    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+    return Math.floor(diff/86400) + 'd ago';
+}
+function emptyState(msg) {
+    return `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg><div>${msg}</div></div>`;
+}
+function budgetColor(pct) {
+    if (pct < 60) return 'var(--accent-teal)';
+    if (pct < 80) return 'var(--accent-amber)';
+    return 'var(--accent-coral)';
+}
+async function api(path) {
+    try {
+        const r = await fetch(API + path, { cache: 'no-store' });
+        if (!r.ok) return null;
+        return await r.json();
+    } catch(e) { return null; }
+}
 
-    <!-- ─── P6: Logística ────────────────────────────── -->
-    <section class="panel" id="panelLogistics">
-      <div class="panel__header">
-        <h2 class="panel__title">🗺️ Pilar 6 — Logística</h2>
-        <button class="btn btn--primary" onclick="openLogisticsModal()">+ Item</button>
-      </div>
-      <div class="panel__body" id="logisticsList">
-        <div class="loading-shimmer"></div>
-      </div>
-    </section>
+/* ═══════════════════════════════════════════════════
+   DATA LOADERS
+   ═══════════════════════════════════════════════════ */
 
-    <!-- ─── P7: Bio-Check ────────────────────────────── -->
-    <section class="panel" id="panelBio">
-      <div class="panel__header">
-        <h2 class="panel__title">🫀 Pilar 7 — Salud / Bio-Check</h2>
-        <button class="btn btn--primary" onclick="openBioModal()">+ Check</button>
-      </div>
-      <div class="panel__body" id="bioList">
-        <div class="loading-shimmer"></div>
-      </div>
-    </section>
+/* ─── P1: News ─── */
+async function loadNews(src) {
+    const data = await api('/api/feeds/articles?limit=8');
+    const el = document.getElementById('news-list');
+    if (!data || !data.articles || data.articles.length === 0) {
+        el.innerHTML = emptyState('No articles yet');
+        document.getElementById('news-count').textContent = '0 articles';
+        return;
+    }
+    let articles = data.articles;
+    if (src && src !== 'all') articles = articles.filter(a => (a.source||'').toLowerCase().includes(src));
+    document.getElementById('news-count').textContent = articles.length + ' articles';
+    el.innerHTML = articles.map(a => `
+        <div class="list-item">
+            <div class="list-dot" style="background:${a.score > 7 ? 'var(--accent-teal)' : a.score > 4 ? 'var(--accent-amber)' : 'var(--text-muted)'}"></div>
+            <div class="list-content">
+                <div class="list-title">${(a.title||'').replace(/\b(AI|NZ|tech|crypto|startup)\b/gi, '<span class="kw">$1</span>')}</div>
+                <div class="list-sub">${a.source||'?'} · ${relTime(a.published_at||a.created_at)}</div>
+            </div>
+        </div>
+    `).join('');
+}
 
-    <!-- ─── Scheduler ────────────────────────────────── -->
-    <section class="panel" id="panelScheduler">
-      <div class="panel__header">
-        <h2 class="panel__title">⏰ Scheduler</h2>
-      </div>
-      <div class="panel__body" id="schedulerList">
-        <div class="loading-shimmer"></div>
-      </div>
-    </section>
-  </main>
+/* ─── P2: Jobs ─── */
+async function loadJobs() {
+    const data = await api('/api/jobs?limit=10');
+    const el = document.getElementById('jobs-list');
+    const srcEl = document.getElementById('jobs-sources');
+    if (!data || !data.jobs || data.jobs.length === 0) {
+        el.innerHTML = emptyState('No active listings — next scrape pending');
+        document.getElementById('jobs-count').textContent = '0 active';
+        srcEl.innerHTML = ['Seek','Indeed','TradeMe'].map(s=>`<span class="status-pill ok" style="font-size:0.7rem;">${s} ✓</span>`).join('');
+        return;
+    }
+    document.getElementById('jobs-count').textContent = data.jobs.length + ' active';
+    srcEl.innerHTML = ['Seek','Indeed','TradeMe'].map(s=>`<span class="status-pill ok" style="font-size:0.7rem;">${s} ✓</span>`).join('');
+    el.innerHTML = data.jobs.map(j => `
+        <div class="list-item">
+            <div class="list-dot" style="background:var(--accent-blue)"></div>
+            <div class="list-content">
+                <div class="list-title">${j.title||'Untitled'}</div>
+                <div class="list-sub">${j.company||''} · ${j.location||''} ${j.salary ? '· '+j.salary : ''}</div>
+            </div>
+        </div>
+    `).join('');
+}
 
-  <!-- ─── Modal: Añadir Documento ────────────────────── -->
-  <div class="modal-overlay" id="docModal">
-    <div class="modal">
-      <div class="modal__header">
-        <h3>📄 Nueva Alerta de Documento</h3>
-        <button class="modal__close" onclick="closeModal('docModal')">&times;</button>
-      </div>
-      <form class="modal__form" onsubmit="submitDocument(event)">
-        <div class="form-group">
-          <label>Nombre del documento</label>
-          <input type="text" id="docName" required placeholder="Ej: Visa Working Holiday NZ">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Tipo</label>
-            <select id="docType" required>
-              <option value="visa">🛂 Visa</option>
-              <option value="pasaporte">📕 Pasaporte</option>
-              <option value="seguro">🛡️ Seguro</option>
-              <option value="wof">🚗 WOF</option>
-              <option value="rego">🚙 Rego</option>
-              <option value="ird">💰 IRD</option>
-              <option value="otro">📄 Otro</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Fecha de caducidad</label>
-            <input type="date" id="docExpiry" required>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Alertar días antes</label>
-            <input type="number" id="docAlertDays" value="60" min="1" max="365">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Notas</label>
-          <textarea id="docNotes" rows="2" placeholder="Notas adicionales..."></textarea>
-        </div>
-        <button type="submit" class="btn btn--primary btn--full">Guardar alerta</button>
-      </form>
-    </div>
-  </div>
+/* ─── P3: Finances ─── */
+async function loadFinances() {
+    const fin = await api('/api/finances');
+    const bud = await api('/api/budgets');
+    const metricsEl = document.getElementById('finance-metrics');
+    const barsEl = document.getElementById('budget-bars');
+    const expEl = document.getElementById('recent-expenses');
+    if (!fin) {
+        metricsEl.innerHTML = '';
+        document.getElementById('finance-balance').textContent = '--';
+        barsEl.innerHTML = emptyState('No financial data');
+        return;
+    }
+    const bal = fin.balance != null ? '$' + Number(fin.balance).toLocaleString() : '--';
+    document.getElementById('finance-balance').textContent = bal + ' NZD';
+    metricsEl.innerHTML = `
+        <div class="metric-card"><div class="metric-label">Balance</div><div class="metric-value">${bal}</div><div class="metric-trend neutral">NZD</div></div>
+        <div class="metric-card"><div class="metric-label">This Month</div><div class="metric-value">$${fin.month_spent != null ? Number(fin.month_spent).toLocaleString() : '--'}</div><div class="metric-trend down">spent</div></div>
+    `;
+    if (bud && bud.budgets && bud.budgets.length) {
+        barsEl.innerHTML = bud.budgets.map(b => {
+            const pct = Math.min(100, Math.round((b.spent/b.limit)*100));
+            return `<div class="progress-item"><div class="progress-label-row"><span class="progress-name">${b.category}</span><span class="progress-pct">${pct}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${pct}%;background:${budgetColor(pct)}"></div></div></div>`;
+        }).join('');
+    } else { barsEl.innerHTML = ''; }
+    if (fin.recent_expenses && fin.recent_expenses.length) {
+        expEl.innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);font-family:var(--font-data);margin-bottom:6px;">RECENT</div>' + fin.recent_expenses.slice(0,5).map(e => `<div class="list-item"><div class="list-dot" style="background:var(--accent-coral)"></div><div class="list-content"><div class="list-title">${e.description||'Expense'}</div><div class="list-sub">$${e.amount} · ${relTime(e.date)}</div></div></div>`).join('');
+    }
+}
 
-  <!-- ─── Modal: Subir Archivo ───────────────────────── -->
-  <div class="modal-overlay" id="uploadModal">
-    <div class="modal">
-      <div class="modal__header">
-        <h3>📤 Subir Documento (OCR)</h3>
-        <button class="modal__close" onclick="closeModal('uploadModal')">&times;</button>
-      </div>
-      <form class="modal__form" onsubmit="submitUpload(event)">
-        <div class="form-group">
-          <label>Archivo (PDF o imagen)</label>
-          <div class="file-drop" id="fileDrop">
-            <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp" required>
-            <span class="file-drop__text">📎 Arrastra un archivo o haz clic</span>
-          </div>
-        </div>
-        <div id="ocrResult" class="ocr-result" style="display:none">
-          <h4>🔍 Texto extraído (OCR)</h4>
-          <pre id="ocrText"></pre>
-        </div>
-        <button type="submit" class="btn btn--primary btn--full" id="uploadBtn">Subir y procesar</button>
-      </form>
-    </div>
-  </div>
+/* ─── P4: Documents ─── */
+async function loadDocs() {
+    const data = await api('/api/documents');
+    const el = document.getElementById('docs-list');
+    if (!data || !data.documents || data.documents.length === 0) {
+        el.innerHTML = emptyState('No documents tracked');
+        document.getElementById('docs-count').textContent = '0 tracked';
+        return;
+    }
+    const docs = data.documents.sort((a,b) => (a.days_remaining||999)-(b.days_remaining||999));
+    document.getElementById('docs-count').textContent = docs.length + ' tracked';
+    const typeColors = { passport:'var(--accent-coral)', visa:'var(--accent-blue)', insurance:'var(--accent-teal)', wof:'var(--accent-amber)' };
+    el.innerHTML = docs.map(d => {
+        const days = d.days_remaining != null ? d.days_remaining : '?';
+        const color = days !== '?' && days < 30 ? 'var(--accent-coral)' : days < 90 ? 'var(--accent-amber)' : 'var(--accent-teal)';
+        const bg = typeColors[(d.type||'').toLowerCase()] || 'var(--text-muted)';
+        return `<div class="doc-item"><div class="doc-icon" style="background:${bg}22;color:${bg}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><div class="doc-info"><div class="doc-name">${d.name||'Document'}</div><div class="doc-type">${d.type||''}</div></div><div class="doc-countdown"><div class="doc-days" style="color:${color}">${days}</div><div class="doc-days-label">days left</div></div></div>`;
+    }).join('');
+}
 
-  <!-- ─── Modal: Añadir Feed RSS ─────────────────────── -->
-  <div class="modal-overlay" id="feedModal">
-    <div class="modal">
-      <div class="modal__header">
-        <h3>📡 Añadir Feed RSS</h3>
-        <button class="modal__close" onclick="closeModal('feedModal')">&times;</button>
-      </div>
-      <form class="modal__form" onsubmit="submitFeed(event)">
-        <div class="form-group">
-          <label>Nombre</label>
-          <input type="text" id="feedName" required placeholder="Ej: El País">
-        </div>
-        <div class="form-group">
-          <label>URL del feed</label>
-          <input type="url" id="feedUrl" required placeholder="https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/portada">
-        </div>
-        <div class="form-group">
-          <label>Categoría</label>
-          <input type="text" id="feedCategory" value="general" placeholder="general, tech, empleo...">
-        </div>
-        <button type="submit" class="btn btn--primary btn--full">Añadir feed</button>
-      </form>
-    </div>
-  </div>
+/* ─── P5: Logistics ─── */
+async function loadLogistics() {
+    const data = await api('/api/logistics');
+    const el = document.getElementById('logistics-timeline');
+    if (!data || !data.items || data.items.length === 0) {
+        el.innerHTML = emptyState('No items in next 48h');
+        return;
+    }
+    el.innerHTML = data.items.map(it => {
+        const dotClass = it.overdue ? 'urgent' : it.priority === 'high' ? 'warn' : '';
+        return `<div class="timeline-item"><div class="timeline-dot ${dotClass}"></div><div class="timeline-time">${it.time||''}</div><div class="timeline-title">${it.description||it.title||''}</div></div>`;
+    }).join('');
+}
 
-  <!-- ─── Modal: Añadir Fuente Empleo ────────────────── -->
-  <div class="modal-overlay" id="jobSourceModal">
-    <div class="modal">
-      <div class="modal__header">
-        <h3>🔍 Añadir Fuente de Empleo</h3>
-        <button class="modal__close" onclick="closeModal('jobSourceModal')">&times;</button>
-      </div>
-      <form class="modal__form" onsubmit="submitJobSource(event)">
-        <div class="form-group">
-          <label>Nombre</label>
-          <input type="text" id="jobSourceName" required placeholder="Ej: TradeMe Jobs">
-        </div>
-        <div class="form-group">
-          <label>URL</label>
-          <input type="url" id="jobSourceUrl" required placeholder="https://www.trademe.co.nz/a/jobs">
-        </div>
-        <div class="form-group">
-          <label>Selector CSS (para links de ofertas)</label>
-          <input type="text" id="jobSourceSelector" required placeholder="a.job-listing__title">
-        </div>
-        <div class="form-group">
-          <label>Región</label>
-          <input type="text" id="jobSourceRegion" value="NZ" placeholder="NZ, ESP, AUS...">
-        </div>
-        <button type="submit" class="btn btn--primary btn--full">Añadir fuente</button>
-      </form>
-    </div>
-  </div>
+/* ─── P6: Opportunities ─── */
+async function loadOpps() {
+    const data = await api('/api/opportunities');
+    ['detected','applied','followup','closed'].forEach(s => document.getElementById('kanban-'+s).innerHTML = '');
+    if (!data || !data.opportunities || data.opportunities.length === 0) {
+        document.getElementById('kanban-detected').innerHTML = '<div class="empty-state" style="padding:12px;">None yet</div>';
+        document.getElementById('opps-count').textContent = '0 pipeline';
+        return;
+    }
+    document.getElementById('opps-count').textContent = data.opportunities.length + ' pipeline';
+    data.opportunities.forEach(o => {
+        const col = (o.stage||'detected').toLowerCase().replace('-','');
+        const target = document.getElementById('kanban-'+col) || document.getElementById('kanban-detected');
+        target.innerHTML += `<div class="kanban-card" style="border-color:${o.deadline_soon?'var(--accent-amber)':'var(--accent-teal)'}">${o.name||o.title||'?'}<br><span style="font-size:0.68rem;color:var(--text-muted)">${o.type||''}</span></div>`;
+    });
+}
 
-  <!-- ─── Modal: Añadir Transacción ───────────────────── -->
-  <div class="modal-overlay" id="financeModal">
-    <div class="modal">
-      <div class="modal__header">
-        <h3>💰 Nueva Transacción</h3>
-        <button class="modal__close" onclick="closeModal('financeModal')">&times;</button>
-      </div>
-      <form class="modal__form" onsubmit="submitFinance(event)">
-        <div class="form-row">
-          <div class="form-group">
-            <label>Tipo</label>
-            <select id="finType" required>
-              <option value="expense">Gasto</option>
-              <option value="income">Ingreso</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Cantidad (NZD)</label>
-            <input type="number" id="finAmount" step="0.01" min="0.01" required placeholder="0.00">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Categoría</label>
-            <input type="text" id="finCategory" required placeholder="comida, transporte, freelance...">
-          </div>
-          <div class="form-group">
-            <label>Fecha</label>
-            <input type="date" id="finDate" required>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Descripción</label>
-          <input type="text" id="finDescription" placeholder="Descripción opcional">
-        </div>
-        <button type="submit" class="btn btn--primary btn--full">Guardar</button>
-      </form>
-    </div>
-  </div>
+/* ─── P7: Bio ─── */
+async function loadBio() {
+    const data = await api('/api/bio');
+    const metricsEl = document.getElementById('bio-metrics');
+    const insightsEl = document.getElementById('bio-insights');
+    if (!data) {
+        metricsEl.innerHTML = '';
+        insightsEl.innerHTML = emptyState('No health data yet');
+        return;
+    }
+    const m = data.metrics || {};
+    metricsEl.innerHTML = [
+        { l:'Sleep', v:m.sleep_avg||'--', u:'h/night' },
+        { l:'Weight', v:m.weight||'--', u:'kg' },
+        { l:'Exercise', v:m.exercise||'--', u:'days/wk' },
+        { l:'Mood', v:m.mood||'--', u:'/10' },
+    ].map(x => `<div class="metric-card"><div class="metric-label">${x.l}</div><div class="metric-value">${x.v}</div><div class="metric-trend neutral">${x.u}</div></div>`).join('');
+    if (data.insights && data.insights.length) {
+        insightsEl.innerHTML = '<div style="margin-top:12px;font-size:0.75rem;color:var(--text-muted);font-family:var(--font-data);margin-bottom:6px;">INSIGHTS</div>' + data.insights.map(i => `<div class="list-item"><div class="list-dot" style="background:var(--accent-teal)"></div><div class="list-content"><div class="list-title">${i}</div></div></div>`).join('');
+    }
+}
 
-  <!-- ─── Modal: Añadir Oportunidad ──────────────────── -->
-  <div class="modal-overlay" id="opportunityModal">
-    <div class="modal">
-      <div class="modal__header">
-        <h3>🚀 Nueva Oportunidad</h3>
-        <button class="modal__close" onclick="closeModal('opportunityModal')">&times;</button>
-      </div>
-      <form class="modal__form" onsubmit="submitOpportunity(event)">
-        <div class="form-group">
-          <label>Título</label>
-          <input type="text" id="oppTitle" required placeholder="Ej: Freelance React para startup">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Categoría</label>
-            <input type="text" id="oppCategory" placeholder="freelance, empleo, idea...">
-          </div>
-          <div class="form-group">
-            <label>Estado</label>
-            <select id="oppStatus">
-              <option value="new">Nuevo</option>
-              <option value="contacted">Contactado</option>
-              <option value="applied">Aplicado</option>
-              <option value="won">Ganado</option>
-              <option value="rejected">Rechazado</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Fuente</label>
-            <input type="text" id="oppSource" placeholder="LinkedIn, Upwork...">
-          </div>
-          <div class="form-group">
-            <label>Deadline</label>
-            <input type="date" id="oppDeadline">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>URL</label>
-          <input type="url" id="oppUrl" placeholder="https://...">
-        </div>
-        <div class="form-group">
-          <label>Notas</label>
-          <textarea id="oppNotes" rows="2" placeholder="Detalles adicionales..."></textarea>
-        </div>
-        <button type="submit" class="btn btn--primary btn--full">Guardar</button>
-      </form>
-    </div>
-  </div>
+/* ─── Agent Bus ─── */
+async function loadBus() {
+    const data = await api('/api/agent-bus/status');
+    const pendEl = document.getElementById('bus-pending');
+    const compEl = document.getElementById('bus-completed');
+    const hdrBus = document.getElementById('hdr-bus');
+    if (!data) {
+        pendEl.innerHTML = emptyState('Bus unreachable');
+        hdrBus.className = 'status-pill danger';
+        hdrBus.innerHTML = 'Bus: <span>offline</span>';
+        return;
+    }
+    const pAnti = data.pending_for_antigravity || [];
+    const pCode = data.pending_for_claude_code || [];
+    const total = pAnti.length + pCode.length;
+    hdrBus.querySelector('span').textContent = total;
+    hdrBus.className = 'status-pill ' + (total === 0 ? 'ok' : total < 3 ? 'warn' : 'danger');
+    document.getElementById('bus-meta').textContent = `${pAnti.length} antigravity · ${pCode.length} code`;
 
-  <!-- ─── Modal: Añadir Logística ────────────────────── -->
-  <div class="modal-overlay" id="logisticsModal">
-    <div class="modal">
-      <div class="modal__header">
-        <h3>🗺️ Nuevo Item Logístico</h3>
-        <button class="modal__close" onclick="closeModal('logisticsModal')">&times;</button>
-      </div>
-      <form class="modal__form" onsubmit="submitLogistics(event)">
-        <div class="form-row">
-          <div class="form-group">
-            <label>Tipo</label>
-            <select id="logType" required>
-              <option value="transport">Transporte</option>
-              <option value="accommodation">Alojamiento</option>
-              <option value="visa">Visa</option>
-              <option value="appointment">Cita</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Fecha</label>
-            <input type="date" id="logDate" required>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Título</label>
-          <input type="text" id="logTitle" required placeholder="Ej: WOF renovación, ferry Picton...">
-        </div>
-        <div class="form-group">
-          <label>Ubicación</label>
-          <input type="text" id="logLocation" placeholder="Auckland, Wellington...">
-        </div>
-        <div class="form-group">
-          <label>Notas</label>
-          <textarea id="logNotes" rows="2" placeholder="Detalles..."></textarea>
-        </div>
-        <button type="submit" class="btn btn--primary btn--full">Guardar</button>
-      </form>
-    </div>
-  </div>
+    const allPending = [
+        ...pAnti.map(t => ({...t, agent:'antigravity'})),
+        ...pCode.map(t => ({...t, agent:'claude-code'})),
+    ];
+    if (allPending.length === 0) {
+        pendEl.innerHTML = emptyState('All clear — no pending tasks');
+    } else {
+        pendEl.innerHTML = allPending.map(t => `
+            <div class="bus-task">
+                <span class="bus-agent ${t.agent}">${t.agent === 'antigravity' ? 'AG' : 'CC'}</span>
+                <span class="bus-summary">${t.summary||t.action||'task'}</span>
+                <span class="bus-time">${relTime(t.created_at)}</span>
+            </div>
+        `).join('');
+    }
 
-  <!-- ─── Modal: Añadir Bio-Check ────────────────────── -->
-  <div class="modal-overlay" id="bioModal">
-    <div class="modal">
-      <div class="modal__header">
-        <h3>🫀 Nuevo Bio-Check</h3>
-        <button class="modal__close" onclick="closeModal('bioModal')">&times;</button>
-      </div>
-      <form class="modal__form" onsubmit="submitBio(event)">
-        <div class="form-row">
-          <div class="form-group">
-            <label>Horas de sueño</label>
-            <input type="number" id="bioSleep" step="0.5" min="0" max="24" required placeholder="7.5">
-          </div>
-          <div class="form-group">
-            <label>Energía (1-10)</label>
-            <input type="number" id="bioEnergy" min="1" max="10" required placeholder="7">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Ánimo (1-10)</label>
-            <input type="number" id="bioMood" min="1" max="10" required placeholder="7">
-          </div>
-          <div class="form-group">
-            <label>Ejercicio (minutos)</label>
-            <input type="number" id="bioExercise" min="0" value="0" placeholder="30">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Notas</label>
-          <textarea id="bioNotes" rows="2" placeholder="Cómo te sientes hoy..."></textarea>
-        </div>
-        <button type="submit" class="btn btn--primary btn--full">Guardar</button>
-      </form>
-    </div>
-  </div>
+    const completed = (data.recent_completed || []).slice(0,5);
+    if (completed.length === 0) {
+        compEl.innerHTML = '<div style="font-size:0.78rem;color:var(--text-muted);">No recent completions</div>';
+    } else {
+        compEl.innerHTML = completed.map(t => {
+            const agentClass = (t.from||'').includes('code') ? 'claude-code' : (t.from||'').includes('chat') ? 'claude-chat' : 'antigravity';
+            return `<div class="bus-task" style="opacity:0.6"><span class="bus-agent ${agentClass}">${t.from||'?'}</span><span class="bus-summary">${t.summary||''}</span><span class="bus-time">${relTime(t.completed_at)}</span></div>`;
+        }).join('');
+    }
+}
 
-  <!-- ─── Toast ──────────────────────────────────────── -->
-  <div class="toast-container" id="toasts"></div>
-
-  <script src="/js/app.js"></script>
+/* ═══ INIT ═══ */
+async function refreshAll() {
+    await Promise.allSettled([
+        loadNews('all'), loadJobs(), loadFinances(),
+        loadDocs(), loadLogistics(), loadOpps(), loadBio(), loadBus(),
+    ]);
+    const rssEl = document.getElementById('hdr-rss');
+    rssEl.textContent = 'RSS: ' + new Date().toLocaleTimeString('en-NZ',{timeZone:'Pacific/Auckland',hour:'2-digit',minute:'2-digit',hour12:false});
+}
+refreshAll();
+setInterval(refreshAll, 60000);
+setInterval(loadBus, 30000);
+</script>
 </body>
 </html>
