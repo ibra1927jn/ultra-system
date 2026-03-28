@@ -103,6 +103,47 @@ router.post("/git-push", (req, res) => {
   res.json({ ok: true, tasks_created: tasks.length, tasks });
 });
 
+// POST /api/agent-bus/send — mensaje directo entre agentes
+router.post("/send", (req, res) => {
+  const { from, to, action, summary, body, repo, priority } = req.body;
+
+  const validAgents = ["claude_code", "antigravity", "claude_chat"];
+  const validTargets = ["claude_code", "antigravity"];
+  const validActions = ["review", "fix", "build", "test", "question"];
+  const validPriorities = ["low", "normal", "high"];
+
+  if (!from || !validAgents.includes(from))
+    return res.status(400).json({ ok: false, error: `Invalid 'from'. Must be one of: ${validAgents.join(", ")}` });
+  if (!to || !validTargets.includes(to))
+    return res.status(400).json({ ok: false, error: `Invalid 'to'. Must be one of: ${validTargets.join(", ")}` });
+  if (!summary)
+    return res.status(400).json({ ok: false, error: "Missing 'summary'" });
+  if (action && !validActions.includes(action))
+    return res.status(400).json({ ok: false, error: `Invalid 'action'. Must be one of: ${validActions.join(", ")}` });
+  if (priority && !validPriorities.includes(priority))
+    return res.status(400).json({ ok: false, error: `Invalid 'priority'. Must be one of: ${validPriorities.join(", ")}` });
+
+  const bus = readBus();
+  const queue = `pending_for_${to}`;
+
+  const task = {
+    id: crypto.randomUUID(),
+    from,
+    to,
+    action: action || "review",
+    repo: repo || null,
+    summary: summary.substring(0, 200),
+    body: body || null,
+    priority: priority || "normal",
+    created_at: new Date().toISOString(),
+    status: "pending"
+  };
+
+  bus[queue].push(task);
+  writeBus(bus);
+  res.json({ ok: true, task });
+});
+
 // POST /api/agent-bus/complete — mark task as done
 router.post("/complete", (req, res) => {
   const { id } = req.body;
