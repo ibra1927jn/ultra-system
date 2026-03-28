@@ -123,11 +123,12 @@ async function fetchAdzuna() {
   }
 
   const searches = [
-    { what: 'packhouse', where: 'Canterbury', region: 'Christchurch' },
-    { what: 'warehouse', where: 'Canterbury', region: 'Christchurch' },
-    { what: 'team leader warehouse', where: 'Canterbury', region: 'Christchurch' },
-    { what: 'packhouse', where: 'Bay of Plenty', region: 'Bay of Plenty' },
-    { what: 'warehouse', where: 'Bay of Plenty', region: 'Bay of Plenty' },
+    { what: 'warehouse packhouse team leader', where: 'Canterbury', region: 'Christchurch', category: 'warehouse' },
+    { what: 'warehouse packhouse team leader', where: 'Bay of Plenty', region: 'Bay of Plenty', category: 'warehouse' },
+    { what: 'web developer freelance IT', where: 'New Zealand', region: 'Remote NZ', category: 'tech' },
+    { what: 'hospitality kitchen barista', where: 'Canterbury', region: 'Christchurch', category: 'hospitality' },
+    { what: 'driver delivery logistics', where: 'Canterbury', region: 'Christchurch', category: 'logistics' },
+    { what: 'construction labourer', where: 'Canterbury', region: 'Christchurch', category: 'construction' },
   ];
 
   let totalNew = 0;
@@ -171,12 +172,11 @@ async function fetchAdzuna() {
         );
 
         if (!exists) {
-          // Usar source_id=1 para Adzuna (o crear una source virtual)
           const source = await ensureAdzunaSource(search.what, search.region);
           await db.query(
-            `INSERT INTO job_listings (source_id, title, url, region)
-             VALUES ($1, $2, $3, $4)`,
-            [source.id, `${title}${company ? ' — ' + company : ''}`, jobUrl, search.region]
+            `INSERT INTO job_listings (source_id, title, url, region, category)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [source.id, `${title}${company ? ' — ' + company : ''}`, jobUrl, search.region, search.category || 'other']
           );
           totalNew++;
         }
@@ -244,17 +244,24 @@ async function checkAll() {
 /**
  * Obtiene ofertas recientes
  */
-async function getListings(sourceId, limit = 20) {
+async function getListings(sourceId, limit = 20, category = null) {
   const params = [limit];
-  let where = '';
+  const conditions = [];
 
   if (sourceId) {
-    where = 'WHERE l.source_id = $2';
     params.push(sourceId);
+    conditions.push(`l.source_id = $${params.length}`);
   }
 
+  if (category && category !== 'all') {
+    params.push(category);
+    conditions.push(`l.category = $${params.length}`);
+  }
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
   return db.queryAll(
-    `SELECT l.*, s.name as source_name, s.region
+    `SELECT l.*, s.name as source_name
      FROM job_listings l
      JOIN job_sources s ON s.id = l.source_id
      ${where}

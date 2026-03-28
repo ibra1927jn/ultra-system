@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS job_listings (
     title           VARCHAR(500) NOT NULL,
     url             TEXT UNIQUE NOT NULL,
     region          VARCHAR(50),
+    category        VARCHAR(50) DEFAULT 'other',
     is_seen         BOOLEAN DEFAULT FALSE,
     found_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -138,6 +139,15 @@ CREATE INDEX IF NOT EXISTS idx_articles_published ON rss_articles(published_at);
 CREATE INDEX IF NOT EXISTS idx_articles_url ON rss_articles(url);
 CREATE INDEX IF NOT EXISTS idx_listings_source ON job_listings(source_id);
 CREATE INDEX IF NOT EXISTS idx_listings_found ON job_listings(found_at);
+CREATE INDEX IF NOT EXISTS idx_listings_category ON job_listings(category);
+
+-- Migration: añadir category a job_listings si no existe
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_listings' AND column_name='category') THEN
+        ALTER TABLE job_listings ADD COLUMN category VARCHAR(50) DEFAULT 'other';
+        CREATE INDEX IF NOT EXISTS idx_listings_category ON job_listings(category);
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_scheduler_job ON scheduler_log(job_name);
 CREATE INDEX IF NOT EXISTS idx_scheduler_time ON scheduler_log(executed_at);
 

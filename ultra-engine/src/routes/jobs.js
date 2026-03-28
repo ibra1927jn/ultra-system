@@ -10,8 +10,8 @@ const router = express.Router();
 // ─── GET /api/jobs ─ Listar ofertas ──────────────────────
 router.get('/', async (req, res) => {
   try {
-    const { source_id, limit } = req.query;
-    const listings = await scraper.getListings(source_id, parseInt(limit) || 20);
+    const { source_id, limit, category } = req.query;
+    const listings = await scraper.getListings(source_id, parseInt(limit) || 20, category);
     res.json({ ok: true, data: listings });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
