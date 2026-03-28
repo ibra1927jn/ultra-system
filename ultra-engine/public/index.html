@@ -356,12 +356,12 @@ body::before {
             </div>
             <div class="card-body">
                 <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;" id="jobs-tabs">
-                    <button class="tab-btn active" onclick="filterJobs('all')">All</button>
-                    <button class="tab-btn" onclick="filterJobs('warehouse')">Warehouse</button>
-                    <button class="tab-btn" onclick="filterJobs('tech')">Tech</button>
-                    <button class="tab-btn" onclick="filterJobs('hospitality')">Hospitality</button>
-                    <button class="tab-btn" onclick="filterJobs('construction')">Construction</button>
-                    <button class="tab-btn" onclick="filterJobs('logistics')">Logistics</button>
+                    <button class="tab-btn active" onclick="filterJobs('all',this)">All</button>
+                    <button class="tab-btn" onclick="filterJobs('warehouse',this)">Warehouse</button>
+                    <button class="tab-btn" onclick="filterJobs('tech',this)">Tech</button>
+                    <button class="tab-btn" onclick="filterJobs('hospitality',this)">Hospitality</button>
+                    <button class="tab-btn" onclick="filterJobs('construction',this)">Construction</button>
+                    <button class="tab-btn" onclick="filterJobs('logistics',this)">Logistics</button>
                 </div>
                 <div style="display:flex;gap:6px;margin-bottom:12px;">
                     <input type="text" id="jobs-search" placeholder="Search jobs..." style="flex:1;padding:6px 10px;background:var(--bg-card);border:1px solid var(--border-glass);border-radius:6px;color:var(--text-primary);font-size:0.8rem;">
@@ -566,15 +566,18 @@ async function loadNews(src) {
     let articles = items;
     if (src && src !== 'all') articles = articles.filter(a => (a.feed_name||a.source||'').toLowerCase().includes(src));
     document.getElementById('news-count').textContent = articles.length + ' articles';
-    el.innerHTML = articles.map(a => `
-        <div class="list-item" style="cursor:pointer;" onclick="window.open('${(a.url||'').replace(/'/g,"\\'")}','_blank')">
-            <div class="list-dot" style="background:${a.relevance_score > 7 ? 'var(--accent-teal)' : a.relevance_score > 4 ? 'var(--accent-amber)' : 'var(--text-muted)'}"></div>
+    el.innerHTML = articles.map(a => {
+        const url = (a.url||'#').replace(/"/g,'&quot;');
+        const scoreColor = a.relevance_score > 7 ? 'var(--accent-teal)' : a.relevance_score > 4 ? 'var(--accent-amber)' : 'var(--text-muted)';
+        return `
+        <div class="list-item" style="cursor:pointer;">
+            <div class="list-dot" style="background:${scoreColor}"></div>
             <div class="list-content">
-                <div class="list-title"><a href="${a.url||'#'}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--text-primary);text-decoration:none;">${(a.title||'').replace(/\b(AI|NZ|tech|crypto|startup)\b/gi, '<span class="kw">$1</span>')}</a></div>
-                <div class="list-sub">${a.feed_name||a.source||'?'} · ${relTime(a.published_at||a.created_at)} ${a.relevance_score ? '· ⭐'+a.relevance_score : ''}</div>
+                <div class="list-title"><a href="${url}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none;">${(a.title||'').replace(/\b(AI|NZ|tech|crypto|startup)\b/gi, '<span class="kw">$1</span>')}</a></div>
+                <div class="list-sub">${a.feed_name||a.source||'?'} · ${relTime(a.published_at||a.created_at)} ${a.relevance_score ? '· score:'+a.relevance_score : ''}</div>
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 /* ─── P2: Jobs ─── */
@@ -636,9 +639,9 @@ function toggleJobDetail(id) {
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-function filterJobs(cat) {
+function filterJobs(cat, el) {
     document.querySelectorAll('#jobs-tabs .tab-btn').forEach(b => b.classList.remove('active'));
-    event.target.classList.add('active');
+    if (el) el.classList.add('active');
     loadJobs(cat);
 }
 
@@ -751,7 +754,8 @@ async function loadOpps() {
         const target = document.getElementById('kanban-'+col) || document.getElementById('kanban-detected');
         const link = o.url ? `<a href="${o.url}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none;">${o.title||o.name||'?'}</a>` : (o.title||o.name||'?');
         const deadline = o.deadline ? `<br><span style="font-size:0.65rem;color:var(--accent-amber);">⏰ ${new Date(o.deadline).toLocaleDateString('en-NZ')}</span>` : '';
-        target.innerHTML += `<div class="kanban-card" style="border-color:${o.deadline?'var(--accent-amber)':'var(--accent-teal)');cursor:pointer;">${link}<br><span style="font-size:0.68rem;color:var(--text-muted)">${o.category||o.type||''} ${o.source?'· '+o.source:''}</span>${deadline}</div>`;
+        const borderCol = o.deadline ? 'var(--accent-amber)' : 'var(--accent-teal)';
+        target.innerHTML += `<div class="kanban-card" style="border-color:${borderCol};cursor:pointer;">${link}<br><span style="font-size:0.68rem;color:var(--text-muted)">${o.category||o.type||''} ${o.source?'· '+o.source:''}</span>${deadline}</div>`;
     });
 }
 
