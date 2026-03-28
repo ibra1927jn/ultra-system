@@ -102,6 +102,50 @@
       </div>
     </section>
 
+    <!-- ─── P3: Finanzas ────────────────────────────── -->
+    <section class="panel" id="panelFinances">
+      <div class="panel__header">
+        <h2 class="panel__title">💰 Pilar 3 — Finanzas</h2>
+        <button class="btn btn--primary" onclick="openFinanceModal()">+ Transacción</button>
+      </div>
+      <div class="panel__body" id="financesList">
+        <div class="loading-shimmer"></div>
+      </div>
+    </section>
+
+    <!-- ─── P5: Oportunidades ────────────────────────── -->
+    <section class="panel" id="panelOpportunities">
+      <div class="panel__header">
+        <h2 class="panel__title">🚀 Pilar 5 — Oportunidades</h2>
+        <button class="btn btn--primary" onclick="openOpportunityModal()">+ Oportunidad</button>
+      </div>
+      <div class="panel__body" id="opportunitiesList">
+        <div class="loading-shimmer"></div>
+      </div>
+    </section>
+
+    <!-- ─── P6: Logística ────────────────────────────── -->
+    <section class="panel" id="panelLogistics">
+      <div class="panel__header">
+        <h2 class="panel__title">🗺️ Pilar 6 — Logística</h2>
+        <button class="btn btn--primary" onclick="openLogisticsModal()">+ Item</button>
+      </div>
+      <div class="panel__body" id="logisticsList">
+        <div class="loading-shimmer"></div>
+      </div>
+    </section>
+
+    <!-- ─── P7: Bio-Check ────────────────────────────── -->
+    <section class="panel" id="panelBio">
+      <div class="panel__header">
+        <h2 class="panel__title">🫀 Pilar 7 — Salud / Bio-Check</h2>
+        <button class="btn btn--primary" onclick="openBioModal()">+ Check</button>
+      </div>
+      <div class="panel__body" id="bioList">
+        <div class="loading-shimmer"></div>
+      </div>
+    </section>
+
     <!-- ─── Scheduler ────────────────────────────────── -->
     <section class="panel" id="panelScheduler">
       <div class="panel__header">
@@ -232,6 +276,174 @@
           <input type="text" id="jobSourceRegion" value="NZ" placeholder="NZ, ESP, AUS...">
         </div>
         <button type="submit" class="btn btn--primary btn--full">Añadir fuente</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Añadir Transacción ───────────────────── -->
+  <div class="modal-overlay" id="financeModal">
+    <div class="modal">
+      <div class="modal__header">
+        <h3>💰 Nueva Transacción</h3>
+        <button class="modal__close" onclick="closeModal('financeModal')">&times;</button>
+      </div>
+      <form class="modal__form" onsubmit="submitFinance(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="finType" required>
+              <option value="expense">Gasto</option>
+              <option value="income">Ingreso</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Cantidad (NZD)</label>
+            <input type="number" id="finAmount" step="0.01" min="0.01" required placeholder="0.00">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Categoría</label>
+            <input type="text" id="finCategory" required placeholder="comida, transporte, freelance...">
+          </div>
+          <div class="form-group">
+            <label>Fecha</label>
+            <input type="date" id="finDate" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Descripción</label>
+          <input type="text" id="finDescription" placeholder="Descripción opcional">
+        </div>
+        <button type="submit" class="btn btn--primary btn--full">Guardar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Añadir Oportunidad ──────────────────── -->
+  <div class="modal-overlay" id="opportunityModal">
+    <div class="modal">
+      <div class="modal__header">
+        <h3>🚀 Nueva Oportunidad</h3>
+        <button class="modal__close" onclick="closeModal('opportunityModal')">&times;</button>
+      </div>
+      <form class="modal__form" onsubmit="submitOpportunity(event)">
+        <div class="form-group">
+          <label>Título</label>
+          <input type="text" id="oppTitle" required placeholder="Ej: Freelance React para startup">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Categoría</label>
+            <input type="text" id="oppCategory" placeholder="freelance, empleo, idea...">
+          </div>
+          <div class="form-group">
+            <label>Estado</label>
+            <select id="oppStatus">
+              <option value="new">Nuevo</option>
+              <option value="contacted">Contactado</option>
+              <option value="applied">Aplicado</option>
+              <option value="won">Ganado</option>
+              <option value="rejected">Rechazado</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Fuente</label>
+            <input type="text" id="oppSource" placeholder="LinkedIn, Upwork...">
+          </div>
+          <div class="form-group">
+            <label>Deadline</label>
+            <input type="date" id="oppDeadline">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>URL</label>
+          <input type="url" id="oppUrl" placeholder="https://...">
+        </div>
+        <div class="form-group">
+          <label>Notas</label>
+          <textarea id="oppNotes" rows="2" placeholder="Detalles adicionales..."></textarea>
+        </div>
+        <button type="submit" class="btn btn--primary btn--full">Guardar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Añadir Logística ────────────────────── -->
+  <div class="modal-overlay" id="logisticsModal">
+    <div class="modal">
+      <div class="modal__header">
+        <h3>🗺️ Nuevo Item Logístico</h3>
+        <button class="modal__close" onclick="closeModal('logisticsModal')">&times;</button>
+      </div>
+      <form class="modal__form" onsubmit="submitLogistics(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="logType" required>
+              <option value="transport">Transporte</option>
+              <option value="accommodation">Alojamiento</option>
+              <option value="visa">Visa</option>
+              <option value="appointment">Cita</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Fecha</label>
+            <input type="date" id="logDate" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Título</label>
+          <input type="text" id="logTitle" required placeholder="Ej: WOF renovación, ferry Picton...">
+        </div>
+        <div class="form-group">
+          <label>Ubicación</label>
+          <input type="text" id="logLocation" placeholder="Auckland, Wellington...">
+        </div>
+        <div class="form-group">
+          <label>Notas</label>
+          <textarea id="logNotes" rows="2" placeholder="Detalles..."></textarea>
+        </div>
+        <button type="submit" class="btn btn--primary btn--full">Guardar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Añadir Bio-Check ────────────────────── -->
+  <div class="modal-overlay" id="bioModal">
+    <div class="modal">
+      <div class="modal__header">
+        <h3>🫀 Nuevo Bio-Check</h3>
+        <button class="modal__close" onclick="closeModal('bioModal')">&times;</button>
+      </div>
+      <form class="modal__form" onsubmit="submitBio(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Horas de sueño</label>
+            <input type="number" id="bioSleep" step="0.5" min="0" max="24" required placeholder="7.5">
+          </div>
+          <div class="form-group">
+            <label>Energía (1-10)</label>
+            <input type="number" id="bioEnergy" min="1" max="10" required placeholder="7">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Ánimo (1-10)</label>
+            <input type="number" id="bioMood" min="1" max="10" required placeholder="7">
+          </div>
+          <div class="form-group">
+            <label>Ejercicio (minutos)</label>
+            <input type="number" id="bioExercise" min="0" value="0" placeholder="30">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Notas</label>
+          <textarea id="bioNotes" rows="2" placeholder="Cómo te sientes hoy..."></textarea>
+        </div>
+        <button type="submit" class="btn btn--primary btn--full">Guardar</button>
       </form>
     </div>
   </div>
