@@ -553,14 +553,14 @@ async function loadNews(src) {
         return;
     }
     let articles = items;
-    if (src && src !== 'all') articles = articles.filter(a => (a.source||'').toLowerCase().includes(src));
+    if (src && src !== 'all') articles = articles.filter(a => (a.feed_name||a.source||'').toLowerCase().includes(src));
     document.getElementById('news-count').textContent = articles.length + ' articles';
     el.innerHTML = articles.map(a => `
         <div class="list-item">
             <div class="list-dot" style="background:${a.score > 7 ? 'var(--accent-teal)' : a.score > 4 ? 'var(--accent-amber)' : 'var(--text-muted)'}"></div>
             <div class="list-content">
                 <div class="list-title">${(a.title||'').replace(/\b(AI|NZ|tech|crypto|startup)\b/gi, '<span class="kw">$1</span>')}</div>
-                <div class="list-sub">${a.source||'?'} · ${relTime(a.published_at||a.created_at)}</div>
+                <div class="list-sub">${a.feed_name||a.source||'?'} · ${relTime(a.published_at||a.created_at)}</div>
             </div>
         </div>
     `).join('');
@@ -594,7 +594,7 @@ async function loadJobs() {
 /* ─── P3: Finances ─── */
 async function loadFinances() {
     const finRes = await api('/api/finances');
-    const budRes = await api('/api/budgets');
+    const budRes = await api('/api/finances/budget');
     const fin = finRes && finRes.data ? finRes.data : finRes;
     const bud = budRes && budRes.data ? budRes.data : budRes;
     const metricsEl = document.getElementById('finance-metrics');
