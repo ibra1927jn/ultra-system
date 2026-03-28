@@ -17,6 +17,12 @@
 - [2026-03-28] | P6 Logistica: tabla logistics + rutas GET/POST/PATCH /api/logistics + GET /api/logistics/upcoming + comando /logistica
 - [2026-03-28] | P7 Bio-Check: tabla bio_checks + rutas GET/POST /api/bio + GET /api/bio/trends + comando /bio
 - [2026-03-28] | 7/7 pilares implementados, ULTRA System completo
+- [2026-03-28] | Agent bus /send endpoint for inter-agent messaging | Commit 7512357
+- [2026-03-28] | Dashboard: 4 new pilars (Finanzas, Oportunidades, Logística, Bio-Check) | Commit 052490a
+- [2026-03-28] | Fix JSON parsing all 7 pilars for Mission Control | Commit 4ed12a4
+- [2026-03-28] | Adzuna API integration — 95 job listings imported (6 categories) | Commit efdd21d
+- [2026-03-28] | Enhanced Employment panel: tabs, search, save/applied/skip, clickable | Commit f6b5f0c
+- [2026-03-28] | Fix syntax error line 754 + tab event handling | Commit 8ef95db
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
