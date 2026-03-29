@@ -121,12 +121,12 @@ app.get('/{*path}', (req, res) => {
 
 // ─── Iniciar servidor ──────────────────────────────────────
 async function start() {
-  console.log('');
+  process.stdout.write('\n');
   console.log('╔══════════════════════════════════════════════════════╗');
   console.log('║  🌎 ULTRA ENGINE — Sistema de Inteligencia Personal  ║');
   console.log('║     100% código propio · 0 servicios de terceros    ║');
   console.log('╚══════════════════════════════════════════════════════╝');
-  console.log('');
+  process.stdout.write('\n');
 
   // 1. Verificar DB
   console.log('🗄️ Conectando a PostgreSQL...');
@@ -148,11 +148,11 @@ async function start() {
 
   // 4. Iniciar servidor HTTP
   app.listen(PORT, '0.0.0.0', () => {
-    console.log('');
+    process.stdout.write('\n');
     console.log(`🚀 Ultra Engine corriendo en http://0.0.0.0:${PORT}`);
     console.log(`   Dashboard: http://localhost:${PORT}`);
     console.log(`   API:       http://localhost:${PORT}/api/status`);
-    console.log('');
+    process.stdout.write('\n');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('  Pilares activos:');
     console.log('    P1 📰 Noticias     — RSS Reader');
