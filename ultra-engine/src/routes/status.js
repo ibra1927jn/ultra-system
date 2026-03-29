@@ -23,14 +23,14 @@ router.get('/', async (req, res) => {
        FROM document_alerts`
     );
 
-    const feeds = await db.queryOne('SELECT COUNT(*) as total FROM rss_feeds WHERE is_active = TRUE').catch(() => ({ total: 0 }));
-    const articles = await db.queryOne('SELECT COUNT(*) as total FROM rss_articles').catch(() => ({ total: 0 }));
-    const jobSources = await db.queryOne('SELECT COUNT(*) as total FROM job_sources WHERE is_active = TRUE').catch(() => ({ total: 0 }));
-    const jobListings = await db.queryOne('SELECT COUNT(*) as total FROM job_listings').catch(() => ({ total: 0 }));
+    const feeds = await db.queryOne('SELECT COUNT(*) as total FROM rss_feeds WHERE is_active = TRUE').catch(e => { console.warn('status: rss_feeds query failed:', e.message); return { total: 0 }; });
+    const articles = await db.queryOne('SELECT COUNT(*) as total FROM rss_articles').catch(e => { console.warn('status: rss_articles query failed:', e.message); return { total: 0 }; });
+    const jobSources = await db.queryOne('SELECT COUNT(*) as total FROM job_sources WHERE is_active = TRUE').catch(e => { console.warn('status: job_sources query failed:', e.message); return { total: 0 }; });
+    const jobListings = await db.queryOne('SELECT COUNT(*) as total FROM job_listings').catch(e => { console.warn('status: job_listings query failed:', e.message); return { total: 0 }; });
 
     const lastJobs = await db.queryAll(
       'SELECT * FROM scheduler_log ORDER BY executed_at DESC LIMIT 5'
-    ).catch(() => []);
+    ).catch(e => { console.warn('status: scheduler_log query failed:', e.message); return []; });
 
     res.json({
       ok: true,
