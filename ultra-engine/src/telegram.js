@@ -510,7 +510,7 @@ function init() {
       }
 
       const bar = (val) => {
-        const filled = Math.round(parseFloat(val));
+        const filled = Math.min(10, Math.max(0, Math.round(parseFloat(val))));
         return '█'.repeat(filled) + '░'.repeat(10 - filled);
       };
 
