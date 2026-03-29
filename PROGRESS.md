@@ -43,6 +43,10 @@
 - [2026-03-29] | Fix: scraper.js — Adzuna error log referenced search.what (undefined) instead of search.what_or
 - [2026-03-29] | Refactor: bio.js — removed stale "Pearson" section comment left after extraction to utils/
 - [2026-03-29] | Testing: 25 new tests — bar renderer (9), logistics mapping (3), bio validation (13) + 20 new tests — finances validation (10), logistics validation (10). 106 total, all passing
+- [2026-03-29] | Fix: ocr.js — replaced console.log('') with process.stdout.write('\n') to avoid polluting log streams
+- [2026-03-29] | Refactor: scraper.js — exported hashContent so tests import the real function instead of duplicating it
+- [2026-03-29] | Testing: 28 new tests — opportunity status/pipeline rates (14), document validation (8), budget runway/RSS weight (6). 134 total, all passing
+- [2026-03-29] | Infra: added @vitest/coverage-v8 for test coverage reporting
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
