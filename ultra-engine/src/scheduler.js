@@ -7,6 +7,7 @@
 const cron = require('node-cron');
 const db = require('./db');
 const telegram = require('./telegram');
+const freelanceScraper = require('./freelance_scraper');
 
 const jobs = [];
 
@@ -71,6 +72,14 @@ function init() {
     checkLogisticsNext48h,
     'Diario 08:00 — Items en las proximas 48 horas'
   );
+  // ─── P5: Oportunidades — Scrape freelance cada 12 horas ───
+  register(
+    'freelance-scrape',
+    '0 */12 * * *',
+    scrapeFreelanceOpportunities,
+    'Cada 12 horas — Buscar oportunidades freelance'
+  );
+
 
   // ─── P7: Bio-Check — Resumen semanal domingo 20:00 ───
   register(
@@ -481,6 +490,18 @@ async function sendBioWeeklySummary() {
  * Health ping — verifica DB y registra
  */
 async function healthPing() {
+
+/**
+ * P5: Scrape Freelancer.com para oportunidades relevantes
+ */
+async function scrapeFreelanceOpportunities() {
+  try {
+    const { totalNew, highScoreProjects } = await freelanceScraper.fetchAll();
+    console.log(`🎯 Freelancer: ${totalNew} nuevas, ${highScoreProjects.length} de alto score`);
+  } catch (err) {
+    console.warn('⚠️ Freelance scrape falló:', err.message);
+  }
+}
   const health = await db.healthCheck();
   if (!health.ok) {
     console.error('❌ Health check fallido:', health.error);
