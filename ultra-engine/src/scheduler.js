@@ -76,7 +76,7 @@ function init() {
   register(
     'freelance-scrape',
     '0 */12 * * *',
-    scrapeFreelanceOpportunities,
+    freelanceScraper.fetchAll,
     'Cada 12 horas — Buscar oportunidades freelance'
   );
 
