@@ -154,7 +154,7 @@ async function fetchAdzuna() {
       });
 
       if (!response.ok) {
-        console.error(`❌ Adzuna ${search.what}@${search.where}: HTTP ${response.status}`);
+        console.error(`❌ Adzuna ${search.what_or}@${search.where}: HTTP ${response.status}`);
         continue;
       }
 
