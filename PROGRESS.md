@@ -34,6 +34,10 @@
 - [2026-03-29] | Refactor: removed unused FREELANCER_FEEDS constant from freelance_scraper.js (dead code)
 - [2026-03-29] | Refactor: hoisted db require to module level in routes/jobs.js (was inside PATCH handler)
 - [2026-03-29] | Testing: 7 scraper hashContent tests + 8 OCR saveFile/listFiles tests (43 total, all passing)
+- [2026-03-29] | Fix: auth.js — crypto require was after function that uses it, hoisted to module level
+- [2026-03-29] | Fix: scheduler.js — scrapeJobSources empty catch replaced with console.warn for debuggability
+- [2026-03-29] | Refactor: pearson correlation consolidated from 3 duplicates (bio.js, scheduler.js, telegram.js) into utils/pearson.js
+- [2026-03-29] | Testing: 10 pearson correlation tests + 8 formatDocumentAlert tests (61 total, all passing)
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
