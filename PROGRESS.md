@@ -24,6 +24,11 @@
 - [2026-03-28] | Enhanced Employment panel: tabs, search, save/applied/skip, clickable | Commit f6b5f0c
 - [2026-03-28] | Fix syntax error line 754 + tab event handling | Commit 8ef95db
 
+## Completado (Heartbeat 2026-03-29) ✅
+- [2026-03-29] | Security: .gitignore hardened — added .env.*.local, .DS_Store, editor swap files, IDE dirs, coverage/
+- [2026-03-29] | Testing: vitest framework added (21 tests). Auth middleware (10), DB module (2), RSS scoring (10). All passing
+- [2026-03-29] | Audit: SQL injection scan clean (all parameterized queries), async error handling verified (all routes have try/catch)
+
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
 - Limpieza de contexto.
