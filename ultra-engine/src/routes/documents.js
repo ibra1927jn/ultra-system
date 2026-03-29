@@ -7,7 +7,6 @@ const express = require('express');
 const multer = require('multer');
 const db = require('../db');
 const ocr = require('../ocr');
-const path = require('path');
 
 const router = express.Router();
 const upload = multer({
