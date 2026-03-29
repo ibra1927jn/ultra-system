@@ -38,17 +38,10 @@ function apiKeyAuth(req, res, next) {
   next();
 }
 
+const crypto = require('crypto');
+
 function timingSafeEqual(a, b) {
-  try {
-    const crypto = require('crypto');
-    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-  } catch {
-    let result = 0;
-    for (let i = 0; i < a.length; i++) {
-      result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    }
-    return result === 0;
-  }
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 module.exports = { apiKeyAuth };
