@@ -36,7 +36,9 @@ jobs:
           # Deploy
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$HETZNER_HOST" '
             cd /root/ultra-system &&
-            git pull origin master &&
+            git config pull.ff only 2>/dev/null || true &&
+            git fetch origin master &&
+            git reset --hard origin/master &&
             docker compose up -d --build &&
             sleep 10 &&
             docker ps --format "table {{.Names}}\t{{.Status}}" &&
