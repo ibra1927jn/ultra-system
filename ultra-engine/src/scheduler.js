@@ -237,8 +237,8 @@ async function scrapeJobSources() {
   try {
     const scraper = require('./scraper');
     await scraper.checkAll();
-  } catch {
-    // Module P2 aun no activo
+  } catch (err) {
+    console.warn('⚠️ Job scrape falló:', err.message);
   }
 }
 
