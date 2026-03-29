@@ -29,3 +29,4 @@
 - [2026-03-29] | src/middleware/auth.js:18 | isDashboard=true cuando !referer — curl sin Referer bypasseaba auth en GET | Cambiado a verificacion estricta: referer debe empezar con http(s)://host
 - [2026-03-29] | src/middleware/auth.js:20 | Dashboard solo exento en GET, pero frontend hace POST/PATCH sin API key — calls fallaban con 401 | Dashboard ahora exento para todos los metodos (verificado por origen estricto)
 - [2026-03-29] | src/middleware/auth.js:25 | API key aceptada via query string (req.query.api_key) — se filtra en logs y browser history | Eliminado, solo se acepta via header X-API-Key
+- [2026-03-29] | src/scheduler.js:492 | healthPing() tenia scrapeFreelanceOpportunities() anidada adentro — health check corria dentro del scope del scraper en vez de su propia funcion | Separadas como funciones independientes al mismo nivel
