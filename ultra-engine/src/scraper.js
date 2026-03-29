@@ -342,4 +342,4 @@ async function searchAdzuna(query, location = 'New Zealand') {
   return { total: results.length, new_listings: newCount };
 }
 
-module.exports = { addSource, getSources, checkSource, checkAll, getListings, fetchAdzuna, searchAdzuna };
+module.exports = { addSource, getSources, checkSource, checkAll, getListings, fetchAdzuna, searchAdzuna, hashContent };

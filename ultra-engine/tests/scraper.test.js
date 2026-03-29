@@ -1,19 +1,19 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
-/**
- * Pure hashContent logic extracted from scraper.js.
- * Deterministic string hash used to detect changes in scraped pages.
- */
-function hashContent(content) {
-  let hash = 0;
-  const str = content.replace(/\s+/g, '').substring(0, 10000);
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash |= 0;
-  }
-  return hash.toString(36);
-}
+// Mock dependencies so we can import hashContent from the real module
+vi.mock('cheerio', () => ({ default: { load: vi.fn() } }));
+vi.mock('../src/db.js', () => ({
+  default: { query: vi.fn(), queryOne: vi.fn(), queryAll: vi.fn() },
+  query: vi.fn(),
+  queryOne: vi.fn(),
+  queryAll: vi.fn(),
+}));
+vi.mock('../src/telegram.js', () => ({
+  default: { sendAlert: vi.fn() },
+  sendAlert: vi.fn(),
+}));
+
+const { hashContent } = await import('../src/scraper.js');
 
 describe('scraper hashContent', () => {
   it('returns deterministic hash for same input', () => {
