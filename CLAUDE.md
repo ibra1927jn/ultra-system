@@ -1,6 +1,6 @@
 # vida, control -- ULTRA System
 
-Sistema de inteligencia personal para Allan en NZ. 7 pilares: noticias, empleo, finanzas, burocracia, oportunidades, logistica, bio-check. Zero servicios externos (todo codigo propio).
+Sistema de inteligencia personal para Ibrahim en NZ. 7 pilares: noticias, empleo, finanzas, burocracia, oportunidades, logistica, bio-check. Integraciones: Adzuna API, Telegram API, RSS feeds, Tesseract OCR.
 
 ## Stack
 - Node.js 22 + Express 5.1 + PostgreSQL 16-alpine
