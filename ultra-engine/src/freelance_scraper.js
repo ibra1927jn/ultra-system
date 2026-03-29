@@ -7,14 +7,6 @@ const cheerio = require('cheerio');
 const db = require('./db');
 const telegram = require('./telegram');
 
-// Categorias relevantes para Allan (dev, design, data, automation)
-const FREELANCER_FEEDS = [
-  { category: 'web-dev', url: 'https://www.freelancer.com/rss.xml', query: 'javascript react node' },
-  { category: 'python', url: 'https://www.freelancer.com/rss.xml', query: 'python fastapi django' },
-  { category: 'automation', url: 'https://www.freelancer.com/rss.xml', query: 'automation bot scraping' },
-  { category: 'mobile', url: 'https://www.freelancer.com/rss.xml', query: 'react native mobile app' },
-];
-
 // Scoring: keywords que aumentan relevancia para Allan
 const SKILL_KEYWORDS = {
   // Alto valor (stack de Allan)
