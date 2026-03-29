@@ -8,6 +8,7 @@ const cron = require('node-cron');
 const db = require('./db');
 const telegram = require('./telegram');
 const freelanceScraper = require('./freelance_scraper');
+const { pearson: pearsonCorr } = require('./utils/pearson');
 
 const jobs = [];
 
@@ -512,26 +513,6 @@ async function healthPing() {
 // ═══════════════════════════════════════════════════════════
 //  UTILS
 // ═══════════════════════════════════════════════════════════
-
-/**
- * Correlacion de Pearson (duplicada del modulo bio para independencia)
- */
-function pearsonCorr(x, y) {
-  const n = x.length;
-  if (n < 3 || n !== y.length) return null;
-
-  const sumX = x.reduce((a, b) => a + b, 0);
-  const sumY = y.reduce((a, b) => a + b, 0);
-  const sumXY = x.reduce((a, b, i) => a + b * y[i], 0);
-  const sumX2 = x.reduce((a, b) => a + b * b, 0);
-  const sumY2 = y.reduce((a, b) => a + b * b, 0);
-
-  const numerator = n * sumXY - sumX * sumY;
-  const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
-
-  if (denominator === 0) return null;
-  return Math.round((numerator / denominator) * 100) / 100;
-}
 
 /**
  * Retorna lista de jobs para el dashboard
