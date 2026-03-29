@@ -28,6 +28,9 @@
 - [2026-03-29] | Security: .gitignore hardened — added .env.*.local, .DS_Store, editor swap files, IDE dirs, coverage/
 - [2026-03-29] | Testing: vitest framework added (21 tests). Auth middleware (10), DB module (2), RSS scoring (10). All passing
 - [2026-03-29] | Audit: SQL injection scan clean (all parameterized queries), async error handling verified (all routes have try/catch)
+- [2026-03-29] | Fix: scheduler.js — healthPing() and scrapeFreelanceOpportunities() were malformed (nested functions, health check ran inside scraper scope)
+- [2026-03-29] | Refactor: removed dead `path` import from documents route, hoisted crypto require in auth middleware
+- [2026-03-29] | Testing: 7 new tests for freelance project scoring algorithm (28 total, all passing)
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
