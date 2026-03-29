@@ -7,6 +7,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const db = require('./db');
 const { pearson } = require('./utils/pearson');
+const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 
 let bot = null;
 
@@ -493,16 +494,7 @@ function init() {
 
   bot.onText(/\/bio$/, async (msg) => {
     try {
-      const weekly = await db.queryOne(
-        `SELECT
-           COUNT(*) AS entries,
-           ROUND(AVG(sleep_hours)::numeric, 1) AS avg_sleep,
-           ROUND(AVG(energy_level)::numeric, 1) AS avg_energy,
-           ROUND(AVG(mood)::numeric, 1) AS avg_mood,
-           ROUND(AVG(exercise_minutes)::numeric, 0) AS avg_exercise
-         FROM bio_checks
-         WHERE date >= CURRENT_DATE - 7`
-      );
+      const weekly = await db.queryOne(BIO_WEEKLY_SQL);
 
       if (!weekly || parseInt(weekly.entries) === 0) {
         send(msg.chat.id, '📭 No hay registros de bio-check esta semana.');
@@ -535,16 +527,7 @@ function init() {
   bot.onText(/\/biosemana/, async (msg) => {
     try {
       // Promedios semanales
-      const weekly = await db.queryOne(
-        `SELECT
-           COUNT(*) AS entries,
-           ROUND(AVG(sleep_hours)::numeric, 1) AS avg_sleep,
-           ROUND(AVG(energy_level)::numeric, 1) AS avg_energy,
-           ROUND(AVG(mood)::numeric, 1) AS avg_mood,
-           ROUND(AVG(exercise_minutes)::numeric, 0) AS avg_exercise
-         FROM bio_checks
-         WHERE date >= CURRENT_DATE - 7`
-      );
+      const weekly = await db.queryOne(BIO_WEEKLY_SQL);
 
       if (!weekly || parseInt(weekly.entries) === 0) {
         send(msg.chat.id, '📭 No hay registros de bio-check esta semana.');
@@ -552,10 +535,7 @@ function init() {
       }
 
       // Correlaciones (ultimos 30 dias)
-      const data = await db.queryAll(
-        `SELECT sleep_hours, energy_level, mood, exercise_minutes
-         FROM bio_checks WHERE date >= CURRENT_DATE - 30 ORDER BY date DESC`
-      );
+      const data = await db.queryAll(BIO_CORRELATION_SQL);
 
       const bar = (val) => {
         const filled = Math.round(parseFloat(val));

@@ -9,6 +9,7 @@ const db = require('./db');
 const telegram = require('./telegram');
 const freelanceScraper = require('./freelance_scraper');
 const { pearson: pearsonCorr } = require('./utils/pearson');
+const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 
 const jobs = [];
 
@@ -411,16 +412,7 @@ async function checkLogisticsNext48h() {
  * Se ejecuta domingo a las 20:00
  */
 async function sendBioWeeklySummary() {
-  const weekly = await db.queryOne(
-    `SELECT
-       COUNT(*) AS entries,
-       ROUND(AVG(sleep_hours)::numeric, 1) AS avg_sleep,
-       ROUND(AVG(energy_level)::numeric, 1) AS avg_energy,
-       ROUND(AVG(mood)::numeric, 1) AS avg_mood,
-       ROUND(AVG(exercise_minutes)::numeric, 0) AS avg_exercise
-     FROM bio_checks
-     WHERE date >= CURRENT_DATE - 7`
-  );
+  const weekly = await db.queryOne(BIO_WEEKLY_SQL);
 
   if (!weekly || parseInt(weekly.entries) === 0) {
     console.log('📭 Sin registros bio esta semana');
@@ -453,10 +445,7 @@ async function sendBioWeeklySummary() {
   if (avgMood < 4) lines.push(`⚠️ Animo bajo (${avgMood}/10) — considera un descanso`);
 
   // Correlaciones (ultimos 30 dias)
-  const data = await db.queryAll(
-    `SELECT sleep_hours, energy_level, mood, exercise_minutes
-     FROM bio_checks WHERE date >= CURRENT_DATE - 30 ORDER BY date DESC`
-  );
+  const data = await db.queryAll(BIO_CORRELATION_SQL);
 
   if (data.length >= 3) {
     const sleep = data.map(d => parseFloat(d.sleep_hours));
