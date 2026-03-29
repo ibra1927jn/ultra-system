@@ -4,6 +4,8 @@
 // ║  Dashboard (mismo origen) pasa sin key                   ║
 // ╚══════════════════════════════════════════════════════════╝
 
+const crypto = require('crypto');
+
 function apiKeyAuth(req, res, next) {
   const serverKey = process.env.API_KEY;
 
@@ -37,8 +39,6 @@ function apiKeyAuth(req, res, next) {
 
   next();
 }
-
-const crypto = require('crypto');
 
 function timingSafeEqual(a, b) {
   return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
