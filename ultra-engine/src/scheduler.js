@@ -428,8 +428,8 @@ async function sendBioWeeklySummary() {
   }
 
   const bar = (val) => {
-    const filled = Math.round(parseFloat(val));
-    return '█'.repeat(Math.min(10, Math.max(0, filled))) + '░'.repeat(Math.max(0, 10 - filled));
+    const filled = Math.min(10, Math.max(0, Math.round(parseFloat(val))));
+    return '█'.repeat(filled) + '░'.repeat(10 - filled);
   };
 
   const lines = [
