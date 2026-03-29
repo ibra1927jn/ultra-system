@@ -226,7 +226,8 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'type debe ser income o expense' });
     }
 
-    if (parseFloat(amount) <= 0 || isNaN(parseFloat(amount))) {
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({ ok: false, error: 'amount debe ser un numero positivo' });
     }
 
@@ -234,7 +235,7 @@ router.post('/', async (req, res) => {
       `INSERT INTO finances (type, amount, category, description, date)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [type, parseFloat(amount), category, description || null, date || new Date().toISOString().split('T')[0]]
+      [type, parsedAmount, category, description || null, date || new Date().toISOString().split('T')[0]]
     );
 
     res.status(201).json({ ok: true, data: result });
