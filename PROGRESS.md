@@ -38,6 +38,11 @@
 - [2026-03-29] | Fix: scheduler.js — scrapeJobSources empty catch replaced with console.warn for debuggability
 - [2026-03-29] | Refactor: pearson correlation consolidated from 3 duplicates (bio.js, scheduler.js, telegram.js) into utils/pearson.js
 - [2026-03-29] | Testing: 10 pearson correlation tests + 8 formatDocumentAlert tests (61 total, all passing)
+- [2026-03-29] | Fix: finances.js — redundant parseFloat(amount) called 3 times, now parsed once into variable
+- [2026-03-29] | Fix: scheduler.js bar() — progress bar rendered wrong length for negative/out-of-range values (clamping bug)
+- [2026-03-29] | Fix: scraper.js — Adzuna error log referenced search.what (undefined) instead of search.what_or
+- [2026-03-29] | Refactor: bio.js — removed stale "Pearson" section comment left after extraction to utils/
+- [2026-03-29] | Testing: 25 new tests — bar renderer (9), logistics mapping (3), bio validation (13) + 20 new tests — finances validation (10), logistics validation (10). 106 total, all passing
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
