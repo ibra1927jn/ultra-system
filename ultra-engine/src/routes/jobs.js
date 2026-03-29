@@ -3,6 +3,7 @@
 // ╚══════════════════════════════════════════════════════════╝
 
 const express = require('express');
+const db = require('../db');
 const scraper = require('../scraper');
 
 const router = express.Router();
@@ -82,7 +83,6 @@ router.patch('/:id/status', async (req, res) => {
     if (!valid.includes(status)) {
       return res.status(400).json({ ok: false, error: `Status must be: ${valid.join(', ')}` });
     }
-    const db = require('../db');
     const result = await db.queryOne(
       'UPDATE job_listings SET status = $1 WHERE id = $2 RETURNING *',
       [status, req.params.id]
