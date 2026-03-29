@@ -48,7 +48,7 @@ async function extractText(filePath) {
     },
   });
 
-  console.log(''); // Nueva línea después del progreso
+  process.stdout.write('\n'); // Nueva línea después del progreso
   console.log(`✅ OCR completado (confianza: ${Math.round(result.data.confidence)}%)`);
 
   return {
