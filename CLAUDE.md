@@ -54,7 +54,7 @@ Sistema de inteligencia personal para Allan en NZ. 7 pilares: noticias, empleo, 
 - ADZUNA_APP_ID, ADZUNA_APP_KEY
 
 ## Production
-- Server: Hetzner CX23 (2vCPU, 4GB RAM, 40GB)
+- Server: Hetzner CX43 (8vCPU, 16GB RAM, 38GB)
 - URL: http://95.217.158.7 (port 80 -> 3000)
 - Deploy: `node deploy_hetzner.js` (SFTP + SSH restart)
 - CI/CD: GitHub Actions workflow (.github/workflows/deploy.yml)
