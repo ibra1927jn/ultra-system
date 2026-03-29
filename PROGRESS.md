@@ -50,6 +50,8 @@
 - [2026-03-29] | Refactor: removed unused `path` import from agentbus.js (dead code)
 - [2026-03-29] | Fix: server.js — replaced console.log('') with process.stdout.write('\n') in startup banner (consistent with ocr.js fix)
 - [2026-03-29] | Testing: 54 new tests — pipeline conversion rates (9), runway/burn calculations (9), bio correlation interpretation (12), agentbus commit parsing/routing/validation (24). 188 total, all passing
+- [2026-03-29] | Security: removed realistic-looking API key placeholder from .env.example (replaced with empty value)
+- [2026-03-29] | Testing: 53 new tests — db helpers/query patterns (15), scraper hash edge cases (9), auth dashboard detection + timing-safe comparison (10), telegram urgency thresholds + emoji mapping (11), RSS keyword clamping + threshold logic (12). Total: 246 tests, all passing. Coverage: 12% → improved via pure-logic extraction tests
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
