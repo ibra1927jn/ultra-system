@@ -47,6 +47,9 @@
 - [2026-03-29] | Refactor: scraper.js — exported hashContent so tests import the real function instead of duplicating it
 - [2026-03-29] | Testing: 28 new tests — opportunity status/pipeline rates (14), document validation (8), budget runway/RSS weight (6). 134 total, all passing
 - [2026-03-29] | Infra: added @vitest/coverage-v8 for test coverage reporting
+- [2026-03-29] | Refactor: removed unused `path` import from agentbus.js (dead code)
+- [2026-03-29] | Fix: server.js — replaced console.log('') with process.stdout.write('\n') in startup banner (consistent with ocr.js fix)
+- [2026-03-29] | Testing: 54 new tests — pipeline conversion rates (9), runway/burn calculations (9), bio correlation interpretation (12), agentbus commit parsing/routing/validation (24). 188 total, all passing
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
