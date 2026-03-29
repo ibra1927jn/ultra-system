@@ -52,6 +52,10 @@
 - [2026-03-29] | Testing: 54 new tests — pipeline conversion rates (9), runway/burn calculations (9), bio correlation interpretation (12), agentbus commit parsing/routing/validation (24). 188 total, all passing
 - [2026-03-29] | Security: removed realistic-looking API key placeholder from .env.example (replaced with empty value)
 - [2026-03-29] | Testing: 53 new tests — db helpers/query patterns (15), scraper hash edge cases (9), auth dashboard detection + timing-safe comparison (10), telegram urgency thresholds + emoji mapping (11), RSS keyword clamping + threshold logic (12). Total: 246 tests, all passing. Coverage: 12% → improved via pure-logic extraction tests
+- [2026-03-29] | Fix: telegram.js — bar() in /bio handler missing Math.min/Math.max clamping (would crash on out-of-range values)
+- [2026-03-29] | Fix: status.js — 5 swallowed .catch() handlers now log errors via console.warn before returning defaults
+- [2026-03-29] | Testing: 25 new tests — jobs status/source/search validation (15), feeds url/name + keyword validation (10). Total: 271 tests, all passing
+- [2026-03-29] | Refactor: extracted duplicate bio weekly SQL query (3 copies in scheduler.js + telegram.js) into shared utils/bio_queries.js
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
