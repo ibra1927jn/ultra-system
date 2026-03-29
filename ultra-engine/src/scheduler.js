@@ -487,11 +487,6 @@ async function sendBioWeeklySummary() {
 }
 
 /**
- * Health ping — verifica DB y registra
- */
-async function healthPing() {
-
-/**
  * P5: Scrape Freelancer.com para oportunidades relevantes
  */
 async function scrapeFreelanceOpportunities() {
@@ -502,6 +497,11 @@ async function scrapeFreelanceOpportunities() {
     console.warn('⚠️ Freelance scrape falló:', err.message);
   }
 }
+
+/**
+ * Health ping — verifica DB y registra
+ */
+async function healthPing() {
   const health = await db.healthCheck();
   if (!health.ok) {
     console.error('❌ Health check fallido:', health.error);
