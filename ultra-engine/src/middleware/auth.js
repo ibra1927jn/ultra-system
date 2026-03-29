@@ -1,7 +1,7 @@
 // ╔══════════════════════════════════════════════════════════╗
 // ║  ULTRA ENGINE — Middleware de autenticacion              ║
 // ║  API Key para requests externos                          ║
-// ║  Dashboard (mismo origen) puede leer sin key             ║
+// ║  Dashboard (mismo origen) pasa sin key                   ║
 // ╚══════════════════════════════════════════════════════════╝
 
 function apiKeyAuth(req, res, next) {
@@ -12,20 +12,23 @@ function apiKeyAuth(req, res, next) {
     return res.status(503).json({ ok: false, error: 'Server misconfigured: API_KEY not set' });
   }
 
-  // Dashboard (mismo origen) puede hacer GET sin key
+  // Dashboard (mismo origen) pasa sin key — verificacion estricta
   const referer = req.headers.referer || req.headers.origin || '';
   const host = req.headers.host || '';
-  const isDashboard = referer.includes(host) || !referer;
+  const isDashboard = referer && (
+    referer.startsWith(`http://${host}`) ||
+    referer.startsWith(`https://${host}`)
+  );
 
-  if (isDashboard && req.method === 'GET') {
+  if (isDashboard) {
     return next();
   }
 
-  // Requests externos y mutaciones requieren API key
-  const clientKey = req.headers['x-api-key'] || req.query.api_key;
+  // Requests externos requieren API key via header solamente
+  const clientKey = req.headers['x-api-key'];
 
   if (!clientKey) {
-    return res.status(401).json({ ok: false, error: 'Missing API key. Use header x-api-key or query param api_key' });
+    return res.status(401).json({ ok: false, error: 'Missing API key. Use header X-API-Key' });
   }
 
   if (clientKey.length !== serverKey.length || !timingSafeEqual(clientKey, serverKey)) {

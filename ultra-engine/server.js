@@ -54,7 +54,7 @@ app.use('/api/finances', apiKeyAuth, financesRouter);
 app.use('/api/opportunities', apiKeyAuth, opportunitiesRouter);
 app.use('/api/logistics', apiKeyAuth, logisticsRouter);
 app.use('/api/bio', apiKeyAuth, bioRouter);
-app.use("/api/agent-bus", agentBusRouter);
+app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
 
 // ─── Health endpoint (publico, sin auth para monitoreo) ───
 // Devuelve: estado DB, estado Telegram, pilares cargados, uptime
