@@ -31,6 +31,9 @@
 - [2026-03-29] | Fix: scheduler.js — healthPing() and scrapeFreelanceOpportunities() were malformed (nested functions, health check ran inside scraper scope)
 - [2026-03-29] | Refactor: removed dead `path` import from documents route, hoisted crypto require in auth middleware
 - [2026-03-29] | Testing: 7 new tests for freelance project scoring algorithm (28 total, all passing)
+- [2026-03-29] | Refactor: removed unused FREELANCER_FEEDS constant from freelance_scraper.js (dead code)
+- [2026-03-29] | Refactor: hoisted db require to module level in routes/jobs.js (was inside PATCH handler)
+- [2026-03-29] | Testing: 7 scraper hashContent tests + 8 OCR saveFile/listFiles tests (43 total, all passing)
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
