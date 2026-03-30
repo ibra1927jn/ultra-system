@@ -116,11 +116,11 @@ function register(name, schedule, handler, description) {
   const tz = process.env.TZ || 'UTC';
   const job = cron.schedule(schedule, async () => {
     const start = Date.now();
-    console.log(`🔄 [${name}] Ejecutando...`);
+    console.debug(`🔄 [${name}] Ejecutando...`);
     try {
       await handler();
       const duration = Date.now() - start;
-      console.log(`✅ [${name}] Completado en ${duration}ms`);
+      console.debug(`✅ [${name}] Completado en ${duration}ms`);
       await logJob(name, 'success', duration);
     } catch (err) {
       console.error(`❌ [${name}] Error:`, err.message);
