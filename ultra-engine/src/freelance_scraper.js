@@ -147,7 +147,7 @@ async function fetchAll() {
     await telegram.sendAlert(lines.join('\n'));
   }
 
-  console.log(`🎯 Freelancer: ${totalNew} nuevas oportunidades (${highScoreProjects.length} de alto score)`);
+  console.debug(`🎯 Freelancer: ${totalNew} nuevas oportunidades (${highScoreProjects.length} de alto score)`);
   return { totalNew, highScoreProjects };
 }
 

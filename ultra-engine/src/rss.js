@@ -138,7 +138,7 @@ async function fetchFeed(feedId) {
       [feedId]
     );
 
-    console.log(`📰 [${feed.name}] ${newCount} nuevos, ${highScoreArticles.length} relevantes`);
+    console.debug(`📰 [${feed.name}] ${newCount} nuevos, ${highScoreArticles.length} relevantes`);
     return { newCount, highScoreArticles };
   } catch (err) {
     console.error(`❌ Error fetching feed ${feed.name}:`, err.message);
@@ -161,7 +161,7 @@ async function fetchAll() {
     allHighScore.push(...highScoreArticles);
   }
 
-  console.log(`📰 Total: ${totalNew} nuevos, ${allHighScore.length} relevantes`);
+  console.debug(`📰 Total: ${totalNew} nuevos, ${allHighScore.length} relevantes`);
   return { totalNew, highScoreArticles: allHighScore };
 }
 
