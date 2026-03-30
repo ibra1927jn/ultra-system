@@ -151,6 +151,15 @@ describe('formatLogisticsNext48h()', () => {
     const items = [{ type: 'transport', title: 'Bus', days_until: 0, status: 'pending', location: null }];
     expect(formatLogisticsNext48h(items).join('\n')).not.toContain('📍');
   });
+
+  it('uses fallback urgency emoji for days_until > 2', () => {
+    const items = [{ type: 'transport', title: 'Bus', days_until: 5, status: 'pending', location: null }];
+    const text = formatLogisticsNext48h(items).join('\n');
+    expect(text).toContain('📌');
+    expect(text).not.toContain('HOY');
+    expect(text).not.toContain('MANANA');
+    expect(text).not.toContain('Pasado manana');
+  });
 });
 
 describe('formatBioWeeklySummary()', () => {
@@ -217,6 +226,20 @@ describe('formatBioWeeklySummary()', () => {
     const text = formatBioWeeklySummary({ weekly: baseWeekly, correlations: corrs }).join('\n');
     expect(text).toContain('Correlaciones');
     expect(text).not.toContain('Test');
+  });
+
+  it('shows weak strength emoji for |val| < 0.4', () => {
+    const corrs = [{ label: 'Sueno → Energia', val: 0.2 }];
+    const text = formatBioWeeklySummary({ weekly: baseWeekly, correlations: corrs }).join('\n');
+    expect(text).toContain('〰️');
+    expect(text).toContain('↑');
+  });
+
+  it('shows weak negative correlation', () => {
+    const corrs = [{ label: 'Test', val: -0.15 }];
+    const text = formatBioWeeklySummary({ weekly: baseWeekly, correlations: corrs }).join('\n');
+    expect(text).toContain('〰️');
+    expect(text).toContain('↓');
   });
 
   it('includes footer signature', () => {
