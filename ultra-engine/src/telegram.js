@@ -9,6 +9,8 @@ const db = require('./db');
 const { pearson } = require('./utils/pearson');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const { TYPE_EMOJI, urgencyEmojiDoc, formatDocumentAlert } = require('./utils/document_format');
+const { calculateRunway } = require('./utils/budget_calc');
+const { bar } = require('./utils/scheduler_format');
 
 let bot = null;
 
@@ -251,12 +253,8 @@ function init() {
 
       const income = parseFloat(incomeRow.total);
       const expense = parseFloat(expenseRow.total);
-      const remaining = income - expense;
-
-      // Burn rate
       const dayOfMonth = new Date().getDate();
-      const dailyBurn = dayOfMonth > 0 ? expense / dayOfMonth : 0;
-      const runway = dailyBurn > 0 ? Math.floor(remaining / dailyBurn) : (remaining > 0 ? 999 : 0);
+      const { remaining, dailyBurn, runway } = calculateRunway(income, expense, dayOfMonth);
 
       // Alertas de budget
       const budgetAlerts = await db.queryAll(
@@ -537,11 +535,6 @@ function init() {
 
       // Correlaciones (ultimos 30 dias)
       const data = await db.queryAll(BIO_CORRELATION_SQL);
-
-      const bar = (val) => {
-        const filled = Math.round(parseFloat(val));
-        return '█'.repeat(Math.min(10, Math.max(0, filled))) + '░'.repeat(Math.max(0, 10 - filled));
-      };
 
       const lines = [
         '🧬 *ULTRA SYSTEM — Bio Resumen Semanal*',
