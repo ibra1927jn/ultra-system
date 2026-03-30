@@ -67,6 +67,11 @@
 - [2026-03-30] | Refactor: exported TYPE_EMOJI and urgencyEmojiDoc from telegram.js for direct testing
 - [2026-03-30] | Testing: 75 new tests — bio alerts (13), scheduler formatters (30), telegram exports (11), freelance scraper (7), RSS keyword clamping (10), OCR sanitization (8). Total: 346 tests, all passing
 - [2026-03-30] | Coverage: 13% → 23% statement coverage (utils/ at 90-100%, middleware at 100%)
+- [2026-03-30] | Fix: eslint config missing Node.js 18+ globals (fetch, AbortSignal, URLSearchParams) — false-positive no-undef errors
+- [2026-03-30] | Refactor: demoted 5 per-file debug traces in ocr.js and 1 in scraper.js from console.log to console.debug (reduces prod log noise)
+- [2026-03-30] | Refactor: extracted pure keyword scoring from rss.js into utils/rss_scoring.js (DB-free, testable)
+- [2026-03-30] | Testing: 14 new tests for rss scoring (null inputs, case-insensitivity, multi-keyword accumulation, edge cases). Total: 360 tests, all passing
+- [2026-03-30] | Coverage: 23% → 24% statement coverage (rss_scoring.js at 100%)
 
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
