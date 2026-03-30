@@ -116,9 +116,11 @@ function formatBioWeeklySummary({ weekly, correlations }) {
   const avgEnergy = parseFloat(weekly.avg_energy);
   const avgMood = parseFloat(weekly.avg_mood);
 
-  if (avgSleep < 6) lines.push('', `⚠️ Sueno bajo (${avgSleep}h) — prioriza descanso`);
-  if (avgEnergy < 4) lines.push(`⚠️ Energia baja (${avgEnergy}/10) — revisa alimentacion`);
-  if (avgMood < 4) lines.push(`⚠️ Animo bajo (${avgMood}/10) — considera un descanso`);
+  const warnings = [];
+  if (avgSleep < 6) warnings.push(`⚠️ Sueno bajo (${avgSleep}h) — prioriza descanso`);
+  if (avgEnergy < 4) warnings.push(`⚠️ Energia baja (${avgEnergy}/10) — revisa alimentacion`);
+  if (avgMood < 4) warnings.push(`⚠️ Animo bajo (${avgMood}/10) — considera un descanso`);
+  if (warnings.length) lines.push('', ...warnings);
 
   if (correlations && correlations.length > 0) {
     lines.push('', '📈 *Correlaciones (30 dias):*');

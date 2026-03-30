@@ -204,6 +204,32 @@ describe('formatBioWeeklySummary()', () => {
     expect(text).not.toContain('⚠️');
   });
 
+  it('adds blank line separator before energy warning when sleep is healthy', () => {
+    const weekly = { ...baseWeekly, avg_sleep: '7.0', avg_energy: '3.0' };
+    const lines = formatBioWeeklySummary({ weekly, correlations: null });
+    const idx = lines.findIndex(l => l.includes('Energia baja'));
+    expect(idx).toBeGreaterThan(0);
+    expect(lines[idx - 1]).toBe('');
+  });
+
+  it('adds blank line separator before mood warning when sleep and energy are healthy', () => {
+    const weekly = { ...baseWeekly, avg_sleep: '7.0', avg_energy: '6.0', avg_mood: '3.0' };
+    const lines = formatBioWeeklySummary({ weekly, correlations: null });
+    const idx = lines.findIndex(l => l.includes('Animo bajo'));
+    expect(idx).toBeGreaterThan(0);
+    expect(lines[idx - 1]).toBe('');
+  });
+
+  it('groups multiple warnings without extra blank lines between them', () => {
+    const weekly = { ...baseWeekly, avg_sleep: '5.0', avg_energy: '3.0', avg_mood: '2.0' };
+    const lines = formatBioWeeklySummary({ weekly, correlations: null });
+    const sleepIdx = lines.findIndex(l => l.includes('Sueno bajo'));
+    const energyIdx = lines.findIndex(l => l.includes('Energia baja'));
+    const moodIdx = lines.findIndex(l => l.includes('Animo bajo'));
+    expect(energyIdx).toBe(sleepIdx + 1);
+    expect(moodIdx).toBe(energyIdx + 1);
+  });
+
   it('includes correlations when provided', () => {
     const corrs = [
       { label: 'Sueno → Energia', val: 0.85 },
