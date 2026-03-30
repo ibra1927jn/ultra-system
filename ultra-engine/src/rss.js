@@ -5,6 +5,7 @@
 
 const Parser = require('rss-parser');
 const db = require('./db');
+const { computeArticleScore } = require('./utils/rss_scoring');
 
 const parser = new Parser({
   timeout: 15000,
@@ -24,19 +25,7 @@ const SCORE_THRESHOLD = 8;
  */
 async function scoreArticle(title, summary) {
   const keywords = await db.queryAll('SELECT keyword, weight FROM rss_keywords');
-  if (!keywords.length) return 0;
-
-  const text = `${title} ${summary}`.toLowerCase();
-  let score = 0;
-
-  for (const kw of keywords) {
-    // Buscar keyword como palabra completa o substring
-    if (text.includes(kw.keyword.toLowerCase())) {
-      score += kw.weight;
-    }
-  }
-
-  return score;
+  return computeArticleScore(title, summary, keywords);
 }
 
 // ═══════════════════════════════════════════════════════════
