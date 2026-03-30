@@ -5,7 +5,7 @@
 
 const express = require('express');
 const db = require('../db');
-const { calculateRunway, BUDGET_ALERTS_SQL } = require('../utils/budget_calc');
+const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('../utils/budget_calc');
 const { toDateStr } = require('../utils/date_format');
 
 const router = express.Router();
@@ -93,18 +93,8 @@ router.get('/budget', async (req, res) => {
     const month = req.query.month || new Date().toISOString().slice(0, 7);
 
     // Ingresos y gastos del mes
-    const income = await db.queryOne(
-      `SELECT COALESCE(SUM(amount), 0) as total
-       FROM finances
-       WHERE type = 'income' AND TO_CHAR(date, 'YYYY-MM') = $1`,
-      [month]
-    );
-    const expenses = await db.queryOne(
-      `SELECT COALESCE(SUM(amount), 0) as total
-       FROM finances
-       WHERE type = 'expense' AND TO_CHAR(date, 'YYYY-MM') = $1`,
-      [month]
-    );
+    const income = await db.queryOne(INCOME_TOTAL_SQL, [month]);
+    const expenses = await db.queryOne(EXPENSE_TOTAL_SQL, [month]);
 
     // Gastos por categoria con limites de budget
     const byCategory = await db.queryAll(
