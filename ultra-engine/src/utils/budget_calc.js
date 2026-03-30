@@ -28,4 +28,16 @@ GROUP BY b.category, b.monthly_limit
 HAVING COALESCE(SUM(f.amount), 0) >= b.monthly_limit * 0.8
 ORDER BY percent_used DESC`;
 
-module.exports = { calculateRunway, BUDGET_ALERTS_SQL };
+/**
+ * SQL query: total income for a given month. Expects $1 = month string (YYYY-MM).
+ */
+const INCOME_TOTAL_SQL = `SELECT COALESCE(SUM(amount), 0) as total FROM finances
+     WHERE type = 'income' AND TO_CHAR(date, 'YYYY-MM') = $1`;
+
+/**
+ * SQL query: total expenses for a given month. Expects $1 = month string (YYYY-MM).
+ */
+const EXPENSE_TOTAL_SQL = `SELECT COALESCE(SUM(amount), 0) as total FROM finances
+     WHERE type = 'expense' AND TO_CHAR(date, 'YYYY-MM') = $1`;
+
+module.exports = { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL };

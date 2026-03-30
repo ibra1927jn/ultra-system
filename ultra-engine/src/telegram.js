@@ -9,7 +9,7 @@ const db = require('./db');
 const { pearson } = require('./utils/pearson');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const { formatDocumentAlert } = require('./utils/document_format');
-const { calculateRunway, BUDGET_ALERTS_SQL } = require('./utils/budget_calc');
+const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
 const { bar, LOGISTICS_TYPE_EMOJI } = require('./utils/scheduler_format');
 const { toDateStr } = require('./utils/date_format');
 
@@ -243,14 +243,8 @@ function init() {
       const month = new Date().toISOString().slice(0, 7);
 
       // Totales del mes
-      const incomeRow = await db.queryOne(
-        `SELECT COALESCE(SUM(amount), 0) as total FROM finances
-         WHERE type = 'income' AND TO_CHAR(date, 'YYYY-MM') = $1`, [month]
-      );
-      const expenseRow = await db.queryOne(
-        `SELECT COALESCE(SUM(amount), 0) as total FROM finances
-         WHERE type = 'expense' AND TO_CHAR(date, 'YYYY-MM') = $1`, [month]
-      );
+      const incomeRow = await db.queryOne(INCOME_TOTAL_SQL, [month]);
+      const expenseRow = await db.queryOne(EXPENSE_TOTAL_SQL, [month]);
 
       const income = parseFloat(incomeRow.total);
       const expense = parseFloat(expenseRow.total);
