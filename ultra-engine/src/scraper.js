@@ -105,7 +105,7 @@ async function checkSource(sourceId) {
       await telegram.sendAlert(msg);
     }
 
-    console.log(`💼 [${source.name}] ${newCount} ofertas nuevas`);
+    console.debug(`💼 [${source.name}] ${newCount} ofertas nuevas`);
     return newCount;
   } catch (err) {
     console.error(`❌ Error scraping ${source.name}:`, err.message);
@@ -119,7 +119,7 @@ async function checkSource(sourceId) {
  */
 async function fetchAdzuna() {
   if (!ADZUNA_APP_ID || !ADZUNA_APP_KEY) {
-    console.log('⚠️ Adzuna API keys no configuradas — saltando');
+    console.debug('⚠️ Adzuna API keys no configuradas — saltando');
     return 0;
   }
 
@@ -187,7 +187,7 @@ async function fetchAdzuna() {
         }
       }
 
-      console.log(`💼 Adzuna ${search.what_or}@${search.where}: ${results.length} resultados, ${totalNew} nuevos`);
+      console.debug(`💼 Adzuna ${search.what_or}@${search.where}: ${results.length} resultados, ${totalNew} nuevos`);
     } catch (err) {
       console.error(`❌ Adzuna ${search.what_or}@${search.where}: ${err.message}`);
     }
@@ -242,7 +242,7 @@ async function checkAll() {
     totalNew += count;
   }
 
-  console.log(`💼 Total ofertas nuevas: ${totalNew}`);
+  console.debug(`💼 Total ofertas nuevas: ${totalNew}`);
   return totalNew;
 }
 
