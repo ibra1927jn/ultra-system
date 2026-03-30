@@ -2,6 +2,8 @@
  * Pure formatting functions extracted from scheduler.js for testability.
  */
 
+const LOGISTICS_TYPE_EMOJI = { transport: '🚌', accommodation: '🏠', visa: '🛂', appointment: '📋' };
+
 /**
  * Progress bar renderer for bio summaries.
  * @param {number|string} val - Value 0-10
@@ -71,7 +73,7 @@ function formatOpportunityReminders({ deadlines, followUps }) {
  * @returns {string[]} Formatted message lines
  */
 function formatLogisticsNext48h(items) {
-  const typeEmoji = { transport: '🚌', accommodation: '🏠', visa: '🛂', appointment: '📋' };
+  const typeEmoji = LOGISTICS_TYPE_EMOJI;
   const urgencyMap = { 0: '🔴 HOY', 1: '🟡 MANANA', 2: '🟢 Pasado manana' };
 
   const lines = [
@@ -136,6 +138,7 @@ function formatBioWeeklySummary({ weekly, correlations }) {
 
 module.exports = {
   bar,
+  LOGISTICS_TYPE_EMOJI,
   formatBudgetAlert,
   formatOpportunityReminders,
   formatLogisticsNext48h,

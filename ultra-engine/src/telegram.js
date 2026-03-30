@@ -10,7 +10,7 @@ const { pearson } = require('./utils/pearson');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const { TYPE_EMOJI, urgencyEmojiDoc, formatDocumentAlert } = require('./utils/document_format');
 const { calculateRunway, BUDGET_ALERTS_SQL } = require('./utils/budget_calc');
-const { bar } = require('./utils/scheduler_format');
+const { bar, LOGISTICS_TYPE_EMOJI } = require('./utils/scheduler_format');
 
 let bot = null;
 
@@ -411,7 +411,7 @@ function init() {
         return;
       }
 
-      const typeEmoji = { transport: '🚌', accommodation: '🏠', visa: '🛂', appointment: '📋' };
+      const typeEmoji = LOGISTICS_TYPE_EMOJI;
       const lines = [
         '🗺️ *ULTRA SYSTEM — Logistica (7 dias)*',
         '━━━━━━━━━━━━━━━━━━━━━━━━',
@@ -451,7 +451,7 @@ function init() {
         return;
       }
 
-      const typeEmoji = { transport: '🚌', accommodation: '🏠', visa: '🛂', appointment: '📋' };
+      const typeEmoji = LOGISTICS_TYPE_EMOJI;
       const urgencyEmoji = { 0: '🔴', 1: '🟡', 2: '🟢' };
       const lines = [
         '🗺️ *ULTRA SYSTEM — Proximas 48h*',
@@ -490,11 +490,6 @@ function init() {
         send(msg.chat.id, '📭 No hay registros de bio-check esta semana.');
         return;
       }
-
-      const bar = (val) => {
-        const filled = Math.min(10, Math.max(0, Math.round(parseFloat(val))));
-        return '█'.repeat(filled) + '░'.repeat(10 - filled);
-      };
 
       const lines = [
         '🧬 *ULTRA SYSTEM — Bio-Check Semanal*',
