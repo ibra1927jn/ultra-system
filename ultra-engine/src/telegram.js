@@ -9,7 +9,7 @@ const db = require('./db');
 const { pearson } = require('./utils/pearson');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const { TYPE_EMOJI, urgencyEmojiDoc, formatDocumentAlert } = require('./utils/document_format');
-const { calculateRunway } = require('./utils/budget_calc');
+const { calculateRunway, BUDGET_ALERTS_SQL } = require('./utils/budget_calc');
 const { bar } = require('./utils/scheduler_format');
 
 let bot = null;
@@ -257,16 +257,7 @@ function init() {
       const { remaining, dailyBurn, runway } = calculateRunway(income, expense, dayOfMonth);
 
       // Alertas de budget
-      const budgetAlerts = await db.queryAll(
-        `SELECT b.category, b.monthly_limit, COALESCE(SUM(f.amount), 0) as spent,
-           ROUND((COALESCE(SUM(f.amount), 0) / b.monthly_limit * 100)::numeric, 1) as pct
-         FROM budgets b
-         LEFT JOIN finances f ON LOWER(f.category) = LOWER(b.category)
-           AND f.type = 'expense' AND TO_CHAR(f.date, 'YYYY-MM') = $1
-         GROUP BY b.category, b.monthly_limit
-         HAVING COALESCE(SUM(f.amount), 0) >= b.monthly_limit * 0.8
-         ORDER BY pct DESC`, [month]
-      );
+      const budgetAlerts = await db.queryAll(BUDGET_ALERTS_SQL, [month]);
 
       const lines = [
         '💰 *ULTRA SYSTEM — Presupuesto*',
@@ -283,8 +274,8 @@ function init() {
       if (budgetAlerts.length) {
         lines.push('', '⚠️ *Categorias excediendo 80%:*');
         for (const a of budgetAlerts) {
-          const emoji = parseFloat(a.pct) >= 100 ? '🔴' : '🟡';
-          lines.push(`${emoji} ${a.category}: $${parseFloat(a.spent).toFixed(2)}/$${parseFloat(a.monthly_limit).toFixed(2)} (${a.pct}%)`);
+          const emoji = parseFloat(a.percent_used) >= 100 ? '🔴' : '🟡';
+          lines.push(`${emoji} ${a.category}: $${parseFloat(a.spent).toFixed(2)}/$${parseFloat(a.monthly_limit).toFixed(2)} (${a.percent_used}%)`);
         }
       }
 
