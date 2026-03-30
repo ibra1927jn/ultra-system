@@ -77,6 +77,8 @@
 - [2026-03-30] | Refactor: extracted duplicate salary formatting (2 copies in scraper.js) into utils/salary_format.js
 - [2026-03-30] | Refactor: extracted duplicate budget/runway calculation (scheduler.js + routes/finances.js) into utils/budget_calc.js
 - [2026-03-30] | Testing: 16 new tests — salary_format (7), budget_calc (9). Total: 413 tests, all passing. Coverage: 28% → 30%
+- [2026-03-30] | Refactor: demoted 19 per-execution console.log to console.debug across scheduler.js (12), rss.js (2), freelance_scraper.js (1), scraper.js (4) — reduces prod log noise
+- [2026-03-30] | Refactor: extracted duplicate budget alerts SQL (3 copies in scheduler.js, finances.js, telegram.js) into shared BUDGET_ALERTS_SQL in utils/budget_calc.js
 
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
