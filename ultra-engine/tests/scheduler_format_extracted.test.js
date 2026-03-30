@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   bar,
+  LOGISTICS_TYPE_EMOJI,
   formatBudgetAlert,
   formatOpportunityReminders,
   formatLogisticsNext48h,
@@ -245,5 +246,61 @@ describe('formatBioWeeklySummary()', () => {
   it('includes footer signature', () => {
     const text = formatBioWeeklySummary({ weekly: baseWeekly, correlations: null }).join('\n');
     expect(text).toContain('Ultra Engine');
+  });
+
+  it('skips correlations section for empty array (same as null)', () => {
+    const text = formatBioWeeklySummary({ weekly: baseWeekly, correlations: [] }).join('\n');
+    expect(text).not.toContain('Correlaciones');
+  });
+
+  it('shows strong emoji at exactly 0.7 boundary', () => {
+    const corrs = [{ label: 'Test', val: 0.7 }];
+    const text = formatBioWeeklySummary({ weekly: baseWeekly, correlations: corrs }).join('\n');
+    expect(text).toContain('💪');
+  });
+
+  it('shows moderate emoji at exactly 0.4 boundary', () => {
+    const corrs = [{ label: 'Test', val: 0.4 }];
+    const text = formatBioWeeklySummary({ weekly: baseWeekly, correlations: corrs }).join('\n');
+    expect(text).toContain('📊');
+  });
+});
+
+describe('LOGISTICS_TYPE_EMOJI', () => {
+  it('exports the shared type emoji map', () => {
+    expect(LOGISTICS_TYPE_EMOJI).toEqual({
+      transport: '🚌',
+      accommodation: '🏠',
+      visa: '🛂',
+      appointment: '📋',
+    });
+  });
+});
+
+describe('formatBudgetAlert() edge cases', () => {
+  it('handles empty alerts array', () => {
+    const lines = formatBudgetAlert({
+      month: '2026-03',
+      remaining: 500,
+      runway: 15,
+      alerts: [],
+    });
+    const text = lines.join('\n');
+    expect(text).toContain('Alerta de Presupuesto');
+    expect(text).toContain('$500');
+    expect(text).toContain('15 dias');
+  });
+});
+
+describe('formatOpportunityReminders() edge cases', () => {
+  it('handles both empty deadlines and followUps', () => {
+    const lines = formatOpportunityReminders({
+      deadlines: [],
+      followUps: [],
+    });
+    const text = lines.join('\n');
+    expect(text).toContain('Recordatorios');
+    expect(text).not.toContain('Deadlines proximos');
+    expect(text).not.toContain('Necesitan follow-up');
   });
 });

@@ -62,4 +62,23 @@ describe('pearson()', () => {
     const y = [3, 5, 7, 9, 11];
     expect(pearson(x, y)).toBe(1);
   });
+
+  it('returns null when both arrays have zero variance', () => {
+    expect(pearson([5, 5, 5], [7, 7, 7])).toBeNull();
+  });
+
+  it('handles large arrays', () => {
+    const x = Array.from({ length: 100 }, (_, i) => i);
+    const y = Array.from({ length: 100 }, (_, i) => i * 2 + 1);
+    expect(pearson(x, y)).toBe(1);
+  });
+
+  it('returns value between -1 and 1 for real-world-like data', () => {
+    const sleep = [7, 6.5, 8, 5, 7.5, 6, 8.5];
+    const energy = [6, 5, 8, 4, 7, 5, 9];
+    const r = pearson(sleep, energy);
+    expect(r).not.toBeNull();
+    expect(r).toBeGreaterThanOrEqual(-1);
+    expect(r).toBeLessThanOrEqual(1);
+  });
 });

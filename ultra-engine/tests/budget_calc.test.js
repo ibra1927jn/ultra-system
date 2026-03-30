@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateRunway } from '../src/utils/budget_calc.js';
+import { calculateRunway, BUDGET_ALERTS_SQL } from '../src/utils/budget_calc.js';
 
 describe('calculateRunway()', () => {
   it('calculates remaining balance', () => {
@@ -47,5 +47,31 @@ describe('calculateRunway()', () => {
   it('handles expenses exceeding income with zero burn', () => {
     const { runway } = calculateRunway(0, 0, 0);
     expect(runway).toBe(0); // remaining = 0, not > 0
+  });
+});
+
+describe('BUDGET_ALERTS_SQL', () => {
+  it('is a valid SQL string with expected structure', () => {
+    expect(typeof BUDGET_ALERTS_SQL).toBe('string');
+    expect(BUDGET_ALERTS_SQL).toContain('SELECT');
+    expect(BUDGET_ALERTS_SQL).toContain('FROM budgets');
+    expect(BUDGET_ALERTS_SQL).toContain('JOIN finances');
+    expect(BUDGET_ALERTS_SQL).toContain('GROUP BY');
+    expect(BUDGET_ALERTS_SQL).toContain('HAVING');
+  });
+
+  it('uses parameterized query for month ($1)', () => {
+    expect(BUDGET_ALERTS_SQL).toContain('$1');
+  });
+
+  it('filters categories at 80% threshold', () => {
+    expect(BUDGET_ALERTS_SQL).toContain('0.8');
+  });
+
+  it('selects expected columns', () => {
+    expect(BUDGET_ALERTS_SQL).toContain('category');
+    expect(BUDGET_ALERTS_SQL).toContain('monthly_limit');
+    expect(BUDGET_ALERTS_SQL).toContain('spent');
+    expect(BUDGET_ALERTS_SQL).toContain('percent_used');
   });
 });

@@ -34,4 +34,18 @@ describe('formatSalary()', () => {
   it('handles equal min and max', () => {
     expect(formatSalary(60000, 60000)).toBe('$60000-$60000');
   });
+
+  it('handles negative salary values', () => {
+    expect(formatSalary(-100, 50000)).toBe('$-100-$50000');
+  });
+
+  it('handles very large salary values', () => {
+    expect(formatSalary(1000000, 2000000)).toBe('$1000000-$2000000');
+  });
+
+  it('formats "From" when max is falsy but min is truthy', () => {
+    expect(formatSalary(1, 0)).toBe('From $1');
+    expect(formatSalary(1, null)).toBe('From $1');
+    expect(formatSalary(1, undefined)).toBe('From $1');
+  });
 });
