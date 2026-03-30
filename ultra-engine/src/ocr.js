@@ -20,7 +20,7 @@ if (!fs.existsSync(UPLOAD_DIR)) {
  * @returns {Promise<{text: string, confidence: number}>}
  */
 async function extractText(filePath) {
-  console.log(`🔍 OCR procesando: ${path.basename(filePath)}`);
+  console.debug(`🔍 OCR procesando: ${path.basename(filePath)}`);
 
   const ext = path.extname(filePath).toLowerCase();
 
@@ -31,11 +31,11 @@ async function extractText(filePath) {
       const dataBuffer = fs.readFileSync(filePath);
       const data = await pdfParse(dataBuffer);
       if (data.text && data.text.trim().length > 50) {
-        console.log('✅ Texto extraído de PDF directamente (sin OCR)');
+        console.debug('✅ Texto extraído de PDF directamente (sin OCR)');
         return { text: data.text.trim(), confidence: 99, method: 'pdf-parse' };
       }
     } catch {
-      console.log('ℹ️ PDF no tiene texto embebido, usando OCR...');
+      console.debug('ℹ️ PDF no tiene texto embebido, usando OCR...');
     }
   }
 
@@ -49,7 +49,7 @@ async function extractText(filePath) {
   });
 
   process.stdout.write('\n'); // Nueva línea después del progreso
-  console.log(`✅ OCR completado (confianza: ${Math.round(result.data.confidence)}%)`);
+  console.debug(`✅ OCR completado (confianza: ${Math.round(result.data.confidence)}%)`);
 
   return {
     text: result.data.text.trim(),
@@ -71,7 +71,7 @@ function saveFile(buffer, originalName) {
   const filePath = path.join(UPLOAD_DIR, fileName);
 
   fs.writeFileSync(filePath, buffer);
-  console.log(`💾 Archivo guardado: ${fileName}`);
+  console.debug(`💾 Archivo guardado: ${fileName}`);
   return filePath;
 }
 

@@ -51,7 +51,7 @@ async function checkSource(sourceId) {
 
     // ¿Ha cambiado desde la última vez?
     if (contentHash === source.last_hash) {
-      console.log(`🔄 [${source.name}] Sin cambios`);
+      console.debug(`🔄 [${source.name}] Sin cambios`);
       return 0;
     }
 
