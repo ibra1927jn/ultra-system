@@ -81,6 +81,9 @@
 - [2026-03-30] | Refactor: extracted duplicate budget alerts SQL (3 copies in scheduler.js, finances.js, telegram.js) into shared BUDGET_ALERTS_SQL in utils/budget_calc.js
 - [2026-03-30] | Refactor: extracted duplicate typeEmoji (3 copies in telegram.js, scheduler_format.js) into shared LOGISTICS_TYPE_EMOJI constant; removed duplicate bar() redefinition in telegram.js
 - [2026-03-30] | Testing: 16 new edge-case tests — salary_format (3), pearson (3), budget_calc BUDGET_ALERTS_SQL (4), scheduler_format boundaries/empty arrays (6). Total: 437 tests, all passing
+- [2026-03-30] | Refactor: extracted commit parsing logic (parseCommitAction, identifyCommitSource) from routes/agentbus.js into utils/commit_parse.js
+- [2026-03-30] | Refactor: extracted Adzuna API param builder (buildAdzunaUrl, normalizeAdzunaJob) from scraper.js into utils/adzuna_params.js — deduplicated fetchAdzuna/searchAdzuna
+- [2026-03-30] | Testing: 47 new tests — commit_parse (18), adzuna_params (29). Total: 484 tests, all passing. Coverage: 25% → 29%
 
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
