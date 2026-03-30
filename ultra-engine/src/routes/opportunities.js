@@ -5,6 +5,7 @@
 
 const express = require('express');
 const db = require('../db');
+const { calculateConversionRates } = require('../utils/conversion_rates');
 
 const router = express.Router();
 
@@ -67,18 +68,7 @@ router.get('/pipeline', async (req, res) => {
       statusMap[row.status] = parseInt(row.count);
     }
 
-    const contacted = statusMap['contacted'] || 0;
-    const applied = statusMap['applied'] || 0;
-    const rejected = statusMap['rejected'] || 0;
-    const won = statusMap['won'] || 0;
-
-    // Tasas de conversion (porcentaje sobre el total)
-    const conversionRates = {
-      new_to_contacted: totalCount > 0 ? Math.round((contacted + applied + won) / totalCount * 100) : 0,
-      contacted_to_applied: (contacted + applied + won) > 0 ? Math.round((applied + won) / (contacted + applied + won) * 100) : 0,
-      applied_to_won: (applied + won + rejected) > 0 ? Math.round(won / (applied + won + rejected) * 100) : 0,
-      overall_win_rate: totalCount > 0 ? Math.round(won / totalCount * 100) : 0,
-    };
+    const conversionRates = calculateConversionRates(statusMap, totalCount);
 
     // Oportunidades que necesitan follow-up (contacted > 7 dias sin cambio)
     const needFollowUp = await db.queryAll(
