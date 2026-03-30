@@ -8,6 +8,7 @@ const db = require('../db');
 const { pearson } = require('../utils/pearson');
 const { generateBioAlerts } = require('../utils/bio_alerts');
 const { generateCorrelationInsights } = require('../utils/bio_insights');
+const { toDateStr } = require('../utils/date_format');
 
 const router = express.Router();
 
@@ -188,7 +189,7 @@ router.post('/', async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
       [
-        date || new Date().toISOString().split('T')[0],
+        date || toDateStr(),
         parseFloat(sleep_hours),
         parseInt(energy_level),
         parseInt(mood),

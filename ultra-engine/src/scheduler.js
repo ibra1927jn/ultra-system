@@ -17,6 +17,7 @@ const {
   formatBioWeeklySummary,
 } = require('./utils/scheduler_format');
 const { calculateRunway, BUDGET_ALERTS_SQL } = require('./utils/budget_calc');
+const { toDateStr } = require('./utils/date_format');
 
 const jobs = [];
 
@@ -193,7 +194,7 @@ async function checkUrgentDocuments() {
 
   let msg = '🚨 *ALERTA URGENTE — Documentos a punto de caducar*\n\n';
   for (const d of docs) {
-    const expDate = new Date(d.expiry_date).toISOString().split('T')[0];
+    const expDate = toDateStr(d.expiry_date);
     msg += `🔴 *${d.document_name}* — ${d.days_remaining} dias (${expDate})\n`;
   }
   await telegram.sendAlert(msg);

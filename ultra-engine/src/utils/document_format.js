@@ -3,6 +3,8 @@
  * Extracted from telegram.js for testability without side effects.
  */
 
+const { toDateStr } = require('./date_format');
+
 const TYPE_EMOJI = {
   visa: '🛂',
   pasaporte: '📕',
@@ -29,7 +31,7 @@ function formatDocumentAlert(docs) {
   for (const d of docs) {
     const emoji = TYPE_EMOJI[d.document_type] || TYPE_EMOJI.default;
     const urgent = urgencyEmojiDoc(d.days_remaining);
-    const expDate = new Date(d.expiry_date).toISOString().split('T')[0];
+    const expDate = toDateStr(d.expiry_date);
 
     message += `${urgent} ${emoji} *${d.document_name}*\n`;
     message += `   ⏳ Caduca en: *${d.days_remaining} dias* (${expDate})\n`;

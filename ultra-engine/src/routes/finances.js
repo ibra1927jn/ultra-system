@@ -6,6 +6,7 @@
 const express = require('express');
 const db = require('../db');
 const { calculateRunway, BUDGET_ALERTS_SQL } = require('../utils/budget_calc');
+const { toDateStr } = require('../utils/date_format');
 
 const router = express.Router();
 
@@ -217,7 +218,7 @@ router.post('/', async (req, res) => {
       `INSERT INTO finances (type, amount, category, description, date)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [type, parsedAmount, category, description || null, date || new Date().toISOString().split('T')[0]]
+      [type, parsedAmount, category, description || null, date || toDateStr()]
     );
 
     res.status(201).json({ ok: true, data: result });

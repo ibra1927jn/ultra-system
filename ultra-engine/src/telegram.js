@@ -11,6 +11,7 @@ const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const { TYPE_EMOJI, urgencyEmojiDoc, formatDocumentAlert } = require('./utils/document_format');
 const { calculateRunway, BUDGET_ALERTS_SQL } = require('./utils/budget_calc');
 const { bar, LOGISTICS_TYPE_EMOJI } = require('./utils/scheduler_format');
+const { toDateStr } = require('./utils/date_format');
 
 let bot = null;
 
@@ -313,7 +314,7 @@ function init() {
 
       for (const o of opps) {
         const emoji = statusEmoji[o.status] || '📌';
-        const deadline = o.deadline ? ` (${new Date(o.deadline).toISOString().split('T')[0]})` : '';
+        const deadline = o.deadline ? ` (${toDateStr(o.deadline)})` : '';
         lines.push(`${emoji} *${o.title}*`);
         if (o.source) lines.push(`   📍 ${o.source}`);
         if (o.category) lines.push(`   🏷️ ${o.category}${deadline}`);
@@ -419,7 +420,7 @@ function init() {
 
       for (const item of items) {
         const emoji = typeEmoji[item.type] || '📌';
-        const dateStr = new Date(item.date).toISOString().split('T')[0];
+        const dateStr = toDateStr(item.date);
         const statusIcon = item.status === 'confirmed' ? '✅' : '⏳';
         lines.push(`${emoji} ${statusIcon} *${item.title}*`);
         lines.push(`   📅 ${dateStr} (en ${item.days_until} dias)`);
@@ -461,7 +462,7 @@ function init() {
       for (const item of items) {
         const emoji = typeEmoji[item.type] || '📌';
         const urgency = urgencyEmoji[item.days_until] || '🟢';
-        const dateStr = new Date(item.date).toISOString().split('T')[0];
+        const dateStr = toDateStr(item.date);
         const statusIcon = item.status === 'confirmed' ? '✅' : '⏳';
         const label = item.days_until === 0 ? 'HOY' : item.days_until === 1 ? 'MANANA' : `en ${item.days_until} dias`;
 
