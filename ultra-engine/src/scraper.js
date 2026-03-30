@@ -7,6 +7,7 @@ const cheerio = require('cheerio');
 const db = require('./db');
 const telegram = require('./telegram');
 const { formatSalary } = require('./utils/salary_format');
+const { buildAdzunaUrl, normalizeAdzunaJob, ADZUNA_USER_AGENT } = require('./utils/adzuna_params');
 
 // Adzuna API — keys desde .env (registrarse en developer.adzuna.com)
 const ADZUNA_APP_ID = process.env.ADZUNA_APP_ID || '';
@@ -138,19 +139,9 @@ async function fetchAdzuna() {
 
   for (const search of searches) {
     try {
-      const params = new URLSearchParams({
-        app_id: ADZUNA_APP_ID,
-        app_key: ADZUNA_APP_KEY,
-        results_per_page: '20',
-        what_or: search.what_or,
-        where: search.where,
-        sort_by: 'date',
-        max_days_old: '30',
-      });
-
-      const url = `https://api.adzuna.com/v1/api/jobs/nz/search/1?${params}`;
+      const url = buildAdzunaUrl({ appId: ADZUNA_APP_ID, appKey: ADZUNA_APP_KEY, what_or: search.what_or, where: search.where });
       const response = await fetch(url, {
-        headers: { 'User-Agent': 'UltraSystem/1.0' },
+        headers: { 'User-Agent': ADZUNA_USER_AGENT },
         signal: AbortSignal.timeout(15000),
       });
 
@@ -163,9 +154,7 @@ async function fetchAdzuna() {
       const results = data.results || [];
 
       for (const job of results) {
-        const jobUrl = job.redirect_url || job.url || '';
-        const title = job.title || '';
-        const company = job.company ? job.company.display_name : '';
+        const { url: jobUrl, title, company, description: desc } = normalizeAdzunaJob(job);
 
         if (!title || !jobUrl) continue;
 
@@ -177,7 +166,6 @@ async function fetchAdzuna() {
         if (!exists) {
           const source = await ensureAdzunaSource(search.what_or, search.region);
           const salary = formatSalary(job.salary_min, job.salary_max);
-          const desc = job.description ? job.description.substring(0, 500) : null;
           await db.query(
             `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -296,19 +284,9 @@ function hashContent(content) {
 async function searchAdzuna(query, location = 'New Zealand') {
   if (!ADZUNA_APP_ID || !ADZUNA_APP_KEY) return [];
 
-  const params = new URLSearchParams({
-    app_id: ADZUNA_APP_ID,
-    app_key: ADZUNA_APP_KEY,
-    results_per_page: '20',
-    what: query,
-    where: location,
-    sort_by: 'date',
-    max_days_old: '30',
-  });
-
-  const url = `https://api.adzuna.com/v1/api/jobs/nz/search/1?${params}`;
+  const url = buildAdzunaUrl({ appId: ADZUNA_APP_ID, appKey: ADZUNA_APP_KEY, what: query, where: location });
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'UltraSystem/1.0' },
+    headers: { 'User-Agent': ADZUNA_USER_AGENT },
     signal: AbortSignal.timeout(15000),
   });
 
@@ -318,9 +296,7 @@ async function searchAdzuna(query, location = 'New Zealand') {
   let newCount = 0;
 
   for (const job of results) {
-    const jobUrl = job.redirect_url || job.url || '';
-    const title = job.title || '';
-    const company = job.company ? job.company.display_name : '';
+    const { url: jobUrl, title, company, description: desc } = normalizeAdzunaJob(job);
     if (!title || !jobUrl) continue;
 
     const exists = await db.queryOne('SELECT id FROM job_listings WHERE url = $1', [jobUrl]);
@@ -330,7 +306,7 @@ async function searchAdzuna(query, location = 'New Zealand') {
       await db.query(
         `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [source.id, title, jobUrl, location, 'custom', company || null, salary, (job.description || '').substring(0, 500)]
+        [source.id, title, jobUrl, location, 'custom', company || null, salary, desc]
       );
       newCount++;
     }
