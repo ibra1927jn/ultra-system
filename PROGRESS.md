@@ -61,6 +61,13 @@
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
 - Limpieza de contexto.
 
+## Completado (Heartbeat 2026-03-30) ✅
+- [2026-03-30] | Refactor: extracted 5 scheduler message formatters (budget, opportunity, logistics, bio summary, bar) into shared utils/scheduler_format.js
+- [2026-03-30] | Refactor: extracted bio alert generation logic from routes/bio.js into utils/bio_alerts.js for testability and reuse
+- [2026-03-30] | Refactor: exported TYPE_EMOJI and urgencyEmojiDoc from telegram.js for direct testing
+- [2026-03-30] | Testing: 75 new tests — bio alerts (13), scheduler formatters (30), telegram exports (11), freelance scraper (7), RSS keyword clamping (10), OCR sanitization (8). Total: 346 tests, all passing
+- [2026-03-30] | Coverage: 13% → 23% statement coverage (utils/ at 90-100%, middleware at 100%)
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
