@@ -1,22 +1,5 @@
 import { describe, it, expect } from 'vitest';
-
-/**
- * Pure pipeline conversion rate logic extracted from routes/opportunities.js lines 77-82.
- * Tests the conversion rate formulas independently of the database.
- */
-function computeConversionRates(statusMap, totalCount) {
-  const contacted = statusMap['contacted'] || 0;
-  const applied = statusMap['applied'] || 0;
-  const rejected = statusMap['rejected'] || 0;
-  const won = statusMap['won'] || 0;
-
-  return {
-    new_to_contacted: totalCount > 0 ? Math.round((contacted + applied + won) / totalCount * 100) : 0,
-    contacted_to_applied: (contacted + applied + won) > 0 ? Math.round((applied + won) / (contacted + applied + won) * 100) : 0,
-    applied_to_won: (applied + won + rejected) > 0 ? Math.round(won / (applied + won + rejected) * 100) : 0,
-    overall_win_rate: totalCount > 0 ? Math.round(won / totalCount * 100) : 0,
-  };
-}
+import { calculateConversionRates as computeConversionRates } from '../src/utils/conversion_rates.js';
 
 describe('Pipeline conversion rate calculations', () => {
   it('returns all zeros when no opportunities exist', () => {
