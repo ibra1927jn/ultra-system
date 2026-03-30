@@ -1,7 +1,7 @@
 const express = require("express");
 const fs = require("fs");
-
 const crypto = require("crypto");
+const { parseCommitAction, identifyCommitSource } = require("../utils/commit_parse");
 
 const router = express.Router();
 const BUS_PATH = "/data/agent_bus.json";
@@ -50,17 +50,12 @@ router.post("/git-push", (req, res) => {
     const hash = (commit.id || commit.sha || "").substring(0, 8);
     const files = [].concat(commit.added || [], commit.modified || [], commit.removed || []);
 
-    const isClaudeCode = message.includes("Co-Authored-By: Claude") || author.toLowerCase().includes("claude");
-    const isAntigravity = author.toLowerCase().includes("antigravity") || message.includes("antigravity");
-
-    let action = "review";
-    if (/^fix/i.test(message)) action = "fix";
-    else if (/^test/i.test(message)) action = "test";
-    else if (/^deploy|^release/i.test(message)) action = "deploy";
+    const source = identifyCommitSource(author, message);
+    const action = parseCommitAction(message);
 
     const task = {
       id: crypto.randomUUID(),
-      from: isClaudeCode ? "claude_code" : isAntigravity ? "antigravity" : "human",
+      from: source,
       action,
       repo: repoName,
       commit: hash,
@@ -73,10 +68,10 @@ router.post("/git-push", (req, res) => {
     // Routing: si NO es de Claude Code, va a Claude Code queue
     // Si NO es de Antigravity, va a Antigravity queue
     // Si es de un humano, va a ambas
-    if (!isClaudeCode || task.from === "human") {
+    if (source !== "claude_code" || source === "human") {
       bus.pending_for_claude_code.push({ ...task });
     }
-    if (!isAntigravity || task.from === "human") {
+    if (source !== "antigravity" || source === "human") {
       bus.pending_for_antigravity.push({ ...task });
     }
 
