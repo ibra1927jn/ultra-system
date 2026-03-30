@@ -165,7 +165,7 @@ async function checkDocumentExpiry() {
   );
 
   if (!docs.length) {
-    console.log('✅ Sin documentos por caducar');
+    console.debug('✅ Sin documentos por caducar');
     return;
   }
 
@@ -173,7 +173,7 @@ async function checkDocumentExpiry() {
   await telegram.sendAlert(message);
   await telegram.logNotification(docs[0].id, message, 'sent');
 
-  console.log(`📲 Alerta enviada: ${docs.length} documentos`);
+  console.debug(`📲 Alerta enviada: ${docs.length} documentos`);
 }
 
 /**
@@ -232,7 +232,7 @@ async function fetchRssFeeds() {
       await telegram.sendAlert(lines.join('\n'));
     }
 
-    console.log(`📰 RSS: ${totalNew} nuevos, ${highScoreArticles.length} alertados`);
+    console.debug(`📰 RSS: ${totalNew} nuevos, ${highScoreArticles.length} alertados`);
   } catch (err) {
     // Modulo P1 puede no estar listo
     console.warn('⚠️ RSS fetch falló:', err.message);
@@ -274,7 +274,7 @@ async function checkBudgetAlerts() {
   );
 
   if (!alerts.length) {
-    console.log('✅ Sin alertas de presupuesto');
+    console.debug('✅ Sin alertas de presupuesto');
     return;
   }
 
@@ -296,7 +296,7 @@ async function checkBudgetAlerts() {
   const lines = formatBudgetAlert({ month, remaining, runway, alerts });
   await telegram.sendAlert(lines.join('\n'));
 
-  console.log(`📲 ${alerts.length} alertas de presupuesto enviadas`);
+  console.debug(`📲 ${alerts.length} alertas de presupuesto enviadas`);
 }
 
 /**
@@ -326,14 +326,14 @@ async function checkOpportunityReminders() {
   );
 
   if (!deadlines.length && !followUps.length) {
-    console.log('✅ Sin recordatorios de oportunidades');
+    console.debug('✅ Sin recordatorios de oportunidades');
     return;
   }
 
   const lines = formatOpportunityReminders({ deadlines, followUps });
   await telegram.sendAlert(lines.join('\n'));
 
-  console.log(`📲 Recordatorios: ${deadlines.length} deadlines, ${followUps.length} follow-ups`);
+  console.debug(`📲 Recordatorios: ${deadlines.length} deadlines, ${followUps.length} follow-ups`);
 }
 
 /**
@@ -351,14 +351,14 @@ async function checkLogisticsNext48h() {
   );
 
   if (!items.length) {
-    console.log('✅ Sin items de logistica en 48h');
+    console.debug('✅ Sin items de logistica en 48h');
     return;
   }
 
   const lines = formatLogisticsNext48h(items);
   await telegram.sendAlert(lines.join('\n'));
 
-  console.log(`📲 ${items.length} items de logistica alertados`);
+  console.debug(`📲 ${items.length} items de logistica alertados`);
 }
 
 /**
@@ -369,7 +369,7 @@ async function sendBioWeeklySummary() {
   const weekly = await db.queryOne(BIO_WEEKLY_SQL);
 
   if (!weekly || parseInt(weekly.entries) === 0) {
-    console.log('📭 Sin registros bio esta semana');
+    console.debug('📭 Sin registros bio esta semana');
     return;
   }
 
@@ -393,7 +393,7 @@ async function sendBioWeeklySummary() {
   const lines = formatBioWeeklySummary({ weekly, correlations });
   await telegram.sendAlert(lines.join('\n'));
 
-  console.log('📲 Resumen bio semanal enviado');
+  console.debug('📲 Resumen bio semanal enviado');
 }
 
 /**
@@ -402,7 +402,7 @@ async function sendBioWeeklySummary() {
 async function scrapeFreelanceOpportunities() {
   try {
     const { totalNew, highScoreProjects } = await freelanceScraper.fetchAll();
-    console.log(`🎯 Freelancer: ${totalNew} nuevas, ${highScoreProjects.length} de alto score`);
+    console.debug(`🎯 Freelancer: ${totalNew} nuevas, ${highScoreProjects.length} de alto score`);
   } catch (err) {
     console.warn('⚠️ Freelance scrape falló:', err.message);
   }
