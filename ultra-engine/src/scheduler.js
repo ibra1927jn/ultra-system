@@ -24,7 +24,7 @@ const jobs = [];
  * Inicializa todos los cron jobs
  */
 function init() {
-  console.log('⏰ Iniciando scheduler...');
+  console.debug('⏰ Iniciando scheduler...');
 
   // ─── P4: Burocracia — Alerta documentos cada lunes 09:00 ───
   register(
@@ -105,7 +105,7 @@ function init() {
     'Cada hora — Health check interno'
   );
 
-  console.log(`✅ ${jobs.length} jobs registrados`);
+  console.debug(`✅ ${jobs.length} jobs registrados`);
 }
 
 /**

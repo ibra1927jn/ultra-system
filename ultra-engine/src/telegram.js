@@ -38,7 +38,7 @@ function init() {
     return null;
   }
 
-  console.log('📲 Bot de Telegram conectado (chat_id:', chatId, ')');
+  console.debug('📲 Bot de Telegram conectado (chat_id:', chatId, ')');
 
   // ─── Comandos basicos ─────────────────────────────────
   bot.onText(/\/start/, (msg) => {
