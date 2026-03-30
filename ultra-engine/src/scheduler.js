@@ -89,7 +89,6 @@ function init() {
     'Cada 12 horas — Buscar oportunidades freelance'
   );
 
-
   // ─── P7: Bio-Check — Resumen semanal domingo 20:00 ───
   register(
     'bio-weekly-summary',
