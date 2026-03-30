@@ -1,13 +1,5 @@
 import { describe, it, expect } from 'vitest';
-
-/**
- * bar() — progress bar renderer extracted from scheduler.js sendBioWeeklySummary.
- * Generates a 10-char bar: filled █ + empty ░
- */
-function bar(val) {
-  const filled = Math.min(10, Math.max(0, Math.round(parseFloat(val))));
-  return '█'.repeat(filled) + '░'.repeat(10 - filled);
-}
+import { bar } from '../src/utils/scheduler_format.js';
 
 describe('scheduler bar() progress renderer', () => {
   it('renders full bar for value 10', () => {
