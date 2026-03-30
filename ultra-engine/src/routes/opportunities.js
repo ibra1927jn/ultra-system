@@ -67,7 +67,6 @@ router.get('/pipeline', async (req, res) => {
       statusMap[row.status] = parseInt(row.count);
     }
 
-    const newCount = statusMap['new'] || 0;
     const contacted = statusMap['contacted'] || 0;
     const applied = statusMap['applied'] || 0;
     const rejected = statusMap['rejected'] || 0;

@@ -11,7 +11,6 @@ const freelanceScraper = require('./freelance_scraper');
 const { pearson: pearsonCorr } = require('./utils/pearson');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const {
-  bar,
   formatBudgetAlert,
   formatOpportunityReminders,
   formatLogisticsNext48h,
