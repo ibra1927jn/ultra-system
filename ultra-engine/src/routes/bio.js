@@ -7,6 +7,7 @@ const express = require('express');
 const db = require('../db');
 const { pearson } = require('../utils/pearson');
 const { generateBioAlerts } = require('../utils/bio_alerts');
+const { generateCorrelationInsights } = require('../utils/bio_insights');
 
 const router = express.Router();
 
@@ -104,17 +105,7 @@ router.get('/correlations', async (req, res) => {
       energy_vs_mood: pearson(energy, mood),
     };
 
-    // Interpretacion humana
-    const insights = [];
-    for (const [key, val] of Object.entries(correlations)) {
-      if (val === null) continue;
-      const [a, , b] = key.split('_');
-      const strength = Math.abs(val) >= 0.7 ? 'fuerte' : Math.abs(val) >= 0.4 ? 'moderada' : 'debil';
-      const direction = val > 0 ? 'positiva' : 'negativa';
-      if (Math.abs(val) >= 0.4) {
-        insights.push(`${a}/${b}: correlacion ${strength} ${direction} (${val})`);
-      }
-    }
+    const insights = generateCorrelationInsights(correlations);
 
     res.json({
       ok: true,
