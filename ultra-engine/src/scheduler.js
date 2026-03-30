@@ -18,6 +18,7 @@ const {
 } = require('./utils/scheduler_format');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
 const { toDateStr } = require('./utils/date_format');
+const { formatDocumentAlert } = require('./utils/document_format');
 
 const jobs = [];
 
@@ -169,7 +170,7 @@ async function checkDocumentExpiry() {
     return;
   }
 
-  const message = telegram.formatDocumentAlert(docs);
+  const message = formatDocumentAlert(docs);
   await telegram.sendAlert(message);
   await telegram.logNotification(docs[0].id, message, 'sent');
 

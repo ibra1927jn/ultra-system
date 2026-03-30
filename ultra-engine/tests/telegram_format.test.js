@@ -1,14 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-// Mock dependencies before importing
-vi.mock('node-telegram-bot-api', () => ({ default: vi.fn() }));
-vi.mock('../src/db.js', () => ({
-  default: { query: vi.fn(), queryAll: vi.fn() },
-  query: vi.fn(),
-  queryAll: vi.fn(),
-}));
-
-const { formatDocumentAlert } = await import('../src/telegram.js');
+import { describe, it, expect } from 'vitest';
+import { formatDocumentAlert } from '../src/utils/document_format.js';
 
 describe('formatDocumentAlert()', () => {
   it('formats a single document with correct structure', () => {

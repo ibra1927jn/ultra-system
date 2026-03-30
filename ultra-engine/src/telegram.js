@@ -614,4 +614,4 @@ function isActive() {
   return bot !== null;
 }
 
-module.exports = { init, send, sendAlert, logNotification, formatDocumentAlert, isActive };
+module.exports = { init, send, sendAlert, logNotification, isActive };
