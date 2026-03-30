@@ -1,20 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
-// Mock DB and telegram before importing
-vi.mock('../src/db.js', () => ({
-  default: { query: vi.fn(), queryAll: vi.fn(), queryOne: vi.fn() },
-  query: vi.fn(),
-  queryAll: vi.fn(),
-  queryOne: vi.fn(),
-}));
-vi.mock('../src/telegram.js', () => ({
-  default: { sendAlert: vi.fn() },
-  sendAlert: vi.fn(),
-}));
+const { scoreProject } = await import('../src/utils/freelance_scoring.js');
 
-const { scoreProject } = await import('../src/freelance_scraper.js');
-
-describe('scoreProject() — real import', () => {
+describe('scoreProject() — direct import from utils', () => {
   it('returns 0 for unrelated project', () => {
     expect(scoreProject('Accounting help', 'Excel work', ['excel'])).toBe(0);
   });

@@ -151,4 +151,4 @@ async function fetchAll() {
   return { totalNew, highScoreProjects };
 }
 
-module.exports = { scrapeFreelancer, fetchAll, scoreProject };
+module.exports = { scrapeFreelancer, fetchAll };
