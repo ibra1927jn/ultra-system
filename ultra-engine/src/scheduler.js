@@ -16,6 +16,7 @@ const {
   formatLogisticsNext48h,
   formatBioWeeklySummary,
 } = require('./utils/scheduler_format');
+const { calculateRunway } = require('./utils/budget_calc');
 
 const jobs = [];
 
@@ -289,10 +290,8 @@ async function checkBudgetAlerts() {
 
   const income = parseFloat(incomeRow.total);
   const expense = parseFloat(expenseRow.total);
-  const remaining = income - expense;
   const dayOfMonth = new Date().getDate();
-  const dailyBurn = dayOfMonth > 0 ? expense / dayOfMonth : 0;
-  const runway = dailyBurn > 0 ? Math.floor(remaining / dailyBurn) : 999;
+  const { remaining, runway } = calculateRunway(income, expense, dayOfMonth);
 
   const lines = formatBudgetAlert({ month, remaining, runway, alerts });
   await telegram.sendAlert(lines.join('\n'));

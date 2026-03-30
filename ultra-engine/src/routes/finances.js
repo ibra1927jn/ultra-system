@@ -5,6 +5,7 @@
 
 const express = require('express');
 const db = require('../db');
+const { calculateRunway } = require('../utils/budget_calc');
 
 const router = express.Router();
 
@@ -124,16 +125,11 @@ router.get('/budget', async (req, res) => {
 
     const totalIncome = parseFloat(income.total);
     const totalExpense = parseFloat(expenses.total);
-    const remaining = totalIncome - totalExpense;
 
-    // Calcular burn rate diario (dias transcurridos del mes)
     const now = new Date();
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const dayOfMonth = now.getDate();
-    const dailyBurn = dayOfMonth > 0 ? totalExpense / dayOfMonth : 0;
-
-    // Runway: dias hasta $0 basado en balance actual y burn rate
-    const runway = dailyBurn > 0 ? Math.floor(remaining / dailyBurn) : remaining > 0 ? 999 : 0;
+    const { remaining, dailyBurn, runway } = calculateRunway(totalIncome, totalExpense, dayOfMonth);
 
     res.json({
       ok: true,
