@@ -10,6 +10,13 @@ const telegram = require('./telegram');
 const freelanceScraper = require('./freelance_scraper');
 const { pearson: pearsonCorr } = require('./utils/pearson');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
+const {
+  bar,
+  formatBudgetAlert,
+  formatOpportunityReminders,
+  formatLogisticsNext48h,
+  formatBioWeeklySummary,
+} = require('./utils/scheduler_format');
 
 const jobs = [];
 
@@ -288,19 +295,7 @@ async function checkBudgetAlerts() {
   const dailyBurn = dayOfMonth > 0 ? expense / dayOfMonth : 0;
   const runway = dailyBurn > 0 ? Math.floor(remaining / dailyBurn) : 999;
 
-  const lines = [
-    '⚠️ *ULTRA SYSTEM — Alerta de Presupuesto*',
-    '━━━━━━━━━━━━━━━━━━━━━━━━',
-    `📅 ${month} | 💵 Restante: $${remaining.toFixed(2)} | ⏳ Runway: ${runway} dias`,
-    '',
-  ];
-
-  for (const a of alerts) {
-    const emoji = parseFloat(a.percent_used) >= 100 ? '🔴' : '🟡';
-    lines.push(`${emoji} *${a.category}*: $${parseFloat(a.spent).toFixed(2)} / $${parseFloat(a.monthly_limit).toFixed(2)} (${a.percent_used}%)`);
-  }
-
-  lines.push('', '━━━━━━━━━━━━━━━━━━━━━━━━');
+  const lines = formatBudgetAlert({ month, remaining, runway, alerts });
   await telegram.sendAlert(lines.join('\n'));
 
   console.log(`📲 ${alerts.length} alertas de presupuesto enviadas`);
@@ -337,28 +332,7 @@ async function checkOpportunityReminders() {
     return;
   }
 
-  const lines = [
-    '🎯 *ULTRA SYSTEM — Recordatorios*',
-    '━━━━━━━━━━━━━━━━━━━━━━━━',
-  ];
-
-  if (deadlines.length) {
-    lines.push('', '📅 *Deadlines proximos:*');
-    for (const d of deadlines) {
-      const urgency = d.days_until === 0 ? '🔴 HOY' : d.days_until === 1 ? '🟡 MANANA' : `🟢 en ${d.days_until} dias`;
-      lines.push(`   ${urgency} — *${d.title}*`);
-    }
-  }
-
-  if (followUps.length) {
-    lines.push('', '📧 *Necesitan follow-up (>7 dias):*');
-    for (const f of followUps) {
-      lines.push(`   ⏰ *${f.title}* — ${f.days_since} dias sin respuesta`);
-      if (f.source) lines.push(`      📍 ${f.source}`);
-    }
-  }
-
-  lines.push('', '━━━━━━━━━━━━━━━━━━━━━━━━');
+  const lines = formatOpportunityReminders({ deadlines, followUps });
   await telegram.sendAlert(lines.join('\n'));
 
   console.log(`📲 Recordatorios: ${deadlines.length} deadlines, ${followUps.length} follow-ups`);
@@ -383,25 +357,7 @@ async function checkLogisticsNext48h() {
     return;
   }
 
-  const typeEmoji = { transport: '🚌', accommodation: '🏠', visa: '🛂', appointment: '📋' };
-  const urgencyMap = { 0: '🔴 HOY', 1: '🟡 MANANA', 2: '🟢 Pasado manana' };
-
-  const lines = [
-    '🗺️ *ULTRA SYSTEM — Logistica 48h*',
-    '━━━━━━━━━━━━━━━━━━━━━━━━',
-  ];
-
-  for (const item of items) {
-    const emoji = typeEmoji[item.type] || '📌';
-    const urgency = urgencyMap[item.days_until] || '📌';
-    const statusIcon = item.status === 'confirmed' ? '✅' : '⏳';
-
-    lines.push(`${urgency} ${emoji} ${statusIcon} *${item.title}*`);
-    if (item.location) lines.push(`   📍 ${item.location}`);
-    lines.push('');
-  }
-
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+  const lines = formatLogisticsNext48h(items);
   await telegram.sendAlert(lines.join('\n'));
 
   console.log(`📲 ${items.length} items de logistica alertados`);
@@ -419,58 +375,24 @@ async function sendBioWeeklySummary() {
     return;
   }
 
-  const bar = (val) => {
-    const filled = Math.min(10, Math.max(0, Math.round(parseFloat(val))));
-    return '█'.repeat(filled) + '░'.repeat(10 - filled);
-  };
-
-  const lines = [
-    '🧬 *ULTRA SYSTEM — Bio Resumen Semanal*',
-    '━━━━━━━━━━━━━━━━━━━━━━━━',
-    `📊 Registros: ${weekly.entries}/7`,
-    '',
-    `😴 Sueno: ${weekly.avg_sleep}h`,
-    `⚡ Energia: ${bar(weekly.avg_energy)} ${weekly.avg_energy}/10`,
-    `😊 Animo: ${bar(weekly.avg_mood)} ${weekly.avg_mood}/10`,
-    `🏃 Ejercicio: ${weekly.avg_exercise} min/dia`,
-  ];
-
-  // Alertas de valores bajos
-  const avgSleep = parseFloat(weekly.avg_sleep);
-  const avgEnergy = parseFloat(weekly.avg_energy);
-  const avgMood = parseFloat(weekly.avg_mood);
-
-  if (avgSleep < 6) lines.push('', `⚠️ Sueno bajo (${avgSleep}h) — prioriza descanso`);
-  if (avgEnergy < 4) lines.push(`⚠️ Energia baja (${avgEnergy}/10) — revisa alimentacion`);
-  if (avgMood < 4) lines.push(`⚠️ Animo bajo (${avgMood}/10) — considera un descanso`);
-
   // Correlaciones (ultimos 30 dias)
   const data = await db.queryAll(BIO_CORRELATION_SQL);
 
+  let correlations = null;
   if (data.length >= 3) {
     const sleep = data.map(d => parseFloat(d.sleep_hours));
     const energy = data.map(d => parseInt(d.energy_level));
     const mood = data.map(d => parseInt(d.mood));
     const exercise = data.map(d => parseInt(d.exercise_minutes));
 
-    const corrs = [
+    correlations = [
       { label: 'Sueno → Energia', val: pearsonCorr(sleep, energy) },
       { label: 'Sueno → Animo', val: pearsonCorr(sleep, mood) },
       { label: 'Ejercicio → Energia', val: pearsonCorr(exercise, energy) },
     ];
-
-    lines.push('', '📈 *Correlaciones (30 dias):*');
-    for (const c of corrs) {
-      if (c.val !== null) {
-        const arrow = c.val > 0 ? '↑' : '↓';
-        const strength = Math.abs(c.val) >= 0.7 ? '💪' : Math.abs(c.val) >= 0.4 ? '📊' : '〰️';
-        lines.push(`${strength} ${c.label}: ${c.val} ${arrow}`);
-      }
-    }
   }
 
-  lines.push('', '━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push('🤖 _Enviado por Ultra Engine_');
+  const lines = formatBioWeeklySummary({ weekly, correlations });
   await telegram.sendAlert(lines.join('\n'));
 
   console.log('📲 Resumen bio semanal enviado');

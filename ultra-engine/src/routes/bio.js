@@ -6,6 +6,7 @@
 const express = require('express');
 const db = require('../db');
 const { pearson } = require('../utils/pearson');
+const { generateBioAlerts } = require('../utils/bio_alerts');
 
 const router = express.Router();
 
@@ -148,45 +149,15 @@ router.get('/alerts', async (req, res) => {
        WHERE date >= CURRENT_DATE - 3`
     );
 
-    const alerts = [];
+    let alerts = [];
 
     if (recent && parseInt(recent.entries) > 0) {
-      const avgSleep = parseFloat(recent.avg_sleep);
-      const avgEnergy = parseFloat(recent.avg_energy);
-      const avgMood = parseFloat(recent.avg_mood);
-      const avgExercise = parseFloat(recent.avg_exercise);
-
-      if (avgSleep < 6) {
-        alerts.push({
-          type: 'sleep',
-          severity: avgSleep < 5 ? 'critical' : 'warning',
-          message: `Promedio de sueno bajo: ${avgSleep}h (ultimos 3 dias). Minimo recomendado: 7h`,
-        });
-      }
-
-      if (avgEnergy < 4) {
-        alerts.push({
-          type: 'energy',
-          severity: avgEnergy < 3 ? 'critical' : 'warning',
-          message: `Energia baja: ${avgEnergy}/10 (ultimos 3 dias). Revisa sueno y alimentacion`,
-        });
-      }
-
-      if (avgMood < 4) {
-        alerts.push({
-          type: 'mood',
-          severity: avgMood < 3 ? 'critical' : 'warning',
-          message: `Animo bajo: ${avgMood}/10 (ultimos 3 dias). Considera un descanso o cambio de rutina`,
-        });
-      }
-
-      if (avgExercise < 10) {
-        alerts.push({
-          type: 'exercise',
-          severity: 'info',
-          message: `Poco ejercicio: ${avgExercise} min/dia (ultimos 3 dias). Intenta moverte mas`,
-        });
-      }
+      alerts = generateBioAlerts({
+        avg_sleep: parseFloat(recent.avg_sleep),
+        avg_energy: parseFloat(recent.avg_energy),
+        avg_mood: parseFloat(recent.avg_mood),
+        avg_exercise: parseFloat(recent.avg_exercise),
+      });
     }
 
     res.json({
