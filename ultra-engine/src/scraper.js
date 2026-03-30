@@ -6,6 +6,7 @@
 const cheerio = require('cheerio');
 const db = require('./db');
 const telegram = require('./telegram');
+const { formatSalary } = require('./utils/salary_format');
 
 // Adzuna API — keys desde .env (registrarse en developer.adzuna.com)
 const ADZUNA_APP_ID = process.env.ADZUNA_APP_ID || '';
@@ -175,9 +176,7 @@ async function fetchAdzuna() {
 
         if (!exists) {
           const source = await ensureAdzunaSource(search.what_or, search.region);
-          const salary = job.salary_min && job.salary_max
-            ? `$${Math.round(job.salary_min)}-$${Math.round(job.salary_max)}`
-            : job.salary_min ? `From $${Math.round(job.salary_min)}` : null;
+          const salary = formatSalary(job.salary_min, job.salary_max);
           const desc = job.description ? job.description.substring(0, 500) : null;
           await db.query(
             `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
@@ -327,9 +326,7 @@ async function searchAdzuna(query, location = 'New Zealand') {
     const exists = await db.queryOne('SELECT id FROM job_listings WHERE url = $1', [jobUrl]);
     if (!exists) {
       const source = await ensureAdzunaSource(query, location);
-      const salary = job.salary_min && job.salary_max
-        ? `$${Math.round(job.salary_min)}-$${Math.round(job.salary_max)}`
-        : job.salary_min ? `From $${Math.round(job.salary_min)}` : null;
+      const salary = formatSalary(job.salary_min, job.salary_max);
       await db.query(
         `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
