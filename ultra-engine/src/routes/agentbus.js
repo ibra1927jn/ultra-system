@@ -68,10 +68,10 @@ router.post("/git-push", (req, res) => {
     // Routing: si NO es de Claude Code, va a Claude Code queue
     // Si NO es de Antigravity, va a Antigravity queue
     // Si es de un humano, va a ambas
-    if (source !== "claude_code" || source === "human") {
+    if (source !== "claude_code") {
       bus.pending_for_claude_code.push({ ...task });
     }
-    if (source !== "antigravity" || source === "human") {
+    if (source !== "antigravity") {
       bus.pending_for_antigravity.push({ ...task });
     }
 
