@@ -1,14 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-
-// Mock dependencies before importing
-vi.mock('node-telegram-bot-api', () => ({ default: vi.fn() }));
-vi.mock('../src/db.js', () => ({
-  default: { query: vi.fn(), queryAll: vi.fn() },
-  query: vi.fn(),
-  queryAll: vi.fn(),
-}));
-
-const { TYPE_EMOJI, urgencyEmojiDoc } = await import('../src/telegram.js');
+import { describe, it, expect } from 'vitest';
+import { TYPE_EMOJI, urgencyEmojiDoc } from '../src/utils/document_format.js';
 
 describe('TYPE_EMOJI mapping', () => {
   it('maps visa to passport emoji', () => expect(TYPE_EMOJI.visa).toBe('🛂'));

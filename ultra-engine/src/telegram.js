@@ -8,7 +8,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const db = require('./db');
 const { pearson } = require('./utils/pearson');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
-const { TYPE_EMOJI, urgencyEmojiDoc, formatDocumentAlert } = require('./utils/document_format');
+const { formatDocumentAlert } = require('./utils/document_format');
 const { calculateRunway, BUDGET_ALERTS_SQL } = require('./utils/budget_calc');
 const { bar, LOGISTICS_TYPE_EMOJI } = require('./utils/scheduler_format');
 const { toDateStr } = require('./utils/date_format');
@@ -176,8 +176,8 @@ function init() {
 
       for (const kw of keywords) {
         // Barra visual del peso
-        const bar = '█'.repeat(kw.weight) + '░'.repeat(10 - kw.weight);
-        lines.push(`${bar} ${kw.weight} — *${kw.keyword}*`);
+        const weightBar = '█'.repeat(kw.weight) + '░'.repeat(10 - kw.weight);
+        lines.push(`${weightBar} ${kw.weight} — *${kw.keyword}*`);
       }
 
       lines.push('', '━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -620,4 +620,4 @@ function isActive() {
   return bot !== null;
 }
 
-module.exports = { init, send, sendAlert, logNotification, formatDocumentAlert, isActive, TYPE_EMOJI, urgencyEmojiDoc };
+module.exports = { init, send, sendAlert, logNotification, formatDocumentAlert, isActive };
