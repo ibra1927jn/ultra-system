@@ -5,7 +5,7 @@
 
 const express = require('express');
 const db = require('../db');
-const { calculateRunway } = require('../utils/budget_calc');
+const { calculateRunway, BUDGET_ALERTS_SQL } = require('../utils/budget_calc');
 
 const router = express.Router();
 
@@ -182,21 +182,7 @@ router.get('/alerts', async (req, res) => {
   try {
     const month = req.query.month || new Date().toISOString().slice(0, 7);
 
-    const alerts = await db.queryAll(
-      `SELECT
-         b.category,
-         b.monthly_limit,
-         COALESCE(SUM(f.amount), 0) as spent,
-         ROUND((COALESCE(SUM(f.amount), 0) / b.monthly_limit * 100)::numeric, 1) as percent_used
-       FROM budgets b
-       LEFT JOIN finances f ON LOWER(f.category) = LOWER(b.category)
-         AND f.type = 'expense'
-         AND TO_CHAR(f.date, 'YYYY-MM') = $1
-       GROUP BY b.category, b.monthly_limit
-       HAVING COALESCE(SUM(f.amount), 0) >= b.monthly_limit * 0.8
-       ORDER BY percent_used DESC`,
-      [month]
-    );
+    const alerts = await db.queryAll(BUDGET_ALERTS_SQL, [month]);
 
     res.json({
       ok: true,

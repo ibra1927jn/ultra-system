@@ -11,4 +11,21 @@ function calculateRunway(income, expense, dayOfMonth) {
   return { remaining, dailyBurn, runway };
 }
 
-module.exports = { calculateRunway };
+/**
+ * SQL query: categories exceeding 80% of their budget limit for a given month.
+ * Expects $1 = month string (YYYY-MM).
+ */
+const BUDGET_ALERTS_SQL = `SELECT
+  b.category,
+  b.monthly_limit,
+  COALESCE(SUM(f.amount), 0) as spent,
+  ROUND((COALESCE(SUM(f.amount), 0) / b.monthly_limit * 100)::numeric, 1) as percent_used
+FROM budgets b
+LEFT JOIN finances f ON LOWER(f.category) = LOWER(b.category)
+  AND f.type = 'expense'
+  AND TO_CHAR(f.date, 'YYYY-MM') = $1
+GROUP BY b.category, b.monthly_limit
+HAVING COALESCE(SUM(f.amount), 0) >= b.monthly_limit * 0.8
+ORDER BY percent_used DESC`;
+
+module.exports = { calculateRunway, BUDGET_ALERTS_SQL };
