@@ -72,6 +72,11 @@
 - [2026-03-30] | Refactor: extracted pure keyword scoring from rss.js into utils/rss_scoring.js (DB-free, testable)
 - [2026-03-30] | Testing: 14 new tests for rss scoring (null inputs, case-insensitivity, multi-keyword accumulation, edge cases). Total: 360 tests, all passing
 - [2026-03-30] | Coverage: 23% → 24% statement coverage (rss_scoring.js at 100%)
+- [2026-03-30] | Refactor: removed 44 lines of duplicate TYPE_EMOJI/urgencyEmojiDoc/formatDocumentAlert from telegram.js — now imports from utils/document_format.js
+- [2026-03-30] | Refactor: removed unnecessary scoreProject re-export from freelance_scraper.js, test imports directly from utils/freelance_scoring.js
+- [2026-03-30] | Refactor: extracted duplicate salary formatting (2 copies in scraper.js) into utils/salary_format.js
+- [2026-03-30] | Refactor: extracted duplicate budget/runway calculation (scheduler.js + routes/finances.js) into utils/budget_calc.js
+- [2026-03-30] | Testing: 16 new tests — salary_format (7), budget_calc (9). Total: 413 tests, all passing. Coverage: 28% → 30%
 
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
