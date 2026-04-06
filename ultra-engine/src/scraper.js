@@ -69,21 +69,16 @@ async function checkSource(sourceId) {
       }
     });
 
-    // Guardar nuevas ofertas
+    // Guardar nuevas ofertas (ON CONFLICT evita SELECT+INSERT por cada una)
     let newCount = 0;
     for (const listing of listings.slice(0, 50)) {
-      const exists = await db.queryOne(
-        'SELECT id FROM job_listings WHERE url = $1',
-        [listing.url]
+      const result = await db.query(
+        `INSERT INTO job_listings (source_id, title, url, region)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (url) DO NOTHING`,
+        [sourceId, listing.title, listing.url, source.region]
       );
-      if (!exists) {
-        await db.query(
-          `INSERT INTO job_listings (source_id, title, url, region)
-           VALUES ($1, $2, $3, $4)`,
-          [sourceId, listing.title, listing.url, source.region]
-        );
-        newCount++;
-      }
+      if (result.rowCount > 0) newCount++;
     }
 
     // Actualizar hash y timestamp
@@ -153,26 +148,20 @@ async function fetchAdzuna() {
       const data = await response.json();
       const results = data.results || [];
 
+      const source = await ensureAdzunaSource(search.what_or, search.region);
       for (const job of results) {
         const { url: jobUrl, title, company, description: desc } = normalizeAdzunaJob(job);
 
         if (!title || !jobUrl) continue;
 
-        const exists = await db.queryOne(
-          'SELECT id FROM job_listings WHERE url = $1',
-          [jobUrl]
+        const salary = formatSalary(job.salary_min, job.salary_max);
+        const result = await db.query(
+          `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (url) DO NOTHING`,
+          [source.id, title, jobUrl, search.region, search.category || 'other', company || null, salary, desc]
         );
-
-        if (!exists) {
-          const source = await ensureAdzunaSource(search.what_or, search.region);
-          const salary = formatSalary(job.salary_min, job.salary_max);
-          await db.query(
-            `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [source.id, title, jobUrl, search.region, search.category || 'other', company || null, salary, desc]
-          );
-          totalNew++;
-        }
+        if (result.rowCount > 0) totalNew++;
       }
 
       console.debug(`💼 Adzuna ${search.what_or}@${search.where}: ${results.length} resultados, ${totalNew} nuevos`);
@@ -195,20 +184,13 @@ async function fetchAdzuna() {
  */
 async function ensureAdzunaSource(keyword, region) {
   const name = `Adzuna — ${keyword} (${region})`;
-  let source = await db.queryOne(
-    'SELECT * FROM job_sources WHERE name = $1',
-    [name]
+  return db.queryOne(
+    `INSERT INTO job_sources (url, name, css_selector, region)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (url) DO UPDATE SET name = $2
+     RETURNING *`,
+    [`https://api.adzuna.com/nz/${keyword}/${region}`, name, 'api', region]
   );
-  if (!source) {
-    source = await db.queryOne(
-      `INSERT INTO job_sources (url, name, css_selector, region)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (url) DO UPDATE SET name = $2
-       RETURNING *`,
-      [`https://api.adzuna.com/nz/${keyword}/${region}`, name, 'api', region]
-    );
-  }
-  return source;
 }
 
 /**
@@ -295,21 +277,19 @@ async function searchAdzuna(query, location = 'New Zealand') {
   const results = data.results || [];
   let newCount = 0;
 
+  const source = await ensureAdzunaSource(query, location);
   for (const job of results) {
     const { url: jobUrl, title, company, description: desc } = normalizeAdzunaJob(job);
     if (!title || !jobUrl) continue;
 
-    const exists = await db.queryOne('SELECT id FROM job_listings WHERE url = $1', [jobUrl]);
-    if (!exists) {
-      const source = await ensureAdzunaSource(query, location);
-      const salary = formatSalary(job.salary_min, job.salary_max);
-      await db.query(
-        `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [source.id, title, jobUrl, location, 'custom', company || null, salary, desc]
-      );
-      newCount++;
-    }
+    const salary = formatSalary(job.salary_min, job.salary_max);
+    const result = await db.query(
+      `INSERT INTO job_listings (source_id, title, url, region, category, company, salary, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (url) DO NOTHING`,
+      [source.id, title, jobUrl, location, 'custom', company || null, salary, desc]
+    );
+    if (result.rowCount > 0) newCount++;
   }
 
   return { total: results.length, new_listings: newCount };
