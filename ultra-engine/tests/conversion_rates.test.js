@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateConversionRates } from '../src/utils/conversion_rates.js';
+import { calculateConversionRates, OPPORTUNITY_DEADLINES_SQL } from '../src/utils/conversion_rates.js';
 
 describe('calculateConversionRates()', () => {
   it('calculates all rates for typical pipeline', () => {
@@ -71,5 +71,20 @@ describe('calculateConversionRates()', () => {
     expect(rates.new_to_contacted).toBe(75);
     expect(rates.applied_to_won).toBe(14); // 50/350 * 100
     expect(rates.overall_win_rate).toBe(5);
+  });
+});
+
+describe('OPPORTUNITY_DEADLINES_SQL', () => {
+  it('is a valid SQL query for upcoming deadlines', () => {
+    expect(typeof OPPORTUNITY_DEADLINES_SQL).toBe('string');
+    expect(OPPORTUNITY_DEADLINES_SQL).toContain('FROM opportunities');
+    expect(OPPORTUNITY_DEADLINES_SQL).toContain('CURRENT_DATE');
+    expect(OPPORTUNITY_DEADLINES_SQL).toContain('ORDER BY deadline');
+  });
+
+  it('excludes rejected and won statuses', () => {
+    expect(OPPORTUNITY_DEADLINES_SQL).toContain("'rejected'");
+    expect(OPPORTUNITY_DEADLINES_SQL).toContain("'won'");
+    expect(OPPORTUNITY_DEADLINES_SQL).toContain('NOT IN');
   });
 });
