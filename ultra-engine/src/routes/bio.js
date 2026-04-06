@@ -31,32 +31,34 @@ router.get('/trends', async (req, res) => {
   try {
     const weeks = parseInt(req.query.weeks) || 4;
 
-    const trends = await db.queryAll(
-      `SELECT
-         DATE_TRUNC('week', date) AS week_start,
-         COUNT(*) AS entries,
-         ROUND(AVG(sleep_hours)::numeric, 1) AS avg_sleep,
-         ROUND(AVG(energy_level)::numeric, 1) AS avg_energy,
-         ROUND(AVG(mood)::numeric, 1) AS avg_mood,
-         ROUND(AVG(exercise_minutes)::numeric, 0) AS avg_exercise
-       FROM bio_checks
-       WHERE date >= CURRENT_DATE - ($1 * 7)::integer
-       GROUP BY DATE_TRUNC('week', date)
-       ORDER BY week_start DESC`,
-      [weeks]
-    );
-
-    const overall = await db.queryOne(
-      `SELECT
-         COUNT(*) AS total_entries,
-         ROUND(AVG(sleep_hours)::numeric, 1) AS avg_sleep,
-         ROUND(AVG(energy_level)::numeric, 1) AS avg_energy,
-         ROUND(AVG(mood)::numeric, 1) AS avg_mood,
-         ROUND(AVG(exercise_minutes)::numeric, 0) AS avg_exercise
-       FROM bio_checks
-       WHERE date >= CURRENT_DATE - ($1 * 7)::integer`,
-      [weeks]
-    );
+    // Queries independientes en paralelo
+    const [trends, overall] = await Promise.all([
+      db.queryAll(
+        `SELECT
+           DATE_TRUNC('week', date) AS week_start,
+           COUNT(*) AS entries,
+           ROUND(AVG(sleep_hours)::numeric, 1) AS avg_sleep,
+           ROUND(AVG(energy_level)::numeric, 1) AS avg_energy,
+           ROUND(AVG(mood)::numeric, 1) AS avg_mood,
+           ROUND(AVG(exercise_minutes)::numeric, 0) AS avg_exercise
+         FROM bio_checks
+         WHERE date >= CURRENT_DATE - ($1 * 7)::integer
+         GROUP BY DATE_TRUNC('week', date)
+         ORDER BY week_start DESC`,
+        [weeks]
+      ),
+      db.queryOne(
+        `SELECT
+           COUNT(*) AS total_entries,
+           ROUND(AVG(sleep_hours)::numeric, 1) AS avg_sleep,
+           ROUND(AVG(energy_level)::numeric, 1) AS avg_energy,
+           ROUND(AVG(mood)::numeric, 1) AS avg_mood,
+           ROUND(AVG(exercise_minutes)::numeric, 0) AS avg_exercise
+         FROM bio_checks
+         WHERE date >= CURRENT_DATE - ($1 * 7)::integer`,
+        [weeks]
+      ),
+    ]);
 
     res.json({ ok: true, data: { weeks: trends, overall } });
   } catch (err) {
