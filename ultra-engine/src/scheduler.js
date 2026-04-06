@@ -370,18 +370,6 @@ async function sendBioWeeklySummary() {
 }
 
 /**
- * P5: Scrape Freelancer.com para oportunidades relevantes
- */
-async function scrapeFreelanceOpportunities() {
-  try {
-    const { totalNew, highScoreProjects } = await freelanceScraper.fetchAll();
-    console.debug(`🎯 Freelancer: ${totalNew} nuevas, ${highScoreProjects.length} de alto score`);
-  } catch (err) {
-    console.warn('⚠️ Freelance scrape falló:', err.message);
-  }
-}
-
-/**
  * Health ping — verifica DB y registra
  */
 async function healthPing() {
