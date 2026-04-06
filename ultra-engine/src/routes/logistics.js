@@ -93,39 +93,37 @@ router.get('/next48h', async (req, res) => {
 // ─── GET /api/logistics/costs ─ Gastos por ubicacion/tipo ─
 router.get('/costs', async (req, res) => {
   try {
-    // Gastos agrupados por tipo
-    const byType = await db.queryAll(
-      `SELECT type,
-         COUNT(*) as count,
-         COALESCE(SUM(cost), 0) as total_cost,
-         ROUND(COALESCE(AVG(cost), 0)::numeric, 2) as avg_cost
-       FROM logistics
-       WHERE cost > 0
-       GROUP BY type
-       ORDER BY total_cost DESC`
-    );
-
-    // Gastos agrupados por ubicacion
-    const byLocation = await db.queryAll(
-      `SELECT
-         COALESCE(location, 'Sin ubicacion') as location,
-         COUNT(*) as count,
-         COALESCE(SUM(cost), 0) as total_cost
-       FROM logistics
-       WHERE cost > 0
-       GROUP BY location
-       ORDER BY total_cost DESC`
-    );
-
-    // Total general
-    const totals = await db.queryOne(
-      `SELECT
-         COUNT(*) as total_items,
-         COALESCE(SUM(cost), 0) as total_cost,
-         ROUND(COALESCE(AVG(cost), 0)::numeric, 2) as avg_cost
-       FROM logistics
-       WHERE cost > 0`
-    );
+    // Queries independientes — ejecutar en paralelo
+    const [byType, byLocation, totals] = await Promise.all([
+      db.queryAll(
+        `SELECT type,
+           COUNT(*) as count,
+           COALESCE(SUM(cost), 0) as total_cost,
+           ROUND(COALESCE(AVG(cost), 0)::numeric, 2) as avg_cost
+         FROM logistics
+         WHERE cost > 0
+         GROUP BY type
+         ORDER BY total_cost DESC`
+      ),
+      db.queryAll(
+        `SELECT
+           COALESCE(location, 'Sin ubicacion') as location,
+           COUNT(*) as count,
+           COALESCE(SUM(cost), 0) as total_cost
+         FROM logistics
+         WHERE cost > 0
+         GROUP BY location
+         ORDER BY total_cost DESC`
+      ),
+      db.queryOne(
+        `SELECT
+           COUNT(*) as total_items,
+           COALESCE(SUM(cost), 0) as total_cost,
+           ROUND(COALESCE(AVG(cost), 0)::numeric, 2) as avg_cost
+         FROM logistics
+         WHERE cost > 0`
+      ),
+    ]);
 
     res.json({
       ok: true,
