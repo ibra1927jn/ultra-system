@@ -9,7 +9,8 @@ const BUS_PATH = "/data/agent_bus.json";
 function readBus() {
   try {
     return JSON.parse(fs.readFileSync(BUS_PATH, "utf8"));
-  } catch {
+  } catch (err) {
+    if (err.code !== 'ENOENT') console.warn('⚠️ agentbus: error leyendo bus:', err.message);
     return { pending_for_antigravity: [], pending_for_claude_code: [], completed: [], last_updated: null };
   }
 }
