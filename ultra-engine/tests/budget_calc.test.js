@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateRunway, BUDGET_ALERTS_SQL } from '../src/utils/budget_calc.js';
+import { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } from '../src/utils/budget_calc.js';
 
 describe('calculateRunway()', () => {
   it('calculates remaining balance', () => {
@@ -73,5 +73,39 @@ describe('BUDGET_ALERTS_SQL', () => {
     expect(BUDGET_ALERTS_SQL).toContain('monthly_limit');
     expect(BUDGET_ALERTS_SQL).toContain('spent');
     expect(BUDGET_ALERTS_SQL).toContain('percent_used');
+  });
+
+  it('uses case-insensitive category matching', () => {
+    expect(BUDGET_ALERTS_SQL).toContain('LOWER');
+  });
+
+  it('orders by percent_used descending', () => {
+    expect(BUDGET_ALERTS_SQL).toContain('ORDER BY percent_used DESC');
+  });
+});
+
+describe('INCOME_TOTAL_SQL', () => {
+  it('queries income totals with parameterized month', () => {
+    expect(typeof INCOME_TOTAL_SQL).toBe('string');
+    expect(INCOME_TOTAL_SQL).toContain('SUM(amount)');
+    expect(INCOME_TOTAL_SQL).toContain("type = 'income'");
+    expect(INCOME_TOTAL_SQL).toContain('$1');
+  });
+
+  it('uses COALESCE to default to 0', () => {
+    expect(INCOME_TOTAL_SQL).toContain('COALESCE');
+  });
+});
+
+describe('EXPENSE_TOTAL_SQL', () => {
+  it('queries expense totals with parameterized month', () => {
+    expect(typeof EXPENSE_TOTAL_SQL).toBe('string');
+    expect(EXPENSE_TOTAL_SQL).toContain('SUM(amount)');
+    expect(EXPENSE_TOTAL_SQL).toContain("type = 'expense'");
+    expect(EXPENSE_TOTAL_SQL).toContain('$1');
+  });
+
+  it('uses COALESCE to default to 0', () => {
+    expect(EXPENSE_TOTAL_SQL).toContain('COALESCE');
   });
 });
