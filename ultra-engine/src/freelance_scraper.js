@@ -87,25 +87,22 @@ async function fetchAll() {
 
     for (const project of projects) {
       try {
-        const exists = await db.queryOne(
-          'SELECT id FROM opportunities WHERE url = $1',
-          [project.url]
+        // ON CONFLICT evita SELECT+INSERT separados por cada proyecto
+        const result = await db.query(
+          `INSERT INTO opportunities (title, source, url, category, status, notes)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (url) DO NOTHING`,
+          [
+            project.title,
+            'Freelancer.com',
+            project.url,
+            search.category,
+            'new',
+            `Budget: ${project.budget || 'N/A'} | Score: ${project.score} | Skills: ${project.skills.join(', ')}`,
+          ]
         );
 
-        if (!exists) {
-          await db.queryOne(
-            `INSERT INTO opportunities (title, source, url, category, status, notes)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             RETURNING *`,
-            [
-              project.title,
-              'Freelancer.com',
-              project.url,
-              search.category,
-              'new',
-              `Budget: ${project.budget || 'N/A'} | Score: ${project.score} | Skills: ${project.skills.join(', ')}`,
-            ]
-          );
+        if (result.rowCount > 0) {
           totalNew++;
 
           if (project.score >= 15) {
@@ -113,10 +110,7 @@ async function fetchAll() {
           }
         }
       } catch (err) {
-        // Duplicados u otros errores — continuar
-        if (!err.message.includes('duplicate')) {
-          console.error(`⚠️ Error guardando proyecto:`, err.message);
-        }
+        console.error(`⚠️ Error guardando proyecto:`, err.message);
       }
     }
 
