@@ -141,6 +141,13 @@
 - [2026-04-06] | Testing: 5 new tests — rss_format (5). Total: 645 passing, 58 test files. Coverage: 44%
 - [2026-04-06] | Full audit: security clean, ESLint clean, no TODO/FIXME, no console.log in prod, no dead imports, no functions >100 lines, no N+1 queries, all async routes have error handling
 
+## Completado (Heartbeat 2026-04-06 cycle 11) ✅
+- [2026-04-06] | Refactor: extracted urgent document alert formatting from scheduler.js into utils/document_format.js (formatUrgentDocumentAlert) — removed inline message building + dead toDateStr import
+- [2026-04-06] | Refactor: extracted presupuesto detail formatting from telegram.js into utils/finanzas_format.js (formatPresupuestoDetail) — consistent with all other command handlers using shared formatters
+- [2026-04-06] | Performance: parallelized pipeline follow-ups query with counts and total in telegram.js /pipeline handler (3 queries in Promise.all instead of 2+1)
+- [2026-04-06] | Testing: 14 new tests — urgent_document_format (4), presupuesto_format (10). Total: 659 passing, 60 test files. Coverage: 45%
+- [2026-04-06] | Full audit: security clean, ESLint clean, no TODO/FIXME, no console.log in prod, no dead imports, no functions >100 lines, no N+1 queries, all async routes have error handling
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
