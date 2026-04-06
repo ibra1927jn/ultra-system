@@ -149,6 +149,7 @@ async function fetchAdzuna() {
       const results = data.results || [];
 
       const source = await ensureAdzunaSource(search.what_or, search.region);
+      let searchNew = 0;
       for (const job of results) {
         const { url: jobUrl, title, company, description: desc } = normalizeAdzunaJob(job);
 
@@ -161,10 +162,11 @@ async function fetchAdzuna() {
            ON CONFLICT (url) DO NOTHING`,
           [source.id, title, jobUrl, search.region, search.category || 'other', company || null, salary, desc]
         );
-        if (result.rowCount > 0) totalNew++;
+        if (result.rowCount > 0) searchNew++;
       }
+      totalNew += searchNew;
 
-      console.debug(`💼 Adzuna ${search.what_or}@${search.where}: ${results.length} resultados, ${totalNew} nuevos`);
+      console.debug(`💼 Adzuna ${search.what_or}@${search.where}: ${results.length} resultados, ${searchNew} nuevos`);
     } catch (err) {
       console.error(`❌ Adzuna ${search.what_or}@${search.where}: ${err.message}`);
     }
