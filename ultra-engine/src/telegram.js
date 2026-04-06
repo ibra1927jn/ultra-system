@@ -240,20 +240,19 @@ async function handleOportunidades(msg) {
 
 async function handlePipeline(msg) {
   try {
-    const [counts, total] = await Promise.all([
+    const [counts, total, followUps] = await Promise.all([
       db.queryAll(`SELECT status, COUNT(*) as count FROM opportunities GROUP BY status`),
       db.queryOne('SELECT COUNT(*) as total FROM opportunities'),
+      db.queryAll(
+        `SELECT title FROM opportunities
+         WHERE status = 'contacted' AND created_at < NOW() - INTERVAL '7 days'
+         LIMIT 5`
+      ),
     ]);
 
     const statusMap = {};
     for (const row of counts) statusMap[row.status] = parseInt(row.count);
     const totalC = parseInt(total.total) || 0;
-
-    const followUps = await db.queryAll(
-      `SELECT title FROM opportunities
-       WHERE status = 'contacted' AND created_at < NOW() - INTERVAL '7 days'
-       LIMIT 5`
-    );
 
     const lines = formatPipelineMessage(statusMap, totalC, followUps);
     send(msg.chat.id, lines.join('\n'), 'Markdown');
