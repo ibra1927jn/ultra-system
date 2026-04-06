@@ -19,8 +19,8 @@ const {
 } = require('./utils/scheduler_format');
 const { OPPORTUNITY_DEADLINES_SQL } = require('./utils/conversion_rates');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
-const { toDateStr, currentMonth } = require('./utils/date_format');
-const { formatDocumentAlert } = require('./utils/document_format');
+const { currentMonth } = require('./utils/date_format');
+const { formatDocumentAlert, formatUrgentDocumentAlert } = require('./utils/document_format');
 const { formatRssAlert } = require('./utils/rss_format');
 
 const jobs = [];
@@ -196,11 +196,7 @@ async function checkUrgentDocuments() {
 
   if (!docs.length) return;
 
-  let msg = '🚨 *ALERTA URGENTE — Documentos a punto de caducar*\n\n';
-  for (const d of docs) {
-    const expDate = toDateStr(d.expiry_date);
-    msg += `🔴 *${d.document_name}* — ${d.days_remaining} dias (${expDate})\n`;
-  }
+  const msg = formatUrgentDocumentAlert(docs);
   await telegram.sendAlert(msg);
 }
 

@@ -44,4 +44,16 @@ function formatDocumentAlert(docs) {
   return message;
 }
 
-module.exports = { TYPE_EMOJI, urgencyEmojiDoc, formatDocumentAlert };
+/**
+ * Formatea alerta urgente de documentos (<7 dias)
+ */
+function formatUrgentDocumentAlert(docs) {
+  const lines = ['🚨 *ALERTA URGENTE — Documentos a punto de caducar*', ''];
+  for (const d of docs) {
+    const expDate = toDateStr(d.expiry_date);
+    lines.push(`🔴 *${d.document_name}* — ${d.days_remaining} dias (${expDate})`);
+  }
+  return lines.join('\n');
+}
+
+module.exports = { TYPE_EMOJI, urgencyEmojiDoc, formatDocumentAlert, formatUrgentDocumentAlert };
