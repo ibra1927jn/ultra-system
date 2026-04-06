@@ -90,6 +90,9 @@
 - [2026-04-06] | Performance: eliminated N+1 queries in scraper.js — replaced SELECT+INSERT per listing with INSERT ON CONFLICT DO NOTHING. Also hoisted ensureAdzunaSource outside inner loop
 - [2026-04-06] | Performance: eliminated N+1 queries in rss.js — replaced SELECT+INSERT per article with INSERT ON CONFLICT DO NOTHING
 - [2026-04-06] | Performance: eliminated N+1 queries in freelance_scraper.js — replaced SELECT+INSERT per project with INSERT ON CONFLICT DO NOTHING
+- [2026-04-06] | Refactor: removed dead scrapeFreelanceOpportunities() from scheduler.js — was defined but never called (fetchAll registered directly)
+- [2026-04-06] | Performance: parallelized 5 independent DB queries in /api/status with Promise.all
+- [2026-04-06] | Performance: parallelized independent DB queries in finances /summary (2), /budget (3), opportunities /pipeline (4), and scheduler checkBudgetAlerts (2) with Promise.all. Total: 494 tests, all passing. Coverage: 28% → 31%
 
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
