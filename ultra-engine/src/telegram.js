@@ -11,10 +11,11 @@ const { extractBioArrays } = require('./utils/bio_data');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const { formatDocumentAlert } = require('./utils/document_format');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
-const { bar, LOGISTICS_TYPE_EMOJI, formatBioWeeklySummary } = require('./utils/scheduler_format');
-const { toDateStr, currentMonth } = require('./utils/date_format');
+const { bar, formatBioWeeklySummary } = require('./utils/scheduler_format');
+const { currentMonth } = require('./utils/date_format');
 const { formatPipelineMessage, formatOpportunitiesList } = require('./utils/pipeline_format');
 const { formatFinanzasSummary } = require('./utils/finanzas_format');
+const { formatLogistica7d, formatProximas48h } = require('./utils/logistics_format');
 
 let bot = null;
 
@@ -305,23 +306,7 @@ async function handleLogistica(msg) {
       return;
     }
 
-    const typeEmoji = LOGISTICS_TYPE_EMOJI;
-    const lines = [
-      '🗺️ *ULTRA SYSTEM — Logistica (7 dias)*',
-      '━━━━━━━━━━━━━━━━━━━━━━━━',
-    ];
-
-    for (const item of items) {
-      const emoji = typeEmoji[item.type] || '📌';
-      const dateStr = toDateStr(item.date);
-      const statusIcon = item.status === 'confirmed' ? '✅' : '⏳';
-      lines.push(`${emoji} ${statusIcon} *${item.title}*`);
-      lines.push(`   📅 ${dateStr} (en ${item.days_until} dias)`);
-      if (item.location) lines.push(`   📍 ${item.location}`);
-      lines.push('');
-    }
-
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    const lines = formatLogistica7d(items);
     send(msg.chat.id, lines.join('\n'), 'Markdown');
   } catch (err) {
     send(msg.chat.id, `❌ Error: ${err.message}`);
@@ -345,27 +330,7 @@ async function handleProximas(msg) {
       return;
     }
 
-    const typeEmoji = LOGISTICS_TYPE_EMOJI;
-    const urgencyEmoji = { 0: '🔴', 1: '🟡', 2: '🟢' };
-    const lines = [
-      '🗺️ *ULTRA SYSTEM — Proximas 48h*',
-      '━━━━━━━━━━━━━━━━━━━━━━━━',
-    ];
-
-    for (const item of items) {
-      const emoji = typeEmoji[item.type] || '📌';
-      const urgency = urgencyEmoji[item.days_until] || '🟢';
-      const dateStr = toDateStr(item.date);
-      const statusIcon = item.status === 'confirmed' ? '✅' : '⏳';
-      const label = item.days_until === 0 ? 'HOY' : item.days_until === 1 ? 'MANANA' : `en ${item.days_until} dias`;
-
-      lines.push(`${urgency} ${emoji} ${statusIcon} *${item.title}*`);
-      lines.push(`   📅 ${dateStr} — ${label}`);
-      if (item.location) lines.push(`   📍 ${item.location}`);
-      lines.push('');
-    }
-
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    const lines = formatProximas48h(items);
     send(msg.chat.id, lines.join('\n'), 'Markdown');
   } catch (err) {
     send(msg.chat.id, `❌ Error: ${err.message}`);
