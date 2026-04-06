@@ -117,6 +117,12 @@
 - [2026-04-06] | Security scan: clean — no hardcoded credentials, SQL injection safe, .gitignore complete, user input validated
 - [2026-04-06] | Code quality: no TODO/FIXME/HACK, no console.log in prod code, no dead imports, no functions >100 lines, ESLint clean
 
+## Completado (Heartbeat 2026-04-06 cycle 7) ✅
+- [2026-04-06] | Fix: telegram_functions.test.js — missing afterAll import from vitest caused entire test suite to fail with ReferenceError
+- [2026-04-06] | Security: removed deploy.tar.gz (28MB) and logs.txt from git tracking, added *.tar.gz and logs.txt to .gitignore
+- [2026-04-06] | Full audit: no TODO/FIXME/HACK, no console.log in prod, no dead imports, no functions >100 lines, no hardcoded credentials, all SQL parameterized
+- [2026-04-06] | Tests: 587 passing, 53 test files. Coverage: 39% (utils/ 66%, middleware 100%)
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
