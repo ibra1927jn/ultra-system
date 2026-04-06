@@ -85,6 +85,12 @@
 - [2026-03-30] | Refactor: extracted Adzuna API param builder (buildAdzunaUrl, normalizeAdzunaJob) from scraper.js into utils/adzuna_params.js — deduplicated fetchAdzuna/searchAdzuna
 - [2026-03-30] | Testing: 47 new tests — commit_parse (18), adzuna_params (29). Total: 484 tests, all passing. Coverage: 25% → 29%
 
+## Completado (Heartbeat 2026-04-06) ✅
+- [2026-04-06] | Testing: 2 new tests — conversion_rates OPPORTUNITY_DEADLINES_SQL constant. Total: 489 tests, all passing
+- [2026-04-06] | Performance: eliminated N+1 queries in scraper.js — replaced SELECT+INSERT per listing with INSERT ON CONFLICT DO NOTHING. Also hoisted ensureAdzunaSource outside inner loop
+- [2026-04-06] | Performance: eliminated N+1 queries in rss.js — replaced SELECT+INSERT per article with INSERT ON CONFLICT DO NOTHING
+- [2026-04-06] | Performance: eliminated N+1 queries in freelance_scraper.js — replaced SELECT+INSERT per project with INSERT ON CONFLICT DO NOTHING
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
