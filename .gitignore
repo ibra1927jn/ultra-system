@@ -10,6 +10,10 @@ node_modules/
 
 # Logs
 *.log
+logs.txt
+
+# Build artifacts
+*.tar.gz
 
 # OS files
 .DS_Store
