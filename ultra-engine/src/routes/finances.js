@@ -6,7 +6,7 @@
 const express = require('express');
 const db = require('../db');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('../utils/budget_calc');
-const { toDateStr } = require('../utils/date_format');
+const { toDateStr, currentMonth } = require('../utils/date_format');
 
 const router = express.Router();
 
@@ -43,7 +43,7 @@ router.get('/', async (req, res) => {
 // ─── GET /api/finances/summary ─ Resumen mensual ────────
 router.get('/summary', async (req, res) => {
   try {
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
+    const month = req.query.month || currentMonth();
 
     const [summary, byCategory] = await Promise.all([
       db.queryAll(
@@ -91,7 +91,7 @@ router.get('/summary', async (req, res) => {
 // ─── GET /api/finances/budget ─ Budget mensual + runway ──
 router.get('/budget', async (req, res) => {
   try {
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
+    const month = req.query.month || currentMonth();
 
     // Ingresos, gastos y categorias en paralelo
     const [income, expenses, byCategory] = await Promise.all([
@@ -172,7 +172,7 @@ router.post('/budget', async (req, res) => {
 // ─── GET /api/finances/alerts ─ Categorias excediendo 80% ─
 router.get('/alerts', async (req, res) => {
   try {
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
+    const month = req.query.month || currentMonth();
 
     const alerts = await db.queryAll(BUDGET_ALERTS_SQL, [month]);
 

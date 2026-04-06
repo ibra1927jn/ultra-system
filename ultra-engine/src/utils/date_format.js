@@ -7,4 +7,9 @@ function toDateStr(date) {
   return (date ? new Date(date) : new Date()).toISOString().split('T')[0];
 }
 
-module.exports = { toDateStr };
+// Retorna mes actual como YYYY-MM
+function currentMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+module.exports = { toDateStr, currentMonth };

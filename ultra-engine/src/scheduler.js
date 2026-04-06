@@ -19,7 +19,7 @@ const {
 } = require('./utils/scheduler_format');
 const { OPPORTUNITY_DEADLINES_SQL } = require('./utils/conversion_rates');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
-const { toDateStr } = require('./utils/date_format');
+const { toDateStr, currentMonth } = require('./utils/date_format');
 const { formatDocumentAlert } = require('./utils/document_format');
 
 const jobs = [];
@@ -258,7 +258,7 @@ async function scrapeJobSources() {
  * P3: Verifica budgets que exceden 80% del limite y alerta
  */
 async function checkBudgetAlerts() {
-  const month = new Date().toISOString().slice(0, 7);
+  const month = currentMonth();
 
   const alerts = await db.queryAll(BUDGET_ALERTS_SQL, [month]);
 

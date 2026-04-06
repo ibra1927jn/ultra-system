@@ -12,7 +12,7 @@ const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const { formatDocumentAlert } = require('./utils/document_format');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
 const { bar, LOGISTICS_TYPE_EMOJI } = require('./utils/scheduler_format');
-const { toDateStr } = require('./utils/date_format');
+const { toDateStr, currentMonth } = require('./utils/date_format');
 
 let bot = null;
 
@@ -162,7 +162,7 @@ async function handleNoticiasConfig(msg) {
 
 async function handleFinanzas(msg) {
   try {
-    const month = new Date().toISOString().slice(0, 7);
+    const month = currentMonth();
 
     const [summary, topExpenses] = await Promise.all([
       db.queryAll(
@@ -210,7 +210,7 @@ async function handleFinanzas(msg) {
 
 async function handlePresupuesto(msg) {
   try {
-    const month = new Date().toISOString().slice(0, 7);
+    const month = currentMonth();
 
     const [incomeRow, expenseRow, budgetAlerts] = await Promise.all([
       db.queryOne(INCOME_TOTAL_SQL, [month]),
