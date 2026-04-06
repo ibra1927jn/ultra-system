@@ -148,8 +148,7 @@ async function handleNoticiasConfig(msg) {
     ];
 
     for (const kw of keywords) {
-      const weightBar = '█'.repeat(kw.weight) + '░'.repeat(10 - kw.weight);
-      lines.push(`${weightBar} ${kw.weight} — *${kw.keyword}*`);
+      lines.push(`${bar(kw.weight)} ${kw.weight} — *${kw.keyword}*`);
     }
 
     lines.push('', '━━━━━━━━━━━━━━━━━━━━━━━━');
