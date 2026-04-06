@@ -287,18 +287,18 @@ async function checkBudgetAlerts() {
  * P5: Verifica deadlines proximos y follow-ups pendientes
  */
 async function checkOpportunityReminders() {
-  // Deadlines en los proximos 3 dias
-  const deadlines = await db.queryAll(OPPORTUNITY_DEADLINES_SQL);
-
-  // Follow-ups necesarios (contacted >7 dias)
-  const followUps = await db.queryAll(
-    `SELECT id, title, source,
-       (CURRENT_DATE - created_at::date) as days_since
-     FROM opportunities
-     WHERE status = 'contacted'
-       AND created_at < NOW() - INTERVAL '7 days'
-     ORDER BY created_at ASC`
-  );
+  // Queries independientes — ejecutar en paralelo
+  const [deadlines, followUps] = await Promise.all([
+    db.queryAll(OPPORTUNITY_DEADLINES_SQL),
+    db.queryAll(
+      `SELECT id, title, source,
+         (CURRENT_DATE - created_at::date) as days_since
+       FROM opportunities
+       WHERE status = 'contacted'
+         AND created_at < NOW() - INTERVAL '7 days'
+       ORDER BY created_at ASC`
+    ),
+  ]);
 
   if (!deadlines.length && !followUps.length) {
     console.debug('✅ Sin recordatorios de oportunidades');
