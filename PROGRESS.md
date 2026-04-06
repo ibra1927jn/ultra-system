@@ -109,6 +109,14 @@
 - [2026-04-06] | Performance: consolidated all status queries (healthCheck, document_alerts, feeds, articles, jobs, scheduler_log) into single Promise.all — reduced 3 sequential round-trips to 1
 - [2026-04-06] | Tests: 509 passing, 44 test files. Coverage: 29% (utils/ 67%, middleware 100%)
 
+## Completado (Heartbeat 2026-04-06 cycle 6) ✅
+- [2026-04-06] | Refactor: used shared bar() in /noticias_config handler — eliminated inline duplicate bar rendering
+- [2026-04-06] | Refactor: extracted duplicate bio data parsing (sleep, energy, mood, exercise arrays) from scheduler.js, routes/bio.js, and telegram.js into shared utils/bio_data.js
+- [2026-04-06] | Refactor: extracted currentMonth() to utils/date_format.js — eliminated 6 duplicate new Date().toISOString().slice(0,7) patterns across scheduler.js, telegram.js (x2), and finances.js (x3)
+- [2026-04-06] | Testing: 10 new tests — bio_data extraction (6), currentMonth format (4). Total: 551 tests, all passing. Coverage: 31% → 32%
+- [2026-04-06] | Security scan: clean — no hardcoded credentials, SQL injection safe, .gitignore complete, user input validated
+- [2026-04-06] | Code quality: no TODO/FIXME/HACK, no console.log in prod code, no dead imports, no functions >100 lines, ESLint clean
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
