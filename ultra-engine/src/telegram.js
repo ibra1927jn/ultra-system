@@ -267,12 +267,6 @@ async function handlePipeline(msg) {
 
     const statusMap = {};
     for (const row of counts) statusMap[row.status] = parseInt(row.count);
-
-    const newC = statusMap['new'] || 0;
-    const contacted = statusMap['contacted'] || 0;
-    const applied = statusMap['applied'] || 0;
-    const rejected = statusMap['rejected'] || 0;
-    const won = statusMap['won'] || 0;
     const totalC = parseInt(total.total) || 0;
 
     const followUps = await db.queryAll(
@@ -281,8 +275,7 @@ async function handlePipeline(msg) {
        LIMIT 5`
     );
 
-    const pipelineStatusMap = { new: newC, contacted, applied, rejected, won };
-    const lines = formatPipelineMessage(pipelineStatusMap, totalC, followUps);
+    const lines = formatPipelineMessage(statusMap, totalC, followUps);
     send(msg.chat.id, lines.join('\n'), 'Markdown');
   } catch (err) {
     send(msg.chat.id, `❌ Error: ${err.message}`);
