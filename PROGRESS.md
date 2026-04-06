@@ -104,6 +104,11 @@
 - [2026-04-06] | Fix: documents route updated to await async saveFile
 - [2026-04-06] | Testing: 14 new tests — bio_queries SQL structure validation (13), rss SCORE_THRESHOLD bounds check (1). Total: 509 tests, all passing
 
+## Completado (Heartbeat 2026-04-06 cycle 5) ✅
+- [2026-04-06] | Performance: parallelized trends + overall queries in bio /trends endpoint with Promise.all
+- [2026-04-06] | Performance: consolidated all status queries (healthCheck, document_alerts, feeds, articles, jobs, scheduler_log) into single Promise.all — reduced 3 sequential round-trips to 1
+- [2026-04-06] | Tests: 509 passing, 44 test files. Coverage: 29% (utils/ 67%, middleware 100%)
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
