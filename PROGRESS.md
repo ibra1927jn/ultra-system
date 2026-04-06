@@ -141,6 +141,12 @@
 - [2026-04-06] | Testing: 5 new tests — rss_format (5). Total: 645 passing, 58 test files. Coverage: 44%
 - [2026-04-06] | Full audit: security clean, ESLint clean, no TODO/FIXME, no console.log in prod, no dead imports, no functions >100 lines, no N+1 queries, all async routes have error handling
 
+## Completado (Heartbeat 2026-04-06 cycle 12) ✅
+- [2026-04-06] | Refactor: removed dead listFiles function from ocr.js — exported but never imported by any route (documents/files endpoint queries DB directly)
+- [2026-04-06] | Fix: removed nonexistent /feeds command from Telegram /help text — command was advertised but no handler was registered
+- [2026-04-06] | Fix: fetchAdzuna debug log now shows per-search new count instead of cumulative total across all searches
+- [2026-04-06] | Full audit: security clean, ESLint clean, no TODO/FIXME, no console.log in prod, no dead imports, no functions >100 lines, no N+1 queries, all async routes have error handling. Total: 659 passing, 60 test files. Coverage: 47%
+
 ## Completado (Heartbeat 2026-04-06 cycle 11) ✅
 - [2026-04-06] | Refactor: extracted urgent document alert formatting from scheduler.js into utils/document_format.js (formatUrgentDocumentAlert) — removed inline message building + dead toDateStr import
 - [2026-04-06] | Refactor: extracted presupuesto detail formatting from telegram.js into utils/finanzas_format.js (formatPresupuestoDetail) — consistent with all other command handlers using shared formatters
