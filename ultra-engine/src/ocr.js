@@ -76,22 +76,4 @@ async function saveFile(buffer, originalName) {
   return filePath;
 }
 
-/**
- * Lista archivos subidos
- */
-async function listFiles() {
-  try {
-    const names = await fsp.readdir(UPLOAD_DIR);
-    const files = await Promise.all(names.map(async (name) => {
-      const filePath = path.join(UPLOAD_DIR, name);
-      const stats = await fsp.stat(filePath);
-      return { name, size: stats.size, created: stats.birthtime, path: filePath };
-    }));
-    return files;
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
-  }
-}
-
-module.exports = { extractText, saveFile, listFiles, UPLOAD_DIR };
+module.exports = { extractText, saveFile, UPLOAD_DIR };
