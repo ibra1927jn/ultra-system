@@ -19,4 +19,17 @@ function calculateConversionRates(statusMap, totalCount) {
   };
 }
 
-module.exports = { calculateConversionRates };
+/**
+ * SQL query: upcoming opportunity deadlines within 3 days.
+ * No parameters required (uses CURRENT_DATE).
+ */
+const OPPORTUNITY_DEADLINES_SQL = `SELECT id, title, deadline, status,
+       (deadline - CURRENT_DATE) as days_until
+     FROM opportunities
+     WHERE deadline IS NOT NULL
+       AND deadline >= CURRENT_DATE
+       AND deadline <= CURRENT_DATE + 3
+       AND status NOT IN ('rejected', 'won')
+     ORDER BY deadline ASC`;
+
+module.exports = { calculateConversionRates, OPPORTUNITY_DEADLINES_SQL };

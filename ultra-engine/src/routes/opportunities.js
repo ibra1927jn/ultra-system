@@ -5,7 +5,7 @@
 
 const express = require('express');
 const db = require('../db');
-const { calculateConversionRates } = require('../utils/conversion_rates');
+const { calculateConversionRates, OPPORTUNITY_DEADLINES_SQL } = require('../utils/conversion_rates');
 
 const router = express.Router();
 
@@ -81,16 +81,7 @@ router.get('/pipeline', async (req, res) => {
     );
 
     // Deadlines proximos (3 dias)
-    const upcomingDeadlines = await db.queryAll(
-      `SELECT id, title, deadline, status,
-         (deadline - CURRENT_DATE) as days_until
-       FROM opportunities
-       WHERE deadline IS NOT NULL
-         AND deadline >= CURRENT_DATE
-         AND deadline <= CURRENT_DATE + 3
-         AND status NOT IN ('rejected', 'won')
-       ORDER BY deadline ASC`
-    );
+    const upcomingDeadlines = await db.queryAll(OPPORTUNITY_DEADLINES_SQL);
 
     res.json({
       ok: true,

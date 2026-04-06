@@ -16,6 +16,7 @@ const {
   formatLogisticsNext48h,
   formatBioWeeklySummary,
 } = require('./utils/scheduler_format');
+const { OPPORTUNITY_DEADLINES_SQL } = require('./utils/conversion_rates');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
 const { toDateStr } = require('./utils/date_format');
 const { formatDocumentAlert } = require('./utils/document_format');
@@ -285,16 +286,7 @@ async function checkBudgetAlerts() {
  */
 async function checkOpportunityReminders() {
   // Deadlines en los proximos 3 dias
-  const deadlines = await db.queryAll(
-    `SELECT id, title, deadline, status,
-       (deadline - CURRENT_DATE) as days_until
-     FROM opportunities
-     WHERE deadline IS NOT NULL
-       AND deadline >= CURRENT_DATE
-       AND deadline <= CURRENT_DATE + 3
-       AND status NOT IN ('rejected', 'won')
-     ORDER BY deadline ASC`
-  );
+  const deadlines = await db.queryAll(OPPORTUNITY_DEADLINES_SQL);
 
   // Follow-ups necesarios (contacted >7 dias)
   const followUps = await db.queryAll(
