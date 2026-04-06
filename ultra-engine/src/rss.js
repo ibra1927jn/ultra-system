@@ -98,12 +98,15 @@ async function fetchFeed(feedId) {
     let newCount = 0;
     const highScoreArticles = [];
 
+    // Cargar keywords una sola vez para todos los articulos (evita N+1)
+    const keywords = await db.queryAll('SELECT keyword, weight FROM rss_keywords');
+
     for (const item of data.items.slice(0, 20)) {
       const title = item.title || 'Sin titulo';
       const summary = (item.contentSnippet || item.content || '').substring(0, 500);
 
-      // Calcular score de relevancia
-      const score = await scoreArticle(title, summary);
+      // Calcular score de relevancia (keywords ya cargados)
+      const score = computeArticleScore(title, summary, keywords);
 
       // ON CONFLICT evita SELECT+INSERT separados por cada articulo
       const result = await db.query(
