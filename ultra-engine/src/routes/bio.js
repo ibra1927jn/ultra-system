@@ -6,6 +6,7 @@
 const express = require('express');
 const db = require('../db');
 const { pearson } = require('../utils/pearson');
+const { extractBioArrays } = require('../utils/bio_data');
 const { generateBioAlerts } = require('../utils/bio_alerts');
 const { generateCorrelationInsights } = require('../utils/bio_insights');
 const { toDateStr } = require('../utils/date_format');
@@ -94,10 +95,7 @@ router.get('/correlations', async (req, res) => {
     }
 
     // Extraer arrays numericos
-    const sleep = data.map(d => parseFloat(d.sleep_hours));
-    const energy = data.map(d => parseInt(d.energy_level));
-    const mood = data.map(d => parseInt(d.mood));
-    const exercise = data.map(d => parseInt(d.exercise_minutes));
+    const { sleep, energy, mood, exercise } = extractBioArrays(data);
 
     const correlations = {
       sleep_vs_energy: pearson(sleep, energy),

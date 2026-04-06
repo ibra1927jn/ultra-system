@@ -7,6 +7,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const db = require('./db');
 const { pearson } = require('./utils/pearson');
+const { extractBioArrays } = require('./utils/bio_data');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const { formatDocumentAlert } = require('./utils/document_format');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
@@ -486,10 +487,7 @@ async function handleBiosemana(msg) {
     if (avgEnergy < 4) lines.push('', `⚠️ Energia baja (${avgEnergy}/10) — revisa rutina`);
 
     if (data.length >= 3) {
-      const sleep = data.map(d => parseFloat(d.sleep_hours));
-      const energy = data.map(d => parseInt(d.energy_level));
-      const mood = data.map(d => parseInt(d.mood));
-      const exercise = data.map(d => parseInt(d.exercise_minutes));
+      const { sleep, energy, mood, exercise } = extractBioArrays(data);
 
       const corrs = [
         { label: 'Sueno → Energia', val: pearson(sleep, energy) },

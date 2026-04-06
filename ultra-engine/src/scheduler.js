@@ -9,6 +9,7 @@ const db = require('./db');
 const telegram = require('./telegram');
 const freelanceScraper = require('./freelance_scraper');
 const { pearson: pearsonCorr } = require('./utils/pearson');
+const { extractBioArrays } = require('./utils/bio_data');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const {
   formatBudgetAlert,
@@ -353,10 +354,7 @@ async function sendBioWeeklySummary() {
 
   let correlations = null;
   if (data.length >= 3) {
-    const sleep = data.map(d => parseFloat(d.sleep_hours));
-    const energy = data.map(d => parseInt(d.energy_level));
-    const mood = data.map(d => parseInt(d.mood));
-    const exercise = data.map(d => parseInt(d.exercise_minutes));
+    const { sleep, energy, mood, exercise } = extractBioArrays(data);
 
     correlations = [
       { label: 'Sueno → Energia', val: pearsonCorr(sleep, energy) },
