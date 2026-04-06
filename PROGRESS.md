@@ -94,6 +94,10 @@
 - [2026-04-06] | Performance: parallelized 5 independent DB queries in /api/status with Promise.all
 - [2026-04-06] | Performance: parallelized independent DB queries in finances /summary (2), /budget (3), opportunities /pipeline (4), and scheduler checkBudgetAlerts (2) with Promise.all. Total: 494 tests, all passing. Coverage: 28% → 31%
 
+## Completado (Heartbeat 2026-04-06 cycle 3) ✅
+- [2026-04-06] | Performance: parallelized 3 independent DB queries in logistics /costs endpoint with Promise.all
+- [2026-04-06] | Performance: parallelized 2 independent DB queries in scheduler checkOpportunityReminders (deadlines + follow-ups) with Promise.all
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
