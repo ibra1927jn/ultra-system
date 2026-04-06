@@ -21,6 +21,7 @@ const { OPPORTUNITY_DEADLINES_SQL } = require('./utils/conversion_rates');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
 const { toDateStr, currentMonth } = require('./utils/date_format');
 const { formatDocumentAlert } = require('./utils/document_format');
+const { formatRssAlert } = require('./utils/rss_format');
 
 const jobs = [];
 
@@ -214,24 +215,7 @@ async function fetchRssFeeds() {
 
     // Alertar via Telegram si hay articulos relevantes
     if (highScoreArticles.length > 0) {
-      const lines = [
-        '📰 *ULTRA SYSTEM — Noticias Relevantes*',
-        '━━━━━━━━━━━━━━━━━━━━━━━━',
-        '',
-      ];
-
-      for (const article of highScoreArticles.slice(0, 5)) {
-        lines.push(`⭐ *${article.title}*`);
-        lines.push(`   📊 Score: ${article.score} | 📰 ${article.feed}`);
-        lines.push(`   🔗 ${article.url}`);
-        lines.push('');
-      }
-
-      if (highScoreArticles.length > 5) {
-        lines.push(`... y ${highScoreArticles.length - 5} mas`);
-      }
-
-      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      const lines = formatRssAlert(highScoreArticles);
       await telegram.sendAlert(lines.join('\n'));
     }
 
