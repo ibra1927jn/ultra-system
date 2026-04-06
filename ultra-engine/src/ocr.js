@@ -6,6 +6,7 @@
 const Tesseract = require('tesseract.js');
 const path = require('path');
 const fs = require('fs');
+const fsp = require('fs/promises');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 
@@ -28,7 +29,7 @@ async function extractText(filePath) {
   if (ext === '.pdf') {
     try {
       const pdfParse = require('pdf-parse');
-      const dataBuffer = fs.readFileSync(filePath);
+      const dataBuffer = await fsp.readFile(filePath);
       const data = await pdfParse(dataBuffer);
       if (data.text && data.text.trim().length > 50) {
         console.debug('✅ Texto extraído de PDF directamente (sin OCR)');
@@ -64,13 +65,13 @@ async function extractText(filePath) {
  * @param {string} originalName — Nombre original
  * @returns {string} — Ruta al archivo guardado
  */
-function saveFile(buffer, originalName) {
+async function saveFile(buffer, originalName) {
   const timestamp = Date.now();
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
   const fileName = `${timestamp}_${safeName}`;
   const filePath = path.join(UPLOAD_DIR, fileName);
 
-  fs.writeFileSync(filePath, buffer);
+  await fsp.writeFile(filePath, buffer);
   console.debug(`💾 Archivo guardado: ${fileName}`);
   return filePath;
 }
@@ -78,18 +79,19 @@ function saveFile(buffer, originalName) {
 /**
  * Lista archivos subidos
  */
-function listFiles() {
-  if (!fs.existsSync(UPLOAD_DIR)) return [];
-  return fs.readdirSync(UPLOAD_DIR).map((name) => {
-    const filePath = path.join(UPLOAD_DIR, name);
-    const stats = fs.statSync(filePath);
-    return {
-      name,
-      size: stats.size,
-      created: stats.birthtime,
-      path: filePath,
-    };
-  });
+async function listFiles() {
+  try {
+    const names = await fsp.readdir(UPLOAD_DIR);
+    const files = await Promise.all(names.map(async (name) => {
+      const filePath = path.join(UPLOAD_DIR, name);
+      const stats = await fsp.stat(filePath);
+      return { name, size: stats.size, created: stats.birthtime, path: filePath };
+    }));
+    return files;
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
 }
 
 module.exports = { extractText, saveFile, listFiles, UPLOAD_DIR };

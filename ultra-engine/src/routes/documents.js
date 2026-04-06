@@ -99,7 +99,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ ok: false, error: 'No se envió archivo' });
 
     // Guardar archivo
-    const filePath = ocr.saveFile(req.file.buffer, req.file.originalname);
+    const filePath = await ocr.saveFile(req.file.buffer, req.file.originalname);
 
     // Extraer texto con OCR
     const ocrResult = await ocr.extractText(filePath);

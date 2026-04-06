@@ -1,28 +1,30 @@
 const express = require("express");
-const fs = require("fs");
+const fs = require("fs/promises");
 const crypto = require("crypto");
 const { parseCommitAction, identifyCommitSource } = require("../utils/commit_parse");
 
 const router = express.Router();
 const BUS_PATH = "/data/agent_bus.json";
 
-function readBus() {
+const EMPTY_BUS = { pending_for_antigravity: [], pending_for_claude_code: [], completed: [], last_updated: null };
+
+async function readBus() {
   try {
-    return JSON.parse(fs.readFileSync(BUS_PATH, "utf8"));
+    return JSON.parse(await fs.readFile(BUS_PATH, "utf8"));
   } catch (err) {
     if (err.code !== 'ENOENT') console.warn('⚠️ agentbus: error leyendo bus:', err.message);
-    return { pending_for_antigravity: [], pending_for_claude_code: [], completed: [], last_updated: null };
+    return { ...EMPTY_BUS };
   }
 }
 
-function writeBus(bus) {
+async function writeBus(bus) {
   bus.last_updated = new Date().toISOString();
-  fs.writeFileSync(BUS_PATH, JSON.stringify(bus, null, 2));
+  await fs.writeFile(BUS_PATH, JSON.stringify(bus, null, 2));
 }
 
 // GET /api/agent-bus/status — polling endpoint
-router.get("/status", (req, res) => {
-  const bus = readBus();
+router.get("/status", async (req, res) => {
+  const bus = await readBus();
   res.json({
     ok: true,
     last_updated: bus.last_updated,
@@ -38,11 +40,11 @@ router.get("/status", (req, res) => {
 });
 
 // POST /api/agent-bus/git-push — webhook receiver
-router.post("/git-push", (req, res) => {
+router.post("/git-push", async (req, res) => {
   const body = req.body || {};
   const commits = body.commits || [];
   const repoName = (body.repository && body.repository.name) || body.repo || "unknown";
-  const bus = readBus();
+  const bus = await readBus();
   const tasks = [];
 
   for (const commit of commits) {
@@ -95,12 +97,12 @@ router.post("/git-push", (req, res) => {
     tasks.push(fallback);
   }
 
-  writeBus(bus);
+  await writeBus(bus);
   res.json({ ok: true, tasks_created: tasks.length, tasks });
 });
 
 // POST /api/agent-bus/send — mensaje directo entre agentes
-router.post("/send", (req, res) => {
+router.post("/send", async (req, res) => {
   const { from, to, action, summary, body, repo, priority } = req.body;
 
   const validAgents = ["claude_code", "antigravity", "claude_chat"];
@@ -119,7 +121,7 @@ router.post("/send", (req, res) => {
   if (priority && !validPriorities.includes(priority))
     return res.status(400).json({ ok: false, error: `Invalid 'priority'. Must be one of: ${validPriorities.join(", ")}` });
 
-  const bus = readBus();
+  const bus = await readBus();
   const queue = `pending_for_${to}`;
 
   const task = {
@@ -136,16 +138,16 @@ router.post("/send", (req, res) => {
   };
 
   bus[queue].push(task);
-  writeBus(bus);
+  await writeBus(bus);
   res.json({ ok: true, task });
 });
 
 // POST /api/agent-bus/complete — mark task as done
-router.post("/complete", (req, res) => {
+router.post("/complete", async (req, res) => {
   const { id } = req.body;
   if (!id) return res.status(400).json({ ok: false, error: "Missing task id" });
 
-  const bus = readBus();
+  const bus = await readBus();
   let found = false;
 
   for (const queue of ["pending_for_antigravity", "pending_for_claude_code"]) {
@@ -160,7 +162,7 @@ router.post("/complete", (req, res) => {
   }
 
   if (!found) return res.status(404).json({ ok: false, error: "Task not found" });
-  writeBus(bus);
+  await writeBus(bus);
   res.json({ ok: true });
 });
 
