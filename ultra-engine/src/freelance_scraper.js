@@ -7,6 +7,7 @@ const cheerio = require('cheerio');
 const db = require('./db');
 const telegram = require('./telegram');
 const { scoreProject } = require('./utils/freelance_scoring');
+const { formatFreelanceAlert } = require('./utils/freelance_format');
 
 /**
  * Scrapea proyectos de Freelancer.com via busqueda directa
@@ -119,24 +120,7 @@ async function fetchAll() {
 
   // Notificar proyectos de alto score via Telegram
   if (highScoreProjects.length > 0) {
-    const lines = [
-      '🎯 *ULTRA SYSTEM — Oportunidades Freelance*',
-      '━━━━━━━━━━━━━━━━━━━━━━━━',
-      '',
-    ];
-
-    for (const p of highScoreProjects.slice(0, 5)) {
-      lines.push(`⭐ *${p.title}*`);
-      lines.push(`   💰 ${p.budget || 'N/A'} | 📊 Score: ${p.score}`);
-      lines.push(`   🔗 ${p.url}`);
-      lines.push('');
-    }
-
-    if (highScoreProjects.length > 5) {
-      lines.push(`... y ${highScoreProjects.length - 5} mas`);
-    }
-
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    const lines = formatFreelanceAlert(highScoreProjects);
     await telegram.sendAlert(lines.join('\n'));
   }
 
