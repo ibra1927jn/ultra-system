@@ -11,7 +11,7 @@ const { extractBioArrays } = require('./utils/bio_data');
 const { BIO_WEEKLY_SQL, BIO_CORRELATION_SQL } = require('./utils/bio_queries');
 const { formatDocumentAlert } = require('./utils/document_format');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
-const { bar, LOGISTICS_TYPE_EMOJI } = require('./utils/scheduler_format');
+const { bar, LOGISTICS_TYPE_EMOJI, formatBioWeeklySummary } = require('./utils/scheduler_format');
 const { toDateStr, currentMonth } = require('./utils/date_format');
 
 let bot = null;
@@ -470,42 +470,17 @@ async function handleBiosemana(msg) {
       return;
     }
 
-    const lines = [
-      '🧬 *ULTRA SYSTEM — Bio Resumen Semanal*',
-      '━━━━━━━━━━━━━━━━━━━━━━━━',
-      `📊 Registros: ${weekly.entries}/7`,
-      '',
-      `😴 Sueno: ${weekly.avg_sleep}h`,
-      `⚡ Energia: ${bar(weekly.avg_energy)} ${weekly.avg_energy}/10`,
-      `😊 Animo: ${bar(weekly.avg_mood)} ${weekly.avg_mood}/10`,
-      `🏃 Ejercicio: ${weekly.avg_exercise} min/dia`,
-    ];
-
-    const avgSleep = parseFloat(weekly.avg_sleep);
-    const avgEnergy = parseFloat(weekly.avg_energy);
-    if (avgSleep < 6) lines.push('', `⚠️ Sueno bajo (${avgSleep}h) — prioriza descanso`);
-    if (avgEnergy < 4) lines.push('', `⚠️ Energia baja (${avgEnergy}/10) — revisa rutina`);
-
+    let correlations = null;
     if (data.length >= 3) {
       const { sleep, energy, mood, exercise } = extractBioArrays(data);
-
-      const corrs = [
+      correlations = [
         { label: 'Sueno → Energia', val: pearson(sleep, energy) },
         { label: 'Sueno → Animo', val: pearson(sleep, mood) },
         { label: 'Ejercicio → Energia', val: pearson(exercise, energy) },
       ];
-
-      lines.push('', '📈 *Correlaciones (30 dias):*');
-      for (const c of corrs) {
-        if (c.val !== null) {
-          const arrow = c.val > 0 ? '↑' : '↓';
-          const strength = Math.abs(c.val) >= 0.7 ? '💪' : Math.abs(c.val) >= 0.4 ? '📊' : '〰️';
-          lines.push(`${strength} ${c.label}: ${c.val} ${arrow}`);
-        }
-      }
     }
 
-    lines.push('', '━━━━━━━━━━━━━━━━━━━━━━━━');
+    const lines = formatBioWeeklySummary({ weekly, correlations });
     send(msg.chat.id, lines.join('\n'), 'Markdown');
   } catch (err) {
     send(msg.chat.id, `❌ Error: ${err.message}`);
