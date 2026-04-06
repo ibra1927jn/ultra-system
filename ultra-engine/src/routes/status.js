@@ -13,17 +13,15 @@ const startTime = Date.now();
 // ─── GET /api/status ─ Estado general ────────────────────
 router.get('/', async (req, res) => {
   try {
-    const health = await db.healthCheck();
-
-    const docs = await db.queryOne(
-      `SELECT COUNT(*) as total,
-       COUNT(*) FILTER (WHERE is_active = TRUE) as active,
-       COUNT(*) FILTER (WHERE is_active = TRUE AND (expiry_date - CURRENT_DATE) <= alert_days AND (expiry_date - CURRENT_DATE) >= 0) as urgent,
-       COUNT(*) FILTER (WHERE is_active = TRUE AND (expiry_date - CURRENT_DATE) < 0) as expired
-       FROM document_alerts`
-    );
-
-    const [feeds, articles, jobSources, jobListings, lastJobs] = await Promise.all([
+    const [health, docs, feeds, articles, jobSources, jobListings, lastJobs] = await Promise.all([
+      db.healthCheck(),
+      db.queryOne(
+        `SELECT COUNT(*) as total,
+         COUNT(*) FILTER (WHERE is_active = TRUE) as active,
+         COUNT(*) FILTER (WHERE is_active = TRUE AND (expiry_date - CURRENT_DATE) <= alert_days AND (expiry_date - CURRENT_DATE) >= 0) as urgent,
+         COUNT(*) FILTER (WHERE is_active = TRUE AND (expiry_date - CURRENT_DATE) < 0) as expired
+         FROM document_alerts`
+      ),
       db.queryOne('SELECT COUNT(*) as total FROM rss_feeds WHERE is_active = TRUE').catch(e => { console.warn('status: rss_feeds query failed:', e.message); return { total: 0 }; }),
       db.queryOne('SELECT COUNT(*) as total FROM rss_articles').catch(e => { console.warn('status: rss_articles query failed:', e.message); return { total: 0 }; }),
       db.queryOne('SELECT COUNT(*) as total FROM job_sources WHERE is_active = TRUE').catch(e => { console.warn('status: job_sources query failed:', e.message); return { total: 0 }; }),
