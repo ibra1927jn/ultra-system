@@ -135,6 +135,12 @@
 - [2026-04-06] | Refactor: telegram.js /biosemana handler now reuses formatBioWeeklySummary from scheduler_format.js — eliminated 25 lines of duplicate formatting logic
 - [2026-04-06] | Testing: 8 new tests — freelance_format (8). Total: 595 passing, 54 test files. Coverage: 41%
 
+## Completado (Heartbeat 2026-04-06 cycle 10) ✅
+- [2026-04-06] | Refactor: telegram.js /pipeline handler — removed redundant statusMap destructuring (5 intermediate variables), formatPipelineMessage handles defaults internally
+- [2026-04-06] | Refactor: extracted RSS high-score article alert formatting from scheduler.js into utils/rss_format.js — last remaining inline formatter in scheduler
+- [2026-04-06] | Testing: 5 new tests — rss_format (5). Total: 645 passing, 58 test files. Coverage: 44%
+- [2026-04-06] | Full audit: security clean, ESLint clean, no TODO/FIXME, no console.log in prod, no dead imports, no functions >100 lines, no N+1 queries, all async routes have error handling
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
