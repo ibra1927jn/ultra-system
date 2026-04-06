@@ -13,6 +13,7 @@ const { formatDocumentAlert } = require('./utils/document_format');
 const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL } = require('./utils/budget_calc');
 const { bar, LOGISTICS_TYPE_EMOJI, formatBioWeeklySummary } = require('./utils/scheduler_format');
 const { toDateStr, currentMonth } = require('./utils/date_format');
+const { formatPipelineMessage, formatOpportunitiesList } = require('./utils/pipeline_format');
 
 let bot = null;
 
@@ -265,22 +266,7 @@ async function handleOportunidades(msg) {
       return;
     }
 
-    const statusEmoji = { new: '🆕', contacted: '📧', applied: '📨' };
-    const lines = [
-      '🎯 *ULTRA SYSTEM — Oportunidades*',
-      '━━━━━━━━━━━━━━━━━━━━━━━━',
-    ];
-
-    for (const o of opps) {
-      const emoji = statusEmoji[o.status] || '📌';
-      const deadline = o.deadline ? ` (${toDateStr(o.deadline)})` : '';
-      lines.push(`${emoji} *${o.title}*`);
-      if (o.source) lines.push(`   📍 ${o.source}`);
-      if (o.category) lines.push(`   🏷️ ${o.category}${deadline}`);
-      lines.push('');
-    }
-
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    const lines = formatOpportunitiesList(opps);
     send(msg.chat.id, lines.join('\n'), 'Markdown');
   } catch (err) {
     send(msg.chat.id, `❌ Error: ${err.message}`);
@@ -304,43 +290,14 @@ async function handlePipeline(msg) {
     const won = statusMap['won'] || 0;
     const totalC = parseInt(total.total) || 0;
 
-    const maxBar = 20;
-    const barFor = (val) => {
-      if (totalC === 0) return '';
-      const len = Math.max(1, Math.round(val / totalC * maxBar));
-      return '█'.repeat(len);
-    };
-
-    const winRate = totalC > 0 ? Math.round(won / totalC * 100) : 0;
-
     const followUps = await db.queryAll(
       `SELECT title FROM opportunities
        WHERE status = 'contacted' AND created_at < NOW() - INTERVAL '7 days'
        LIMIT 5`
     );
 
-    const lines = [
-      '🎯 *ULTRA SYSTEM — Pipeline*',
-      '━━━━━━━━━━━━━━━━━━━━━━━━',
-      `Total: ${totalC} oportunidades`,
-      '',
-      `🆕 Nuevas:      ${barFor(newC)} ${newC}`,
-      `📧 Contactadas: ${barFor(contacted)} ${contacted}`,
-      `📨 Aplicadas:   ${barFor(applied)} ${applied}`,
-      `❌ Rechazadas:  ${barFor(rejected)} ${rejected}`,
-      `✅ Ganadas:     ${barFor(won)} ${won}`,
-      '',
-      `📊 Win rate: ${winRate}%`,
-    ];
-
-    if (followUps.length) {
-      lines.push('', '⚠️ *Necesitan follow-up (>7 dias):*');
-      for (const f of followUps) {
-        lines.push(`   • ${f.title}`);
-      }
-    }
-
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    const pipelineStatusMap = { new: newC, contacted, applied, rejected, won };
+    const lines = formatPipelineMessage(pipelineStatusMap, totalC, followUps);
     send(msg.chat.id, lines.join('\n'), 'Markdown');
   } catch (err) {
     send(msg.chat.id, `❌ Error: ${err.message}`);
