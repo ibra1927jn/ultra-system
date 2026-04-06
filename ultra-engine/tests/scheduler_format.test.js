@@ -38,8 +38,9 @@ describe('scheduler bar() progress renderer', () => {
     expect(bar('3.2')).toBe('███░░░░░░░');
   });
 
-  it('returns empty string for non-numeric input (NaN propagates)', () => {
-    expect(bar('abc')).toBe('');
+  it('returns empty bar for non-numeric input', () => {
+    expect(bar('abc')).toBe('░░░░░░░░░░');
+    expect(bar('abc')).toHaveLength(10);
   });
 });
 

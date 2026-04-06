@@ -10,7 +10,8 @@ const LOGISTICS_TYPE_EMOJI = { transport: '🚌', accommodation: '🏠', visa: '
  * @returns {string} 10-char bar of █ and ░
  */
 function bar(val) {
-  const filled = Math.min(10, Math.max(0, Math.round(parseFloat(val))));
+  const parsed = parseFloat(val);
+  const filled = isNaN(parsed) ? 0 : Math.min(10, Math.max(0, Math.round(parsed)));
   return '█'.repeat(filled) + '░'.repeat(10 - filled);
 }
 
