@@ -85,12 +85,14 @@ function init() {
 
   bot.onText(/\/status/, async (msg) => {
     try {
-      const health = await db.healthCheck();
-      const docsResult = await db.queryOne(
-        `SELECT COUNT(*) as total,
-         COUNT(*) FILTER (WHERE (expiry_date - CURRENT_DATE) <= alert_days AND (expiry_date - CURRENT_DATE) >= 0) as urgentes
-         FROM document_alerts WHERE is_active = TRUE`
-      );
+      const [health, docsResult] = await Promise.all([
+        db.healthCheck(),
+        db.queryOne(
+          `SELECT COUNT(*) as total,
+           COUNT(*) FILTER (WHERE (expiry_date - CURRENT_DATE) <= alert_days AND (expiry_date - CURRENT_DATE) >= 0) as urgentes
+           FROM document_alerts WHERE is_active = TRUE`
+        ),
+      ]);
       const lines = [
         '📊 *ULTRA SYSTEM — Estado*',
         '━━━━━━━━━━━━━━━━━━━━━━━━',
@@ -195,25 +197,28 @@ function init() {
   bot.onText(/\/finanzas/, async (msg) => {
     try {
       const month = new Date().toISOString().slice(0, 7);
-      const summary = await db.queryAll(
-        `SELECT type, SUM(amount) as total, COUNT(*) as count
-         FROM finances
-         WHERE TO_CHAR(date, 'YYYY-MM') = $1
-         GROUP BY type`,
-        [month]
-      );
+
+      // Queries independientes en paralelo
+      const [summary, topExpenses] = await Promise.all([
+        db.queryAll(
+          `SELECT type, SUM(amount) as total, COUNT(*) as count
+           FROM finances
+           WHERE TO_CHAR(date, 'YYYY-MM') = $1
+           GROUP BY type`,
+          [month]
+        ),
+        db.queryAll(
+          `SELECT category, SUM(amount) as total
+           FROM finances
+           WHERE TO_CHAR(date, 'YYYY-MM') = $1 AND type = 'expense'
+           GROUP BY category ORDER BY total DESC LIMIT 3`,
+          [month]
+        ),
+      ]);
 
       const income = parseFloat(summary.find(r => r.type === 'income')?.total || 0);
       const expense = parseFloat(summary.find(r => r.type === 'expense')?.total || 0);
       const balance = income - expense;
-
-      const topExpenses = await db.queryAll(
-        `SELECT category, SUM(amount) as total
-         FROM finances
-         WHERE TO_CHAR(date, 'YYYY-MM') = $1 AND type = 'expense'
-         GROUP BY category ORDER BY total DESC LIMIT 3`,
-        [month]
-      );
 
       const lines = [
         '💰 *ULTRA SYSTEM — Finanzas*',
@@ -242,17 +247,17 @@ function init() {
     try {
       const month = new Date().toISOString().slice(0, 7);
 
-      // Totales del mes
-      const incomeRow = await db.queryOne(INCOME_TOTAL_SQL, [month]);
-      const expenseRow = await db.queryOne(EXPENSE_TOTAL_SQL, [month]);
+      // Queries independientes en paralelo
+      const [incomeRow, expenseRow, budgetAlerts] = await Promise.all([
+        db.queryOne(INCOME_TOTAL_SQL, [month]),
+        db.queryOne(EXPENSE_TOTAL_SQL, [month]),
+        db.queryAll(BUDGET_ALERTS_SQL, [month]),
+      ]);
 
       const income = parseFloat(incomeRow.total);
       const expense = parseFloat(expenseRow.total);
       const dayOfMonth = new Date().getDate();
       const { remaining, dailyBurn, runway } = calculateRunway(income, expense, dayOfMonth);
-
-      // Alertas de budget
-      const budgetAlerts = await db.queryAll(BUDGET_ALERTS_SQL, [month]);
 
       const lines = [
         '💰 *ULTRA SYSTEM — Presupuesto*',
@@ -324,11 +329,11 @@ function init() {
 
   bot.onText(/\/pipeline/, async (msg) => {
     try {
-      // Conteos por status
-      const counts = await db.queryAll(
-        `SELECT status, COUNT(*) as count FROM opportunities GROUP BY status`
-      );
-      const total = await db.queryOne('SELECT COUNT(*) as total FROM opportunities');
+      // Queries independientes en paralelo
+      const [counts, total] = await Promise.all([
+        db.queryAll(`SELECT status, COUNT(*) as count FROM opportunities GROUP BY status`),
+        db.queryOne('SELECT COUNT(*) as total FROM opportunities'),
+      ]);
 
       const statusMap = {};
       for (const row of counts) statusMap[row.status] = parseInt(row.count);
@@ -506,16 +511,16 @@ function init() {
 
   bot.onText(/\/biosemana/, async (msg) => {
     try {
-      // Promedios semanales
-      const weekly = await db.queryOne(BIO_WEEKLY_SQL);
+      // Queries independientes en paralelo
+      const [weekly, data] = await Promise.all([
+        db.queryOne(BIO_WEEKLY_SQL),
+        db.queryAll(BIO_CORRELATION_SQL),
+      ]);
 
       if (!weekly || parseInt(weekly.entries) === 0) {
         send(msg.chat.id, '📭 No hay registros de bio-check esta semana.');
         return;
       }
-
-      // Correlaciones (ultimos 30 dias)
-      const data = await db.queryAll(BIO_CORRELATION_SQL);
 
       const lines = [
         '🧬 *ULTRA SYSTEM — Bio Resumen Semanal*',
