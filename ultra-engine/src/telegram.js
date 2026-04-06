@@ -14,6 +14,7 @@ const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL 
 const { bar, LOGISTICS_TYPE_EMOJI, formatBioWeeklySummary } = require('./utils/scheduler_format');
 const { toDateStr, currentMonth } = require('./utils/date_format');
 const { formatPipelineMessage, formatOpportunitiesList } = require('./utils/pipeline_format');
+const { formatFinanzasSummary } = require('./utils/finanzas_format');
 
 let bot = null;
 
@@ -184,25 +185,8 @@ async function handleFinanzas(msg) {
 
     const income = parseFloat(summary.find(r => r.type === 'income')?.total || 0);
     const expense = parseFloat(summary.find(r => r.type === 'expense')?.total || 0);
-    const balance = income - expense;
 
-    const lines = [
-      '💰 *ULTRA SYSTEM — Finanzas*',
-      `📅 Mes: ${month}`,
-      '━━━━━━━━━━━━━━━━━━━━━━━━',
-      `📈 Ingresos: $${income.toFixed(2)}`,
-      `📉 Gastos: $${expense.toFixed(2)}`,
-      `${balance >= 0 ? '✅' : '🔴'} Balance: $${balance.toFixed(2)}`,
-    ];
-
-    if (topExpenses.length) {
-      lines.push('', '📊 Top gastos:');
-      for (const cat of topExpenses) {
-        lines.push(`   • ${cat.category}: $${parseFloat(cat.total).toFixed(2)}`);
-      }
-    }
-
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    const lines = formatFinanzasSummary({ month, income, expense, topExpenses });
     send(msg.chat.id, lines.join('\n'), 'Markdown');
   } catch (err) {
     send(msg.chat.id, `❌ Error: ${err.message}`);
