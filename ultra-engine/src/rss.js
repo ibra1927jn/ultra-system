@@ -99,30 +99,28 @@ async function fetchFeed(feedId) {
     const highScoreArticles = [];
 
     for (const item of data.items.slice(0, 20)) {
-      const existing = await db.queryOne(
-        'SELECT id FROM rss_articles WHERE url = $1',
-        [item.link]
+      const title = item.title || 'Sin titulo';
+      const summary = (item.contentSnippet || item.content || '').substring(0, 500);
+
+      // Calcular score de relevancia
+      const score = await scoreArticle(title, summary);
+
+      // ON CONFLICT evita SELECT+INSERT separados por cada articulo
+      const result = await db.query(
+        `INSERT INTO rss_articles (feed_id, title, url, summary, published_at, relevance_score)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (url) DO NOTHING`,
+        [
+          feedId,
+          title,
+          item.link,
+          summary,
+          item.pubDate ? new Date(item.pubDate) : new Date(),
+          score,
+        ]
       );
 
-      if (!existing) {
-        const title = item.title || 'Sin titulo';
-        const summary = (item.contentSnippet || item.content || '').substring(0, 500);
-
-        // Calcular score de relevancia
-        const score = await scoreArticle(title, summary);
-
-        await db.query(
-          `INSERT INTO rss_articles (feed_id, title, url, summary, published_at, relevance_score)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [
-            feedId,
-            title,
-            item.link,
-            summary,
-            item.pubDate ? new Date(item.pubDate) : new Date(),
-            score,
-          ]
-        );
+      if (result.rowCount > 0) {
         newCount++;
 
         // Si supera el umbral, guardar para alertar
