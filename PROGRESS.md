@@ -98,6 +98,12 @@
 - [2026-04-06] | Performance: parallelized 3 independent DB queries in logistics /costs endpoint with Promise.all
 - [2026-04-06] | Performance: parallelized 2 independent DB queries in scheduler checkOpportunityReminders (deadlines + follow-ups) with Promise.all
 
+## Completado (Heartbeat 2026-04-06 cycle 4) ✅
+- [2026-04-06] | Performance: converted sync file I/O (readFileSync/writeFileSync) to async fs/promises in agentbus.js — readBus/writeBus no longer block event loop
+- [2026-04-06] | Performance: converted sync file I/O in ocr.js — saveFile, listFiles, and PDF read now use async fs/promises. Module-level dir init kept sync (one-time startup)
+- [2026-04-06] | Fix: documents route updated to await async saveFile
+- [2026-04-06] | Testing: 14 new tests — bio_queries SQL structure validation (13), rss SCORE_THRESHOLD bounds check (1). Total: 509 tests, all passing
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
