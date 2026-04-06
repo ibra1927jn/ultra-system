@@ -44,22 +44,33 @@ router.get('/', async (req, res) => {
 // ─── GET /api/opportunities/pipeline ─ Funnel + rates ───
 router.get('/pipeline', async (req, res) => {
   try {
-    // Conteo por status
-    const counts = await db.queryAll(
-      `SELECT status, COUNT(*) as count
-       FROM opportunities
-       GROUP BY status
-       ORDER BY
-         CASE status
-           WHEN 'new' THEN 1
-           WHEN 'contacted' THEN 2
-           WHEN 'applied' THEN 3
-           WHEN 'rejected' THEN 4
-           WHEN 'won' THEN 5
-         END`
-    );
+    // Todas las queries son independientes — ejecutar en paralelo
+    const [counts, total, needFollowUp, upcomingDeadlines] = await Promise.all([
+      db.queryAll(
+        `SELECT status, COUNT(*) as count
+         FROM opportunities
+         GROUP BY status
+         ORDER BY
+           CASE status
+             WHEN 'new' THEN 1
+             WHEN 'contacted' THEN 2
+             WHEN 'applied' THEN 3
+             WHEN 'rejected' THEN 4
+             WHEN 'won' THEN 5
+           END`
+      ),
+      db.queryOne('SELECT COUNT(*) as total FROM opportunities'),
+      db.queryAll(
+        `SELECT id, title, source, created_at,
+           (CURRENT_DATE - created_at::date) as days_since_created
+         FROM opportunities
+         WHERE status = 'contacted'
+           AND created_at < NOW() - INTERVAL '7 days'
+         ORDER BY created_at ASC`
+      ),
+      db.queryAll(OPPORTUNITY_DEADLINES_SQL),
+    ]);
 
-    const total = await db.queryOne('SELECT COUNT(*) as total FROM opportunities');
     const totalCount = parseInt(total.total) || 0;
 
     // Mapa de conteos para calcular tasas
@@ -69,19 +80,6 @@ router.get('/pipeline', async (req, res) => {
     }
 
     const conversionRates = calculateConversionRates(statusMap, totalCount);
-
-    // Oportunidades que necesitan follow-up (contacted > 7 dias sin cambio)
-    const needFollowUp = await db.queryAll(
-      `SELECT id, title, source, created_at,
-         (CURRENT_DATE - created_at::date) as days_since_created
-       FROM opportunities
-       WHERE status = 'contacted'
-         AND created_at < NOW() - INTERVAL '7 days'
-       ORDER BY created_at ASC`
-    );
-
-    // Deadlines proximos (3 dias)
-    const upcomingDeadlines = await db.queryAll(OPPORTUNITY_DEADLINES_SQL);
 
     res.json({
       ok: true,

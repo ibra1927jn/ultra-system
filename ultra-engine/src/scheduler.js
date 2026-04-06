@@ -266,9 +266,11 @@ async function checkBudgetAlerts() {
     return;
   }
 
-  // Calcular runway tambien
-  const incomeRow = await db.queryOne(INCOME_TOTAL_SQL, [month]);
-  const expenseRow = await db.queryOne(EXPENSE_TOTAL_SQL, [month]);
+  // Calcular runway — queries independientes en paralelo
+  const [incomeRow, expenseRow] = await Promise.all([
+    db.queryOne(INCOME_TOTAL_SQL, [month]),
+    db.queryOne(EXPENSE_TOTAL_SQL, [month]),
+  ]);
 
   const income = parseFloat(incomeRow.total);
   const expense = parseFloat(expenseRow.total);

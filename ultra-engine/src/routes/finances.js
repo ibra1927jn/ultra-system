@@ -45,25 +45,26 @@ router.get('/summary', async (req, res) => {
   try {
     const month = req.query.month || new Date().toISOString().slice(0, 7);
 
-    const summary = await db.queryAll(
-      `SELECT type,
-       COUNT(*) as count,
-       SUM(amount) as total,
-       ARRAY_AGG(DISTINCT category) as categories
-       FROM finances
-       WHERE TO_CHAR(date, 'YYYY-MM') = $1
-       GROUP BY type`,
-      [month]
-    );
-
-    const byCategory = await db.queryAll(
-      `SELECT category, type, SUM(amount) as total, COUNT(*) as count
-       FROM finances
-       WHERE TO_CHAR(date, 'YYYY-MM') = $1
-       GROUP BY category, type
-       ORDER BY total DESC`,
-      [month]
-    );
+    const [summary, byCategory] = await Promise.all([
+      db.queryAll(
+        `SELECT type,
+         COUNT(*) as count,
+         SUM(amount) as total,
+         ARRAY_AGG(DISTINCT category) as categories
+         FROM finances
+         WHERE TO_CHAR(date, 'YYYY-MM') = $1
+         GROUP BY type`,
+        [month]
+      ),
+      db.queryAll(
+        `SELECT category, type, SUM(amount) as total, COUNT(*) as count
+         FROM finances
+         WHERE TO_CHAR(date, 'YYYY-MM') = $1
+         GROUP BY category, type
+         ORDER BY total DESC`,
+        [month]
+      ),
+    ]);
 
     const income = summary.find(r => r.type === 'income')?.total || 0;
     const expense = summary.find(r => r.type === 'expense')?.total || 0;
@@ -92,27 +93,27 @@ router.get('/budget', async (req, res) => {
   try {
     const month = req.query.month || new Date().toISOString().slice(0, 7);
 
-    // Ingresos y gastos del mes
-    const income = await db.queryOne(INCOME_TOTAL_SQL, [month]);
-    const expenses = await db.queryOne(EXPENSE_TOTAL_SQL, [month]);
-
-    // Gastos por categoria con limites de budget
-    const byCategory = await db.queryAll(
-      `SELECT
-         f.category,
-         COALESCE(SUM(f.amount), 0) as spent,
-         b.monthly_limit,
-         CASE WHEN b.monthly_limit > 0
-           THEN ROUND((COALESCE(SUM(f.amount), 0) / b.monthly_limit * 100)::numeric, 1)
-           ELSE NULL
-         END as percent_used
-       FROM finances f
-       LEFT JOIN budgets b ON LOWER(b.category) = LOWER(f.category)
-       WHERE f.type = 'expense' AND TO_CHAR(f.date, 'YYYY-MM') = $1
-       GROUP BY f.category, b.monthly_limit
-       ORDER BY spent DESC`,
-      [month]
-    );
+    // Ingresos, gastos y categorias en paralelo
+    const [income, expenses, byCategory] = await Promise.all([
+      db.queryOne(INCOME_TOTAL_SQL, [month]),
+      db.queryOne(EXPENSE_TOTAL_SQL, [month]),
+      db.queryAll(
+        `SELECT
+           f.category,
+           COALESCE(SUM(f.amount), 0) as spent,
+           b.monthly_limit,
+           CASE WHEN b.monthly_limit > 0
+             THEN ROUND((COALESCE(SUM(f.amount), 0) / b.monthly_limit * 100)::numeric, 1)
+             ELSE NULL
+           END as percent_used
+         FROM finances f
+         LEFT JOIN budgets b ON LOWER(b.category) = LOWER(f.category)
+         WHERE f.type = 'expense' AND TO_CHAR(f.date, 'YYYY-MM') = $1
+         GROUP BY f.category, b.monthly_limit
+         ORDER BY spent DESC`,
+        [month]
+      ),
+    ]);
 
     const totalIncome = parseFloat(income.total);
     const totalExpense = parseFloat(expenses.total);
