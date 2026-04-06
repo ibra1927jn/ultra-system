@@ -65,7 +65,6 @@ async function scrapeFreelancer(query, category = 'freelance') {
   }
 }
 
-
 /**
  * Scrapea todas las categorias y guarda en DB
  */
