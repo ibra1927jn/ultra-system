@@ -14,7 +14,7 @@ const { calculateRunway, BUDGET_ALERTS_SQL, INCOME_TOTAL_SQL, EXPENSE_TOTAL_SQL 
 const { bar, formatBioWeeklySummary } = require('./utils/scheduler_format');
 const { currentMonth } = require('./utils/date_format');
 const { formatPipelineMessage, formatOpportunitiesList } = require('./utils/pipeline_format');
-const { formatFinanzasSummary } = require('./utils/finanzas_format');
+const { formatFinanzasSummary, formatPresupuestoDetail } = require('./utils/finanzas_format');
 const { formatLogistica7d, formatProximas48h } = require('./utils/logistics_format');
 
 let bot = null;
@@ -209,27 +209,7 @@ async function handlePresupuesto(msg) {
     const dayOfMonth = new Date().getDate();
     const { remaining, dailyBurn, runway } = calculateRunway(income, expense, dayOfMonth);
 
-    const lines = [
-      '💰 *ULTRA SYSTEM — Presupuesto*',
-      `📅 ${month}`,
-      '━━━━━━━━━━━━━━━━━━━━━━━━',
-      `📈 Ingresos: $${income.toFixed(2)}`,
-      `📉 Gastos: $${expense.toFixed(2)}`,
-      `💵 Restante: $${remaining.toFixed(2)}`,
-      '',
-      `🔥 Burn diario: $${dailyBurn.toFixed(2)}/dia`,
-      `⏳ Runway: ${runway} dias`,
-    ];
-
-    if (budgetAlerts.length) {
-      lines.push('', '⚠️ *Categorias excediendo 80%:*');
-      for (const a of budgetAlerts) {
-        const emoji = parseFloat(a.percent_used) >= 100 ? '🔴' : '🟡';
-        lines.push(`${emoji} ${a.category}: $${parseFloat(a.spent).toFixed(2)}/$${parseFloat(a.monthly_limit).toFixed(2)} (${a.percent_used}%)`);
-      }
-    }
-
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    const lines = formatPresupuestoDetail({ month, income, expense, remaining, dailyBurn, runway, budgetAlerts });
     send(msg.chat.id, lines.join('\n'), 'Markdown');
   } catch (err) {
     send(msg.chat.id, `❌ Error: ${err.message}`);
