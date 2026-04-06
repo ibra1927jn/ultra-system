@@ -123,6 +123,12 @@
 - [2026-04-06] | Full audit: no TODO/FIXME/HACK, no console.log in prod, no dead imports, no functions >100 lines, no hardcoded credentials, all SQL parameterized
 - [2026-04-06] | Tests: 587 passing, 53 test files. Coverage: 39% (utils/ 66%, middleware 100%)
 
+## Completado (Heartbeat 2026-04-06 cycle 8) ✅
+- [2026-04-06] | Fix: agentbus.js — 4 async route handlers (status, git-push, send, complete) missing try-catch blocks, risking unhandled promise rejections on file I/O errors
+- [2026-04-06] | Refactor: freelance_scraper.js — removed extra blank line between functions
+- [2026-04-06] | Full audit: security clean, ESLint clean, all async routes have error handling, no TODO/FIXME, no dead code, no functions >100 lines
+- [2026-04-06] | Tests: 587 passing, 53 test files. Coverage: 40%
+
 ## Completado (Smart Upgrades) ✅
 - [2026-03-28] | P1 Smart RSS: keyword scoring (tabla rss_keywords + columna relevance_score en rss_articles). CRUD keywords en /api/feeds/keywords. Fetch con scoring y alerta Telegram si score >= 8. Comando /noticias_config
 - [2026-03-28] | P3 Budget & Runway: tabla budgets. GET /api/finances/budget (burn rate, runway, gastos por categoria vs limite). POST /api/finances/budget (set limite). GET /api/finances/alerts (categorias >80%). Comando /presupuesto
