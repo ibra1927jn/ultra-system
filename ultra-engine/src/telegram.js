@@ -36,7 +36,6 @@ function handleHelp(msg) {
     '/ping — Verificar que el bot funciona',
     '',
     '📰 _P1 Noticias:_',
-    '/feeds — Ultimas noticias',
     '/noticias\\_config — Keywords de scoring RSS',
     '',
     '💰 _P3 Finanzas:_',
