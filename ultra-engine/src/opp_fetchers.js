@@ -532,8 +532,11 @@ async function fetchUnstop() {
 const Parser = require('rss-parser');
 const _parser = new Parser({ timeout: 15000 });
 
-// R5 2026-04-07: Immunefi reactivado vía Puppeteer sidecar. La página
-// /explore lista bounty programs como cards con enlace a /bounty/{slug}.
+// R5 2026-04-08: Immunefi reactivado vía Puppeteer sidecar.
+// Nota: /bug-bounty-program/ SÍ es un SPA con virtual scrolling (no anchors
+// estáticos). PERO /explore/ SÍ devuelve 20+ anchors estáticos con shape
+// `a[href*="/bug-bounty/{slug}/information/"]`. Validado con curl al sidecar:
+// waitFor:5000 → 20 detail links con texto "SSV Network", "The Graph", etc.
 async function fetchImmunefi() {
   const pup = require('./puppeteer');
   if (!(await pup.isAvailable())) {
@@ -542,8 +545,8 @@ async function fetchImmunefi() {
   try {
     const r = await pup.scrape({
       url: 'https://immunefi.com/explore/',
-      waitFor: 4000,
-      selectors: { bounties: 'a[href*="/bounty/"]' },
+      waitFor: 5000,
+      selectors: { bounties: 'a[href*="/bug-bounty/"]' },
     });
     if (!r.ok) return { source: 'Immunefi', total: 0, inserted: 0, highScore: 0, error: r.error };
 
@@ -552,12 +555,14 @@ async function fetchImmunefi() {
     let inserted = 0, highScore = 0;
     for (const it of items) {
       const href = (it.href || '').replace(/\/$/, '');
-      if (!href || !href.includes('/bounty/') || seen.has(href)) continue;
+      // Only detail pages like /bug-bounty/{slug}/information/ — skip the index /bug-bounty
+      if (!href || !href.includes('/bug-bounty/') || href.endsWith('/bug-bounty') || seen.has(href)) continue;
       seen.add(href);
-      const slug = href.split('/bounty/')[1]?.split('/')[0];
-      if (!slug) continue;
+      const slug = href.split('/bug-bounty/')[1]?.split('/')[0];
+      if (!slug || slug === 'information') continue;
+
       const rawText = (it.text || '').replace(/\s+/g, ' ').trim();
-      // Try to extract reward from text (formats like "$50,000 — Foo Protocol" or "Up to $100K")
+      // Extract reward from text (e.g. "$50,000" or "Up to $100K" or "$1.5M")
       const rewardMatch = rawText.match(/\$\s*([\d,]+(?:\.\d+)?)\s*([KMkm])?/);
       let salary = null;
       if (rewardMatch) {
@@ -568,15 +573,16 @@ async function fetchImmunefi() {
       }
       const score = await scoreText(`${rawText} web3 security audit bounty`);
       const ok = await insertOpportunity({
-        title: rawText.slice(0, 500) || slug,
+        title: (rawText.slice(0, 200) || slug).replace(/\s*View bounty\s*$/i, ''),
         source: 'Immunefi',
         url: href,
         category: 'bounty',
         description: rawText.slice(0, 1500),
         payout_type: 'bounty',
-        salary_min: salary, salary_max: salary,
+        salary_min: salary,
+        salary_max: salary,
         currency: 'USD',
-        tags: ['web3', 'security'],
+        tags: ['web3', 'security', 'audit'],
         match_score: score,
         external_id: `immunefi:${slug}`,
       });

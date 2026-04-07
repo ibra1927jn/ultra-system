@@ -6,6 +6,20 @@
 
 ---
 
+## 🔥 Priority pending (R5+ sesiones)
+
+- [ ] **Park4Night van-life POIs** — [2026-04-08] descope temporal durante R5 step 2.
+  - Contexto: /api/places/around cerrado (HTTP 400 desde 2024). La web es un map-based React app con lazy-load por viewport — NO es scrapable con un simple `waitFor + selector`. Requiere pattern más complejo:
+    1. Opción A: click en marcadores del mapa (necesita coordenadas por región)
+    2. Opción B: interceptar la API interna que el frontend llama al panear el mapa (devtools network tab)
+    3. Opción C: parsear los sitemap.xml que Park4Night genera para SEO (si existen)
+  - Stub actual: `logistics_extras.js:fetchPark4Night` devuelve `skipped: 'api_closed_2024'`.
+  - Cobertura actual de camping NZ: Overpass (1902 POIs en `log_pois`) — no es bloqueante pero Park4Night cubre EU que Overpass no tiene al mismo nivel.
+  - Dedicar **sesión propia** (2-4h) para investigar la network tab y reverse-engineer el endpoint interno.
+  - Prioridad: **alta** (usuario van-life, EU es destino futuro post-NZ).
+
+---
+
 ## Legend
 
 | Symbol | Meaning |
