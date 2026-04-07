@@ -214,6 +214,88 @@ router.get('/cbt', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════
+//  P7 Tier A — biomarkers + intermittent fasting
+// ═══════════════════════════════════════════════════════════
+
+router.get('/biomarkers', async (req, res) => {
+  try {
+    const { type, days } = req.query;
+    const where = ['1=1'];
+    const params = [];
+    if (type) { params.push(type); where.push(`test_type = $${params.length}`); }
+    if (days) where.push(`test_date >= CURRENT_DATE - INTERVAL '${parseInt(days, 10)} days'`);
+    const rows = await db.queryAll(
+      `SELECT id, test_type, value, unit, reference_min, reference_max, test_date, provider, country, notes
+       FROM bio_biomarkers WHERE ${where.join(' AND ')} ORDER BY test_date DESC`,
+      params
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/biomarkers', async (req, res) => {
+  try {
+    const { test_type, value, unit, reference_min, reference_max, test_date, provider, country, notes, paperless_id } = req.body;
+    if (!test_type || value === undefined || !test_date) {
+      return res.status(400).json({ ok: false, error: 'test_type, value, test_date obligatorios' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO bio_biomarkers (test_type, value, unit, reference_min, reference_max, test_date, provider, country, notes, paperless_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [test_type, value, unit || null, reference_min || null, reference_max || null, test_date,
+       provider || null, country ? country.toUpperCase() : null, notes || null, paperless_id || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/fasting/current', async (req, res) => {
+  try {
+    const row = await db.queryOne(
+      `SELECT id, started_at, ended_at, protocol, target_hours, notes,
+              EXTRACT(EPOCH FROM (NOW() - started_at)) / 3600 AS hours_elapsed
+       FROM bio_fasting WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1`
+    );
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/fasting/start', async (req, res) => {
+  try {
+    const { protocol, target_hours, notes } = req.body;
+    // End any ongoing fast
+    await db.query(`UPDATE bio_fasting SET ended_at = NOW() WHERE ended_at IS NULL`);
+    const row = await db.queryOne(
+      `INSERT INTO bio_fasting (started_at, protocol, target_hours, notes)
+       VALUES (NOW(), $1, $2, $3) RETURNING *`,
+      [protocol || '16:8', target_hours || 16, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/fasting/end', async (req, res) => {
+  try {
+    const row = await db.queryOne(
+      `UPDATE bio_fasting SET ended_at = NOW() WHERE ended_at IS NULL
+       RETURNING *, EXTRACT(EPOCH FROM (NOW() - started_at)) / 3600 AS total_hours`
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'Sin fast activo' });
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/food/today', async (req, res) => {
   try {
     const rows = await db.queryAll(

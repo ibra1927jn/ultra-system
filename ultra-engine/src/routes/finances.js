@@ -692,6 +692,17 @@ router.get('/tax/modelo-100', async (req, res) => {
   }
 });
 
+// ─── GET /api/finances/tax/paye-nz?gross=NN ─────
+router.get('/tax/paye-nz', async (req, res) => {
+  try {
+    const gross = parseFloat(req.query.gross || '0');
+    const result = taxReporting.computePayeNZ({ annual_income_nzd: gross });
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ─── GET /api/finances/tax/residency-es ─────────
 router.get('/tax/residency-es', async (req, res) => {
   try {

@@ -210,4 +210,73 @@ router.post('/trip', async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════
+//  P7 FASE 4 — Wearable bridge (generic ingest)
+//  Accepts pings from Gadgetbridge/Mi Band/GPSLogger/OwnTracks/
+//  Apple Health/Google Fit/Fitbit/Oura/Garmin via simple POST.
+//
+//  Format flexible:
+//   POST /webhooks/wearable
+//   { device_id, device_type, metrics: [
+//       { type: 'steps', value: 10234, unit: 'count', at: '2026-04-07T15:30:00Z' },
+//       { type: 'heart_rate', value: 72, unit: 'bpm', at: '...' },
+//       { type: 'sleep', value: 7.5, unit: 'hours', at: '...' },
+//       { type: 'hrv', value: 45, unit: 'ms', at: '...' },
+//   ]}
+//
+//  Persists to bio_wearable_raw + auto-aggregates daily into bio_checks.
+// ════════════════════════════════════════════════════════════
+
+router.post('/wearable', async (req, res) => {
+  if (!verifySecret(req, res)) return;
+  try {
+    const payload = req.body || {};
+    const deviceId = String(payload.device_id || payload.deviceId || 'unknown');
+    const deviceType = payload.device_type || payload.deviceType || 'unknown';
+    const metrics = payload.metrics || (payload.metric ? [payload.metric] : [payload]);
+
+    let inserted = 0;
+    for (const m of (Array.isArray(metrics) ? metrics : [])) {
+      const metricType = m.type || m.metric_type || m.metricType;
+      const value = m.value;
+      const unit = m.unit || null;
+      const at = m.at || m.measured_at || m.timestamp || new Date().toISOString();
+      if (!metricType || value === undefined) continue;
+
+      const isNumeric = typeof value === 'number' || !isNaN(parseFloat(value));
+      await db.query(
+        `INSERT INTO bio_wearable_raw
+         (device_id, device_type, metric_type, value_numeric, value_text, unit, measured_at, raw)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          deviceId, deviceType, metricType,
+          isNumeric ? parseFloat(value) : null,
+          !isNumeric ? String(value).slice(0, 500) : null,
+          unit, new Date(at), JSON.stringify(m),
+        ]
+      );
+      inserted++;
+    }
+
+    res.json({ ok: true, inserted, device: deviceId });
+  } catch (err) {
+    console.error('webhook /wearable error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /webhooks/wearable/recent ─ Last 50 pings (debug) ──
+router.get('/wearable/recent', async (req, res) => {
+  if (!verifySecret(req, res)) return;
+  try {
+    const rows = await db.queryAll(
+      `SELECT device_id, device_type, metric_type, value_numeric, value_text, unit, measured_at
+       FROM bio_wearable_raw ORDER BY measured_at DESC LIMIT 50`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

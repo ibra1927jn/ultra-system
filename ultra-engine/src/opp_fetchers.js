@@ -308,7 +308,114 @@ const FETCHERS = [
   ['NLnet', fetchNLnet],
   ['Codeforces', fetchCodeforces],
   ['Unstop', fetchUnstop],
+  ['WeWorkRemotely', fetchWeWorkRemotely],
+  ['CTFtime', fetchCTFtime],
+  ['CodeChef', fetchCodeChef],
 ];
+
+// ═══════════════════════════════════════════════════════════
+//  WE WORK REMOTELY — RSS programming jobs
+// ═══════════════════════════════════════════════════════════
+async function fetchWeWorkRemotely() {
+  try {
+    const feed = await _parser.parseURL('https://weworkremotely.com/categories/remote-programming-jobs.rss');
+    const items = feed.items || [];
+    let inserted = 0, highScore = 0;
+    for (const it of items.slice(0, 50)) {
+      const text = `${it.title} ${it.contentSnippet || ''}`;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: it.title,
+        source: 'WeWorkRemotely',
+        url: it.link,
+        category: 'remote',
+        description: (it.contentSnippet || '').slice(0, 1500),
+        payout_type: 'salary',
+        currency: 'USD',
+        tags: ['remote', 'programming'],
+        match_score: score,
+        external_id: `wwr:${it.guid || it.link}`,
+        posted_at: it.isoDate ? new Date(it.isoDate) : null,
+      });
+      if (ok) inserted++;
+      if (score >= 8) highScore++;
+    }
+    return { source: 'WeWorkRemotely', total: items.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'WeWorkRemotely', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CTFTIME — Capture The Flag events
+// ═══════════════════════════════════════════════════════════
+async function fetchCTFtime() {
+  try {
+    const r = await fetch('https://ctftime.org/api/v1/events/?limit=20', {
+      headers: { ...UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const events = await r.json();
+    let inserted = 0;
+    for (const ev of events) {
+      const text = `${ev.title} ${ev.description || ''}`;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: `${ev.title} (CTF)`,
+        source: 'CTFtime',
+        url: ev.url || `https://ctftime.org/event/${ev.id}`,
+        category: 'ctf',
+        description: (ev.description || '').slice(0, 1500),
+        payout_type: 'rating',
+        currency: 'USD',
+        tags: ['security', 'ctf', ev.format].filter(Boolean),
+        match_score: score,
+        external_id: `ctftime:${ev.id}`,
+        posted_at: ev.start ? new Date(ev.start) : null,
+      });
+      if (ok) inserted++;
+    }
+    return { source: 'CTFtime', total: events.length, inserted, highScore: 0 };
+  } catch (err) {
+    return { source: 'CTFtime', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CODECHEF — programming contests
+// ═══════════════════════════════════════════════════════════
+async function fetchCodeChef() {
+  try {
+    const r = await fetch('https://www.codechef.com/api/list/contests/all', {
+      headers: { ...UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const future = data.future_contests || [];
+    let inserted = 0;
+    for (const c of future) {
+      const ok = await insertOpportunity({
+        title: c.contest_name,
+        source: 'CodeChef',
+        url: `https://www.codechef.com/${c.contest_code}`,
+        category: 'algo_contest',
+        description: `Starts ${c.contest_start_date}, ends ${c.contest_end_date}`,
+        payout_type: 'rating',
+        currency: 'INR',
+        tags: ['algorithm', 'codechef'],
+        match_score: await scoreText(c.contest_name),
+        external_id: `codechef:${c.contest_code}`,
+        posted_at: c.contest_start_date_iso ? new Date(c.contest_start_date_iso) : null,
+      });
+      if (ok) inserted++;
+    }
+    return { source: 'CodeChef', total: future.length, inserted, highScore: 0 };
+  } catch (err) {
+    return { source: 'CodeChef', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 //  CODEFORCES — algorithmic competitions (JSON API)
@@ -672,5 +779,8 @@ module.exports = {
   fetchNLnet,
   fetchCodeforces,
   fetchUnstop,
+  fetchWeWorkRemotely,
+  fetchCTFtime,
+  fetchCodeChef,
   scoreText,
 };

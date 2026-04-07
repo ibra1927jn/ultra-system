@@ -290,6 +290,174 @@ async function fetchNOAA() {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+//  GDACS — Global Disaster Alert Coordination System (UN)
+//  Updates every 6 minutes; earthquakes/cyclones/floods/volcanoes
+// ════════════════════════════════════════════════════════════
+async function fetchGDACS() {
+  try {
+    const r = await fetch('https://www.gdacs.org/xml/rss.xml', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    const feed = await parser.parseString(text);
+    const items = feed.items || [];
+    let inserted = 0;
+    for (const it of items.slice(0, 30)) {
+      const title = it.title || '';
+      // Severity from GDACS alert level prefix (Green/Orange/Red)
+      let severity = 'low';
+      if (/red alert/i.test(title)) severity = 'critical';
+      else if (/orange alert/i.test(title)) severity = 'high';
+      else if (/green alert/i.test(title)) severity = 'medium';
+
+      // Event type detection
+      let eventType = 'disaster';
+      if (/earthquake/i.test(title)) eventType = 'earthquake';
+      else if (/cyclone|hurricane|typhoon/i.test(title)) eventType = 'cyclone';
+      else if (/flood/i.test(title)) eventType = 'flood';
+      else if (/volcano/i.test(title)) eventType = 'volcano';
+      else if (/wildfire|fire/i.test(title)) eventType = 'wildfire';
+      else if (/drought/i.test(title)) eventType = 'drought';
+
+      const country = extractCountryISO(title);
+      const result = await db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
+         VALUES ('gdacs', $1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (source, external_id) DO NOTHING
+         RETURNING id`,
+        [it.guid || it.link, eventType, severity, title.slice(0, 500),
+         (it.contentSnippet || '').slice(0, 1000), country,
+         it.isoDate || new Date(), it.link]
+      );
+      if (result) inserted++;
+    }
+    return { source: 'gdacs', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'gdacs', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  International Crisis Group — conflict reports + briefings
+// ════════════════════════════════════════════════════════════
+async function fetchCrisisGroup() {
+  try {
+    const r = await fetch('https://www.crisisgroup.org/rss-0', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    const feed = await parser.parseString(text);
+    const items = feed.items || [];
+    let inserted = 0;
+    for (const it of items.slice(0, 30)) {
+      const country = extractCountryISO(`${it.title} ${it.contentSnippet || ''}`);
+      const result = await db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
+         VALUES ('crisis_group', $1, 'conflict', 'medium', $2, $3, $4, $5, $6)
+         ON CONFLICT (source, external_id) DO NOTHING
+         RETURNING id`,
+        [it.guid || it.link, (it.title || '').slice(0, 500),
+         (it.contentSnippet || '').slice(0, 1000), country,
+         it.isoDate || new Date(), it.link]
+      );
+      if (result) inserted++;
+    }
+    return { source: 'crisis_group', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'crisis_group', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  US State Dept Travel Advisories (RSS)
+// ════════════════════════════════════════════════════════════
+async function fetchUSStateDept() {
+  try {
+    const r = await fetch('https://travel.state.gov/_res/rss/TAs.xml', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    const feed = await parser.parseString(text).catch(() => ({ items: [] }));
+    const items = feed.items || [];
+    let inserted = 0;
+    for (const it of items.slice(0, 50)) {
+      const title = it.title || '';
+      // Title format usually: "Country - Level N: Description"
+      const levelMatch = title.match(/Level\s*(\d)/i);
+      let severity = 'low';
+      if (levelMatch) {
+        const lvl = parseInt(levelMatch[1], 10);
+        severity = lvl === 4 ? 'critical' : lvl === 3 ? 'high' : lvl === 2 ? 'medium' : 'low';
+      }
+      const country = extractCountryISO(title);
+      const result = await db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
+         VALUES ('us_state_dept', $1, 'travel_advisory', $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (source, external_id) DO NOTHING
+         RETURNING id`,
+        [it.guid || it.link, severity, title.slice(0, 500),
+         (it.contentSnippet || '').slice(0, 1000), country,
+         it.isoDate || new Date(), it.link]
+      );
+      if (result) inserted++;
+    }
+    return { source: 'us_state_dept', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'us_state_dept', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  CDC Travel Notices RSS
+// ════════════════════════════════════════════════════════════
+async function fetchCDCTravelNotices() {
+  try {
+    const r = await fetch('https://wwwnc.cdc.gov/travel/rss/notices.xml', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    const feed = await parser.parseString(text).catch(() => ({ items: [] }));
+    const items = feed.items || [];
+    let inserted = 0;
+    for (const it of items.slice(0, 30)) {
+      const title = it.title || '';
+      // CDC levels: Watch (1), Alert (2), Warning (3)
+      let severity = 'medium';
+      if (/warning|level 3/i.test(title)) severity = 'high';
+      else if (/alert|level 2/i.test(title)) severity = 'medium';
+      else if (/watch|level 1/i.test(title)) severity = 'low';
+
+      const country = extractCountryISO(title);
+      const result = await db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
+         VALUES ('cdc_travel', $1, 'health_travel_notice', $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (source, external_id) DO NOTHING
+         RETURNING id`,
+        [it.guid || it.link, severity, title.slice(0, 500),
+         (it.contentSnippet || '').slice(0, 1000), country,
+         it.isoDate || new Date(), it.link]
+      );
+      if (result) inserted++;
+    }
+    return { source: 'cdc_travel', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'cdc_travel', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
 async function fetchAll() {
   const results = [];
   try { results.push(await fetchUSGSEarthquakes()); }
@@ -307,6 +475,18 @@ async function fetchAll() {
   try { results.push(await fetchNOAA()); }
   catch (e) { results.push({ source: 'noaa', error: e.message }); }
 
+  try { results.push(await fetchGDACS()); }
+  catch (e) { results.push({ source: 'gdacs', error: e.message }); }
+
+  try { results.push(await fetchCrisisGroup()); }
+  catch (e) { results.push({ source: 'crisis_group', error: e.message }); }
+
+  try { results.push(await fetchUSStateDept()); }
+  catch (e) { results.push({ source: 'us_state_dept', error: e.message }); }
+
+  try { results.push(await fetchCDCTravelNotices()); }
+  catch (e) { results.push({ source: 'cdc_travel', error: e.message }); }
+
   return results;
 }
 
@@ -316,6 +496,10 @@ module.exports = {
   fetchACLED,
   fetchReliefWeb,
   fetchNOAA,
+  fetchGDACS,
+  fetchCrisisGroup,
+  fetchUSStateDept,
+  fetchCDCTravelNotices,
   fetchAll,
   extractCountryISO,
 };

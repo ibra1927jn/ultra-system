@@ -485,6 +485,59 @@ Engine: 32 cron jobs · 12 containers (db engine paperless+redis changedetection
 
 Engine: 32 cron jobs · 12 containers · 24 modules src/ + map.html UI · 80+ endpoints
 
+## Completado (Auditoría exhaustiva + BACKLOG.md) ✅
+- [2026-04-07] | 7 Explore agents en paralelo auditando docs/consolidated/PILLAR{1-7}_*.md vs PROGRESS.md + src/. Hallazgo: ~1,263 items investigados, ~121 usados (10%), ~62 partial (5%), ~1,078 not used (85%). Pillar 1 worst (3% real coverage), Pillar 7 mejor estructura OSS adoption (18%). Pattern: containers OSS bien adoptados (Paperless/changedetection/OSRM/Traccar/wger/Mealie/Grocy/Fasten/jobspy) pero categorías enteras ignoradas (wearables, mental health apps, meditación, premium freelance, scholarships, gov aggregators, multilingual feeds, maritime sector — sector primario declarado del usuario).
+- [2026-04-07] | NEW BACKLOG.md (1,598 líneas, 1,133 filas tablas) — master inventory de ~1,078 items investigados, clasificados por pilar + status (✅/🟡/🔴) + categoría (A/B/C/D) + effort. Garantía de que NADA del research se pierde.
+
+## Completado (Tier S Sprint) ✅
+- [2026-04-07] | #45 Maritime: Wilhelmsen Workday tenant added (63 jobs maritime). CrewBay/AllCruiseJobs DEFER (SPA Puppeteer needed)
+- [2026-04-07] | #46 iOverlander pivot: API requires session, fallback Overpass mass query → NZ 1902 + FR 14671 + IT 3415 + PT 610 + AU 1197 + ES 76 = **22,135 campsite POIs** en 6 países (vs 475 anteriores)
+- [2026-04-07] | #47 OSINT Monitor port: 244 nuevos feeds + tier (1-4) + propaganda_risk + state_affiliated + source_type metadata. **289 total feeds** con 17 Tier1 wires + 69 Tier2 majors. Schema migration ALTER rss_feeds +6 cols
+- [2026-04-07] | #48 passport-index full import: 39,215 nuevos cells (188 manual → 39,403 totales). 199×199 matrix completa via ilyankou/passport-index-dataset CC BY-SA 4.0
+- [2026-04-07] | #49 Adam Isacson OPML pivot: blocked by Cloudflare → curated 16 LatAm/multilingual feeds manually (MX×4, AR×2, CO×2, PE, BR, CL, PA, GT, SV + BBC Mundo, DW Spanish, France 24 ES, BBC LatAm, Americas Quarterly)
+- [2026-04-07] | #50 Wearable bridge: NEW table bio_wearable_raw (10 cols + 4 indices) + POST /webhooks/wearable accepts {device_id, device_type, metrics:[{type, value, unit, at}]} for Gadgetbridge/GPSLogger/OwnTracks/etc. New cron wearable-aggregate (diario 23:50) que rolla raw → bio_checks (sleep_hours/heart_rate_avg/hrv/steps/weight) con casts numéricos correctos.
+
+## Completado (Tier A Sprint — 7 batches) ✅
+
+### #51 P1 News batch
+- [2026-04-07] | early_warning.js +4 fetchers: GDACS (UN disaster alerts, severity from green/orange/red), Crisis Group (XML parser fail), US State Dept Travel Advisories (feed empty), CDC Travel Notices RSS. Total scheduler: 33 → no change (already wired in fetchAll). E2E: GDACS 30/229 inserted, CDC Travel 22/22, Crisis Group/State Dept defer (XML/empty).
+
+### #52 P2 Empleo batch
+- [2026-04-07] | Workday tenants 6 → 7: +Netflix (Netflix/wd1, 783 jobs media). Rigzone RSS (oil/gas) added to rss_feeds with tier=3 sector-energy. Job Bank Canada XML 000 timeout (defer). Atlassian/Stripe/Twilio/Adobe etc all 422/404 (need per-tenant searchText params).
+
+### #53 P3 Finanzas batch
+- [2026-04-07] | tax_reporting.js: nueva computePayeNZ({annual_income_nzd}) con 5 brackets oficiales (10.5%/17.5%/30%/33%/39%) + ACC earner levy 1.6% (cap $142,283). Returns gross/tax_payable/acc_levy/net/effective_rate/marginal_rate/brackets_breakdown. E2E: $80K → $17,320 tax + $1,280 ACC = $61,400 net (effective 23.25%, marginal 33%). routes/finances.js: GET /tax/paye-nz?gross=N
+
+### #54 P4 Burocracia batch
+- [2026-04-07] | DB: 3 tablas nuevas — bur_apostilles (document_name, country_origin, expiry, paperless_id), bur_driver_licenses (country, classes TEXT[], expiry), bur_military_obligations (DZ-specific tracking). 7 tax deadlines nuevos seedeados (NZ FIF election + IR3 ext, AU PAYG Q4/Q1 + DASP, GB Self Assessment, US 1040 abroad). Total bur_tax_deadlines: 127
+
+### #55 P5 Oportunidades batch
+- [2026-04-07] | opp_fetchers.js +3 fetchers: fetchWeWorkRemotely (RSS programming jobs), fetchCTFtime (CTF events JSON API), fetchCodeChef (programming contests JSON). E2E: WeWorkRemotely 25/25 inserted (7 high-score), CTFtime 20/20, CodeChef 5/5 = 50 nuevos. Intigriti/Huntr/disclose.io/clist 401 o 404 (defer).
+
+### #56 P6 Logística batch
+- [2026-04-07] | Round 2 Overpass: AU south+west 1197 nuevos + ES Canarias 76 nuevos. Total log_pois: 22,135. AU east/north + ES peninsula 504 (Overpass server inestable, retry en cron). Open Charge Map / WiFi Map / OpenUV todos 403 (need keys, defer Tier D).
+
+### #57 P7 Bio-check batch
+- [2026-04-07] | DB: 2 tablas nuevas — bio_biomarkers (test_type, value, unit, reference_min/max, test_date, provider, paperless_id) + bio_fasting (started_at, ended_at, protocol, target_hours). bio_exercises ALTER +source +level +images.
+- [2026-04-07] | Import free-exercise-db: 802 ejercicios con images, levels (beginner/intermediate/expert), instructions detalladas. + 414 wger = **1,216 total ejercicios**.
+- [2026-04-07] | routes/bio.js: 5 endpoints más — GET/POST /biomarkers, GET /fasting/current, POST /fasting/start, POST /fasting/end. Auto-end ongoing fast cuando inicia uno nuevo.
+- [2026-04-07] | E2E: vitamin D 42 ng/mL biomarker logged correct ref range. fasting 16:8 start/current/end con hours_elapsed live calculation.
+
+## Estado post-sprints
+
+| Métrica | Pre-Tier S | Post-Tier A |
+|---|---|---|
+| RSS feeds | 25 | **289** (+1056%) |
+| Camping POIs | 475 | **22,135** (+4565%) |
+| Visa matrix entries | 188 | **39,403** (+20857%) |
+| Workday tenants | 5 | **7** (+Wilhelmsen+Netflix) |
+| Cron jobs | 32 | **34** (+wearable-aggregate, +Tier A internal) |
+| Bio exercises DB | 0 | **1,216** (414 wger + 802 free-exercise-db) |
+| Tax deadlines | 10 | **127** |
+| Opportunity fetchers | 14 | **17** (+WeWorkRemotely +CTFtime +CodeChef) |
+| Early warning sources | 5 | **9** (+GDACS +Crisis Group +State Dept +CDC Travel) |
+| New tables | base | **+bio_wearable_raw, bio_biomarkers, bio_fasting, bur_apostilles, bur_driver_licenses, bur_military_obligations** |
+
 ## DEFERIDO post-Fase 2 ⏳
 - **OSRM self-hosted** — usar router.project-osrm.org público por ahora; deploy propio cuando rate limits molesten (necesita ~500MB OSM extract NZ + ~1GB RAM)
 - **tileserver-gl + PMTiles offline** — protomaps NZ extract (~30-50MB) + tileserver container. Defer hasta tener más disco libre (estamos al 87%)

@@ -141,6 +141,14 @@ function init() {
     'Cada 6h :40 — Extract expiry dates de OCR text → document_alerts'
   );
 
+  // ─── P7 Fase 4: Wearable raw → bio_checks aggregation — diario 23:50 ───
+  register(
+    'wearable-aggregate',
+    '50 23 * * *',
+    aggregateWearableMetrics,
+    'Diario 23:50 — Aggregate bio_wearable_raw → bio_checks daily'
+  );
+
   // ─── P1: Noticias — Fetch RSS cada 30 min con scoring ───
   register(
     'rss-fetch',
@@ -1084,6 +1092,65 @@ function listJobs() {
     schedule: j.schedule,
     description: j.description,
   }));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P7 FASE 4 — Wearable raw → bio_checks daily aggregation
+// ═══════════════════════════════════════════════════════════
+async function aggregateWearableMetrics() {
+  try {
+    const dates = await db.queryAll(
+      `SELECT DISTINCT measured_at::date AS d FROM bio_wearable_raw WHERE processed = FALSE`
+    );
+    let updated = 0;
+    for (const row of dates) {
+      const d = row.d;
+      const aggs = await db.queryOne(
+        `SELECT
+           SUM(CASE WHEN metric_type='steps' THEN value_numeric ELSE 0 END) AS steps,
+           AVG(CASE WHEN metric_type='heart_rate' THEN value_numeric END) AS hr_avg,
+           AVG(CASE WHEN metric_type='hrv' THEN value_numeric END) AS hrv_avg,
+           SUM(CASE WHEN metric_type='sleep' THEN value_numeric ELSE 0 END) AS sleep_hours,
+           MAX(CASE WHEN metric_type='weight' THEN value_numeric END) AS weight
+         FROM bio_wearable_raw
+         WHERE measured_at::date = $1`,
+        [d]
+      );
+
+      // Cast strings to JS numbers explicitly (pg returns NUMERIC as strings)
+      const steps = aggs.steps ? parseInt(aggs.steps, 10) : null;
+      const hr = aggs.hr_avg ? Math.round(parseFloat(aggs.hr_avg)) : null;
+      const hrv = aggs.hrv_avg ? parseFloat(aggs.hrv_avg) : null;
+      const sleepNum = aggs.sleep_hours ? parseFloat(aggs.sleep_hours) : 0;
+      const weight = aggs.weight ? parseFloat(aggs.weight) : null;
+
+      const existing = await db.queryOne('SELECT id FROM bio_checks WHERE date = $1', [d]);
+      if (existing) {
+        await db.query(
+          `UPDATE bio_checks SET
+             steps = COALESCE($1, steps),
+             heart_rate_avg = COALESCE($2, heart_rate_avg),
+             hrv = COALESCE($3, hrv),
+             sleep_hours = CASE WHEN $4 > 0 THEN $4 ELSE sleep_hours END,
+             weight_kg = COALESCE($5, weight_kg),
+             source = 'wearable_sync'
+           WHERE id = $6`,
+          [steps, hr, hrv, sleepNum, weight, existing.id]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO bio_checks (date, sleep_hours, energy_level, mood, steps, heart_rate_avg, hrv, weight_kg, source)
+           VALUES ($1, $2, 5, 5, $3, $4, $5, $6, 'wearable_sync')`,
+          [d, sleepNum > 0 ? sleepNum : 7, steps, hr, hrv, weight]
+        );
+      }
+      updated++;
+    }
+    await db.query('UPDATE bio_wearable_raw SET processed = TRUE WHERE processed = FALSE');
+    if (updated > 0) console.log(`💪 wearable-aggregate: ${updated} dates updated to bio_checks`);
+  } catch (err) {
+    console.error('❌ wearable-aggregate error:', err.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

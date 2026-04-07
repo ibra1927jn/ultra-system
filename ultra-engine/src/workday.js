@@ -22,6 +22,10 @@ const TENANTS = [
   // Fase 3c additions:
   { tenant: 'pwc', site: 'Global_Experienced_Careers', subdomain: 'wd3', name: 'PwC', sector: 'consulting' },
   { tenant: 'pfizer', site: 'PfizerCareers', subdomain: 'wd1', name: 'Pfizer', sector: 'pharma' },
+  // Tier S #1 additions (maritime sector):
+  { tenant: 'wilhelmsen', site: 'Wilhelmsen', subdomain: 'wd3', name: 'Wilhelmsen', sector: 'maritime' },
+  // Tier A additions:
+  { tenant: 'netflix', site: 'Netflix', subdomain: 'wd1', name: 'Netflix', sector: 'media' },
 ];
 
 const TIMEOUT = 25000;

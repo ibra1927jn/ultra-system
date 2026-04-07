@@ -300,7 +300,78 @@ async function computeResidencyES({ year } = {}) {
   };
 }
 
+/**
+ * NZ PAYE estimator — 2025/26 income tax thresholds.
+ *
+ * Tax year: 1 April → 31 March.
+ * Brackets (NZD annual income):
+ *  - 10.5%  on first $14,000
+ *  - 17.5%  $14,001 – $48,000
+ *  - 30%    $48,001 – $70,000
+ *  - 33%    $70,001 – $180,000
+ *  - 39%    $180,001+
+ * ACC earner levy: 1.6% on income up to $142,283 (2024/25 cap)
+ *
+ * Returns: { gross, tax_payable, acc_levy, net, effective_rate, marginal_rate, brackets_breakdown }
+ */
+function paymentBracket(income) {
+  // Returns array of { bracket, taxed_in_bracket, amount, rate, tax }
+  const brackets = [
+    { from: 0, to: 14000, rate: 0.105 },
+    { from: 14000, to: 48000, rate: 0.175 },
+    { from: 48000, to: 70000, rate: 0.30 },
+    { from: 70000, to: 180000, rate: 0.33 },
+    { from: 180000, to: Infinity, rate: 0.39 },
+  ];
+  let totalTax = 0;
+  const breakdown = [];
+  for (const b of brackets) {
+    if (income <= b.from) break;
+    const inThis = Math.min(income, b.to) - b.from;
+    const tax = inThis * b.rate;
+    totalTax += tax;
+    breakdown.push({
+      from: b.from, to: b.to === Infinity ? null : b.to,
+      rate: b.rate * 100, taxed_in_bracket: inThis, tax_in_bracket: Number(tax.toFixed(2)),
+    });
+  }
+  return { totalTax, breakdown };
+}
+
+function computePayeNZ({ annual_income_nzd } = {}) {
+  const income = parseFloat(annual_income_nzd) || 0;
+  if (income <= 0) {
+    return { error: 'annual_income_nzd must be > 0' };
+  }
+  const { totalTax, breakdown } = paymentBracket(income);
+  // ACC levy: 1.6% on income up to ~$142,283
+  const accCap = 142283;
+  const accLevy = Math.min(income, accCap) * 0.016;
+
+  // Marginal rate: rate of last bracket touched
+  const lastBracket = breakdown[breakdown.length - 1];
+  const marginalRate = lastBracket ? lastBracket.rate : 10.5;
+
+  const net = income - totalTax - accLevy;
+  return {
+    gross_nzd: Number(income.toFixed(2)),
+    tax_payable_nzd: Number(totalTax.toFixed(2)),
+    acc_earner_levy_nzd: Number(accLevy.toFixed(2)),
+    net_nzd: Number(net.toFixed(2)),
+    effective_rate_pct: Number(((totalTax + accLevy) / income * 100).toFixed(2)),
+    marginal_rate_pct: marginalRate,
+    brackets: breakdown,
+    notes: [
+      'NZ tax year: 1 April → 31 March.',
+      '2024/25 brackets (verify current at ird.govt.nz).',
+      'ACC levy capped at $142,283 income (2024/25).',
+      'NO KiwiSaver, student loan, child support, or other deductions included.',
+      'For employed (PAYE): employer withholds. For self-employed: provisional tax + GST separate.',
+    ],
+  };
+}
+
 module.exports = {
-  generateModelo720, generateModelo721, generateModelo100, computeResidencyES,
+  generateModelo720, generateModelo721, generateModelo100, computeResidencyES, computePayeNZ,
   UMBRAL_720_EUR, UMBRAL_721_EUR,
 };
