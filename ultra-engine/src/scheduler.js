@@ -24,6 +24,7 @@ const dedupRunner = require('./dedup_runner');
 const earlyWarning = require('./early_warning');
 const govJobs = require('./gov_jobs');
 const traccar = require('./traccar');
+const govGrants = require('./gov_grants');
 
 const jobs = [];
 
@@ -114,6 +115,22 @@ function init() {
     '15 9 * * *',
     checkSchengenAndVisaWindows,
     'Diario 09:15 — Schengen 90/180 + alerta visa window por país'
+  );
+
+  // ─── P5 Fase 3b: Gov grants fetch — diario 06:30 ───
+  register(
+    'gov-grants-fetch',
+    '30 6 * * *',
+    fetchGovGrants,
+    'Diario 06:30 — BOE ayudas + CDTI + ENISA → opportunities'
+  );
+
+  // ─── P1 Fase 3b: NLP processing — cada hora ───
+  register(
+    'nlp-process',
+    '20 * * * *',
+    runNlpProcess,
+    'Cada hora :20 — AFINN sentiment + TextRank summary para articles sin procesar'
   );
 
   // ─── P1: Noticias — Fetch RSS cada 30 min con scoring ───
@@ -1059,6 +1076,47 @@ function listJobs() {
     schedule: j.schedule,
     description: j.description,
   }));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P1 FASE 3b — NLP processing (AFINN + TextRank)
+// ═══════════════════════════════════════════════════════════
+async function runNlpProcess() {
+  try {
+    const nlp = require('./nlp');
+    const rows = await db.queryAll(
+      `SELECT id, title, summary FROM rss_articles
+       WHERE sentiment_score IS NULL
+       ORDER BY id DESC LIMIT 500`
+    );
+    let processed = 0;
+    for (const r of rows) {
+      const text = `${r.title || ''} ${r.summary || ''}`;
+      const sent = nlp.sentiment(text);
+      const auto = nlp.summarize(r.summary || r.title || '', { numSentences: 2 });
+      await db.query(
+        `UPDATE rss_articles SET sentiment_score=$1, sentiment_label=$2, auto_summary=$3 WHERE id=$4`,
+        [sent.comparative, sent.label, auto || null, r.id]
+      );
+      processed++;
+    }
+    if (processed > 0) console.log(`📝 nlp-process: ${processed} articles enriched`);
+  } catch (err) {
+    console.error('❌ nlp-process error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P5 FASE 3b — Gov grants fetch
+// ═══════════════════════════════════════════════════════════
+async function fetchGovGrants() {
+  try {
+    const results = await govGrants.fetchAll();
+    const summary = results.map(r => `${r.source}=${r.inserted ?? r.error?.slice(0,30) ?? '?'}`).join(' ');
+    console.log(`💰 gov-grants: ${summary}`);
+  } catch (err) {
+    console.error('❌ gov-grants error:', err.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

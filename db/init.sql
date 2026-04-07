@@ -1173,6 +1173,65 @@ EXCEPTION WHEN duplicate_column THEN null; END $$;
 CREATE INDEX IF NOT EXISTS idx_jobs_dup ON job_listings(duplicate_of);
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P4 FASE 3b — Embassy DB + consular registration tracker
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS bur_embassies (
+    id              SERIAL PRIMARY KEY,
+    representing    VARCHAR(2) NOT NULL,    -- País que la embajada representa (ej. ES)
+    located_in      VARCHAR(2) NOT NULL,    -- País donde está ubicada (ej. NZ)
+    type            VARCHAR(20) DEFAULT 'embassy',  -- 'embassy'|'consulate'|'honorary'
+    city            VARCHAR(100),
+    address         TEXT,
+    phone           VARCHAR(50),
+    email           VARCHAR(200),
+    url             TEXT,
+    hours           VARCHAR(200),
+    notes           TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (representing, located_in, city)
+);
+
+CREATE INDEX IF NOT EXISTS idx_embassies_representing ON bur_embassies(representing);
+CREATE INDEX IF NOT EXISTS idx_embassies_located ON bur_embassies(located_in);
+
+-- Seed para usuario dual ES/DZ nómada
+INSERT INTO bur_embassies (representing, located_in, type, city, address, phone, email, url, notes) VALUES
+    -- ES embajadas/consulados en países donde está/estará Ibrahim
+    ('ES', 'NZ', 'embassy', 'Wellington', '50 Manners Street, Level 11, Wellington 6011', '+64-4-802-5665', 'emb.wellington@maec.es', 'https://www.exteriores.gob.es/embajadas/wellington', 'Embajada España en NZ — única representación. Sirve también como consulado.'),
+    ('ES', 'AU', 'embassy', 'Canberra', '15 Arkana Street, Yarralumla, ACT 2600', '+61-2-6273-3555', 'emb.canberra@maec.es', 'https://www.exteriores.gob.es/embajadas/canberra', 'Embajada principal AU'),
+    ('ES', 'AU', 'consulate', 'Sydney', 'Edgecliff Centre, Suite 1, Level 24, 203-233 New South Head Rd', '+61-2-9261-2433', 'cog.sydney@maec.es', 'https://www.exteriores.gob.es/consulados/sydney', 'Consulado General Sydney — más cercano east coast'),
+    ('ES', 'DZ', 'embassy', 'Argel', '46 Boulevard Mohamed V, Algiers', '+213-21-92-31-91', 'emb.argel@maec.es', 'https://www.exteriores.gob.es/embajadas/argel', 'CRÍTICO para Ibrahim como ES residente en DZ'),
+    ('ES', 'CA', 'embassy', 'Ottawa', '74 Stanley Avenue, Ottawa K1M 1P4', '+1-613-747-2252', 'emb.ottawa@maec.es', 'https://www.exteriores.gob.es/embajadas/ottawa', NULL),
+    ('ES', 'GB', 'embassy', 'London', '39 Chesham Place, Belgravia, London SW1X 8SB', '+44-20-7235-5555', 'emb.londres@maec.es', 'https://www.exteriores.gob.es/embajadas/londres', NULL),
+    -- DZ embajadas/consulados en países usuario
+    ('DZ', 'AU', 'embassy', 'Canberra', '9 Terrigal Crescent, O''Malley, ACT 2606', '+61-2-6286-7355', 'info@algerianembassy.org.au', 'https://www.algerianembassy.org.au', 'Única representación DZ en AU/NZ — CRÍTICO Ibrahim si DZ passport en AU/NZ'),
+    ('DZ', 'ES', 'embassy', 'Madrid', 'Calle General Oraá, 12, 28006 Madrid', '+34-91-562-9655', 'ambalg@embajada-argelia.es', 'https://www.embajada-argelia.es', NULL),
+    ('DZ', 'FR', 'embassy', 'Paris', '50 Rue de Lisbonne, 75008 Paris', '+33-1-53-93-20-20', NULL, 'https://www.amb-algerie.fr', NULL),
+    ('DZ', 'ES', 'consulate', 'Barcelona', 'Rambla de Catalunya, 116, 08008 Barcelona', '+34-93-415-3034', NULL, NULL, 'Consulado DZ Barcelona'),
+    ('DZ', 'CA', 'embassy', 'Ottawa', '500 Wilbrod Street, Ottawa K1N 6N2', '+1-613-789-8505', NULL, 'https://www.embassyalgeria.ca', NULL)
+ON CONFLICT (representing, located_in, city) DO NOTHING;
+
+-- ─── bur_consular_registrations: registros pendientes ───
+-- (registro consular ES, OFII FR, etc — alertas anuales)
+CREATE TABLE IF NOT EXISTS bur_consular_registrations (
+    id              SERIAL PRIMARY KEY,
+    type            VARCHAR(50) NOT NULL,    -- 'registro_consular_es'|'ofii_fr'|'inscripcion_cnib_dz'
+    country         VARCHAR(2) NOT NULL,
+    embassy_id      INTEGER REFERENCES bur_embassies(id) ON DELETE SET NULL,
+    registered_at   DATE,
+    expires_at      DATE,
+    document_number VARCHAR(100),
+    notes           TEXT,
+    is_active       BOOLEAN DEFAULT TRUE,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_consular_country ON bur_consular_registrations(country);
+CREATE INDEX IF NOT EXISTS idx_consular_expires ON bur_consular_registrations(expires_at);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 --  P6 FASE 2 — VROOM stub + Traccar GPS + PMTiles
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1209,6 +1268,23 @@ CREATE TABLE IF NOT EXISTS log_devices (
     is_active       BOOLEAN DEFAULT TRUE,
     notes           TEXT
 );
+
+-- ─── fin_investments: stocks/ETFs/indices via Stooq ──────
+CREATE TABLE IF NOT EXISTS fin_investments (
+    id              SERIAL PRIMARY KEY,
+    symbol          VARCHAR(30) NOT NULL,
+    quantity        NUMERIC(20, 8) NOT NULL,
+    avg_cost        NUMERIC(14, 4),
+    currency        VARCHAR(3) DEFAULT 'USD',
+    account         VARCHAR(100),
+    notes           TEXT,
+    opened_at       DATE,
+    is_active       BOOLEAN DEFAULT TRUE,
+    created_at      TIMESTAMP DEFAULT NOW(),
+    updated_at      TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_investments_active ON fin_investments(is_active);
+CREATE INDEX IF NOT EXISTS idx_investments_symbol ON fin_investments(symbol);
 
 -- ─── fin_crypto_holdings: positions crypto multi-exchange ───
 CREATE TABLE IF NOT EXISTS fin_crypto_holdings (

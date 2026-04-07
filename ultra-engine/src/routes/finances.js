@@ -10,6 +10,8 @@ const fx = require('../fx');
 const bankCsv = require('../bank_csv');
 const wise = require('../wise');
 const akahu = require('../akahu');
+const taxReporting = require('../tax_reporting');
+const investments = require('../investments');
 const recurring = require('../recurring');
 const crypto = require('../crypto');
 const bridges = require('../bridges');
@@ -638,6 +640,63 @@ router.post('/crypto/sync-binance', async (req, res) => {
   try {
     const result = await crypto.syncBinance();
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P3 FASE 3b — INVESTMENTS (Stooq prices)
+// ═══════════════════════════════════════════════════════════
+
+router.get('/investments', async (req, res) => {
+  try {
+    const portfolio = await investments.getPortfolio();
+    res.json({ ok: true, ...portfolio });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/investments', async (req, res) => {
+  try {
+    const { symbol, quantity, avg_cost, currency, account, opened_at, notes } = req.body;
+    if (!symbol || !quantity) return res.status(400).json({ ok: false, error: 'symbol y quantity obligatorios' });
+    const row = await db.queryOne(
+      `INSERT INTO fin_investments (symbol, quantity, avg_cost, currency, account, opened_at, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [symbol.toUpperCase(), quantity, avg_cost || null, currency || 'USD', account || null, opened_at || null, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/investments/quote/:symbol', async (req, res) => {
+  try {
+    const q = await investments.getQuote(req.params.symbol);
+    res.json({ ok: true, data: q });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/tax/modelo-720?year=2025 ───
+router.get('/tax/modelo-720', async (req, res) => {
+  try {
+    const result = await taxReporting.generateModelo720({ year: parseInt(req.query.year, 10) || undefined });
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/tax/modelo-721?year=2025 ───
+router.get('/tax/modelo-721', async (req, res) => {
+  try {
+    const result = await taxReporting.generateModelo721({ year: parseInt(req.query.year, 10) || undefined });
+    res.json({ ok: true, data: result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

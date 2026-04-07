@@ -586,4 +586,85 @@ router.post('/paperless/link', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════
+//  P4 FASE 3b — EMBASSIES + CONSULAR REGISTRATIONS
+// ═══════════════════════════════════════════════════════════
+
+router.get('/embassies', async (req, res) => {
+  try {
+    const { representing, located_in, city } = req.query;
+    const where = [];
+    const params = [];
+    if (representing) { params.push(representing.toUpperCase()); where.push(`representing=$${params.length}`); }
+    if (located_in) { params.push(located_in.toUpperCase()); where.push(`located_in=$${params.length}`); }
+    if (city) { params.push('%' + city + '%'); where.push(`city ILIKE $${params.length}`); }
+    const rows = await db.queryAll(
+      `SELECT id, representing, located_in, type, city, address, phone, email, url, hours, notes
+       FROM bur_embassies
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY representing, located_in, city`,
+      params
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/embassies', async (req, res) => {
+  try {
+    const { representing, located_in, type, city, address, phone, email, url, hours, notes } = req.body;
+    if (!representing || !located_in || !city) {
+      return res.status(400).json({ ok: false, error: 'representing, located_in, city son obligatorios' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO bur_embassies (representing, located_in, type, city, address, phone, email, url, hours, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT (representing, located_in, city) DO UPDATE SET
+         address=EXCLUDED.address, phone=EXCLUDED.phone, email=EXCLUDED.email,
+         url=EXCLUDED.url, hours=EXCLUDED.hours, notes=EXCLUDED.notes
+       RETURNING *`,
+      [representing.toUpperCase(), located_in.toUpperCase(), type || 'embassy', city, address, phone, email, url, hours, notes]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/consular-registrations', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT cr.id, cr.type, cr.country, cr.registered_at, cr.expires_at,
+              cr.document_number, cr.notes, cr.is_active,
+              CASE WHEN cr.expires_at IS NULL THEN NULL
+                   ELSE (cr.expires_at - CURRENT_DATE) END AS days_remaining,
+              e.city AS embassy_city, e.url AS embassy_url
+       FROM bur_consular_registrations cr
+       LEFT JOIN bur_embassies e ON cr.embassy_id = e.id
+       WHERE cr.is_active = TRUE
+       ORDER BY cr.expires_at NULLS LAST`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/consular-registrations', async (req, res) => {
+  try {
+    const { type, country, embassy_id, registered_at, expires_at, document_number, notes } = req.body;
+    if (!type || !country) return res.status(400).json({ ok: false, error: 'type y country obligatorios' });
+    const row = await db.queryOne(
+      `INSERT INTO bur_consular_registrations
+         (type, country, embassy_id, registered_at, expires_at, document_number, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [type, country.toUpperCase(), embassy_id, registered_at, expires_at, document_number, notes]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

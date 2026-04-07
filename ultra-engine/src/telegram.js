@@ -53,6 +53,7 @@ function init() {
       '/visa ES NZ — Requisitos visado (passport→destino)',
       '/viaje DZ 2026-05-01 FR — Log entrada Schengen',
       '/govwatch — Páginas gov vigiladas + cambios recientes',
+      '/embajada ES NZ — Embajada/consulado por país',
       '/paperless — Status + últimos documentos OCR',
       '/alertas — Historial de alertas enviadas',
       '/ping — Verificar que el bot funciona',
@@ -73,6 +74,7 @@ function init() {
       '/savings — Savings goals + progreso',
       '/nw — Net worth timeline (90d)',
       '/crypto — Holdings crypto + valuación NZD',
+      '/portfolio — Stocks/ETFs portfolio (Stooq)',
       '',
       '💼 _P2 Empleo:_',
       '/jobs\\_top — Top empleos presenciales (ATS)',
@@ -102,6 +104,9 @@ function init() {
       '/destino ID — Health check destino (outbreaks+vacunas)',
       '/ejercicio q — Buscar ejercicio (wger 414+)',
       '/comida BARCODE — Lookup nutrición (Open Food Facts)',
+      '/mood 7 — Log mood 1-10 (opcional energy/anxiety)',
+      '/cbt — Prompt CBT/DBT random para reflexión',
+      '/diario — Últimas entradas journal',
     ].join('\n');
     send(msg.chat.id, help, 'Markdown');
   });
@@ -454,6 +459,82 @@ function init() {
     }
   });
 
+  // ─── P7 Fase 3b: Mood tracking ─────────────────────
+  bot.onText(/\/mood\s+(\d+)(?:\s+(\d+))?(?:\s+(\d+))?(?:\s+(.+))?/, async (msg, match) => {
+    try {
+      const mood = parseInt(match[1], 10);
+      const energy = match[2] ? parseInt(match[2], 10) : null;
+      const anxiety = match[3] ? parseInt(match[3], 10) : null;
+      const notes = match[4] || null;
+      if (mood < 1 || mood > 10) {
+        send(msg.chat.id, '❌ mood debe ser 1-10');
+        return;
+      }
+      await db.query(
+        `INSERT INTO bio_mood (mood, energy, anxiety, notes) VALUES ($1,$2,$3,$4)`,
+        [mood, energy, anxiety, notes]
+      );
+      const emoji = mood <= 3 ? '😢' : mood <= 5 ? '😐' : mood <= 7 ? '🙂' : '😄';
+      let reply = `${emoji} Mood ${mood}/10 registrado`;
+      if (energy) reply += ` · ⚡ ${energy}/10`;
+      if (anxiety) reply += ` · 😰 ${anxiety}/10`;
+      // Avg últimos 7d
+      const avg = await db.queryOne(
+        `SELECT ROUND(AVG(mood)::numeric, 1) as avg7
+         FROM bio_mood WHERE logged_at >= NOW() - INTERVAL '7 days'`
+      );
+      if (avg?.avg7) reply += `\n📊 Avg 7d: ${avg.avg7}/10`;
+      send(msg.chat.id, reply);
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P7 Fase 3b: CBT prompt random ─────────────────
+  bot.onText(/\/cbt(?:\s+(\w+))?/, async (msg, match) => {
+    try {
+      const where = match[1] ? 'WHERE category=$1' : '';
+      const params = match[1] ? [match[1]] : [];
+      const row = await db.queryOne(
+        `SELECT id, category, technique, prompt FROM bio_cbt_prompts ${where} ORDER BY RANDOM() LIMIT 1`,
+        params
+      );
+      if (!row) {
+        send(msg.chat.id, '❌ No prompts disponibles');
+        return;
+      }
+      send(
+        msg.chat.id,
+        `🧠 *${row.technique}* — _${row.category}_\n\n${row.prompt}\n\n_Para responder: /diario (POST /api/bio/journal con cbt_prompt_id=${row.id})_`,
+        'Markdown'
+      );
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  bot.onText(/\/diario/, async (msg) => {
+    try {
+      const rows = await db.queryAll(
+        `SELECT id, logged_at, title, LEFT(body_md, 200) as preview
+         FROM bio_journal ORDER BY logged_at DESC LIMIT 5`
+      );
+      if (!rows.length) {
+        send(msg.chat.id, '📓 Sin entradas en journal todavía.\nCrea una: POST /api/bio/journal { body_md, title?, cbt_prompt_id? }');
+        return;
+      }
+      const lines = ['📓 *Últimas entradas journal*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const r of rows) {
+        const dt = new Date(r.logged_at).toISOString().slice(0, 10);
+        lines.push(`📅 ${dt} — *${r.title || 'sin título'}*`);
+        lines.push(`  _${r.preview.replace(/[*_]/g, '')}_`);
+      }
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
   // ─── P7 Fase 3a: Wger exercise search ──────────────
   bot.onText(/\/ejercicio\s+(.+)/, async (msg, match) => {
     try {
@@ -636,6 +717,31 @@ function init() {
     }
   });
 
+  // ─── P3 Fase 3b: Portfolio (stocks/ETFs Stooq) ─────
+  bot.onText(/\/portfolio/, async (msg) => {
+    try {
+      const inv = require('./investments');
+      const p = await inv.getPortfolio();
+      if (!p.positions.length) {
+        send(msg.chat.id, '📈 Sin investments.\nAñade: POST /api/finances/investments {symbol,quantity,avg_cost,currency}');
+        return;
+      }
+      const arrow = p.return_pct >= 0 ? '📈' : '📉';
+      const lines = ['📈 *Portfolio*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const pos of p.positions.slice(0, 12)) {
+        const pnlEmoji = pos.pnl_pct >= 0 ? '🟢' : '🔴';
+        lines.push(`*${pos.symbol}* ${pos.quantity} @ ${pos.current_price}`);
+        lines.push(`  💰 NZD ${pos.value_nzd.toFixed(0)} ${pnlEmoji} ${pos.pnl_pct >= 0 ? '+' : ''}${pos.pnl_pct.toFixed(1)}%`);
+      }
+      lines.push('');
+      lines.push(`📊 *Total: NZD ${p.total_value_nzd.toFixed(0)}*`);
+      lines.push(`${arrow} Cost basis: NZD ${p.total_cost_nzd.toFixed(0)} (${p.return_pct >= 0 ? '+' : ''}${p.return_pct}%)`);
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
   // ─── P3 Fase 2: Crypto holdings ────────────────────
   bot.onText(/\/crypto/, async (msg) => {
     try {
@@ -810,6 +916,41 @@ function init() {
       send(msg.chat.id, lines.join('\n'), 'Markdown');
     } catch (err) {
       send(msg.chat.id, `❌ Error paperless: ${err.message}`);
+    }
+  });
+
+  // ─── P4 Fase 3b: Embassy lookup ────────────────────
+  bot.onText(/\/embajada(?:\s+([a-zA-Z]{2}))?(?:\s+([a-zA-Z]{2}))?/, async (msg, match) => {
+    try {
+      const where = [];
+      const params = [];
+      if (match[1]) { params.push(match[1].toUpperCase()); where.push(`representing=$${params.length}`); }
+      if (match[2]) { params.push(match[2].toUpperCase()); where.push(`located_in=$${params.length}`); }
+      const rows = await db.queryAll(
+        `SELECT representing, located_in, type, city, address, phone, email, url, notes
+         FROM bur_embassies ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+         ORDER BY representing, located_in, city LIMIT 10`,
+        params
+      );
+      if (!rows.length) {
+        send(msg.chat.id, `❌ No hay embajadas para esos parámetros.\nUso: \`/embajada ES NZ\` o \`/embajada DZ\``, 'Markdown');
+        return;
+      }
+      const flag = (c) => ({ ES: '🇪🇸', DZ: '🇩🇿', NZ: '🇳🇿', AU: '🇦🇺', FR: '🇫🇷', GB: '🇬🇧', CA: '🇨🇦' }[c] || '🌐');
+      const lines = ['🏛️ *Embajadas y consulados*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const e of rows) {
+        const typeEmoji = e.type === 'embassy' ? '🏛️' : e.type === 'consulate' ? '📋' : '⭐';
+        lines.push(`${typeEmoji} ${flag(e.representing)} *${e.representing}* en ${flag(e.located_in)} ${e.located_in} — _${e.city}_`);
+        if (e.address) lines.push(`  📍 ${e.address}`);
+        if (e.phone) lines.push(`  📞 ${e.phone}`);
+        if (e.email) lines.push(`  ✉️ ${e.email}`);
+        if (e.notes) lines.push(`  📝 _${e.notes}_`);
+        lines.push('');
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
     }
   });
 

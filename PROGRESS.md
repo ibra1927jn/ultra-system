@@ -321,6 +321,70 @@
 | P7 Bio-check | 22% | +19% | **41%** |
 | **PROMEDIO** | **36%** | **+13%** | **49%** |
 
+## Completado (Fase 3b — Medium work 7 tareas) ✅
+
+### #25 P5 Government grants tracker
+- [2026-04-07] | NEW src/gov_grants.js — fetchers RSS para BOE Ayudas (BOE.es subvenciones, ~129 items con classification por tags youth/business/rd_innovation/fintech/international), CDTI (NEOTEC/PID/INNVIERTE), ENISA (préstamos participativos jóvenes hasta 75K€). Persiste a opportunities con source_type='gov_grant', category='grant'.
+- [2026-04-07] | scheduler: nuevo cron gov-grants-fetch (diario 06:30). Total: 29 → 30 jobs.
+- [2026-04-07] | E2E test: BOE 129 fetched / 48 inserted primer run (ayudas reales del estado español). CDTI/ENISA RSS malformados (XML inválido) → marcar deferred fix manual. BOE solo es win significativo.
+
+### #26 P4 Embassy DB + consular registrations
+- [2026-04-07] | DB: tabla bur_embassies (representing+located_in+city UNIQUE, type embassy/consulate/honorary, address/phone/email/url/hours). 11 seed críticos para usuario dual ES/DZ: ES en NZ Wellington + AU Canberra/Sydney + DZ Argel + CA Ottawa + GB London; DZ en AU Canberra (CRÍTICO si DZ pass en AU/NZ) + ES Madrid/Barcelona + FR Paris + CA Ottawa.
+- [2026-04-07] | DB: tabla bur_consular_registrations (type, country, embassy_id FK, registered_at, expires_at, document_number) para tracking de registro consular ES + OFII FR + inscripción CNIB DZ con alertas anuales.
+- [2026-04-07] | routes/bureaucracy.js: 4 endpoints — GET/POST /embassies (filtros representing/located_in/city), GET/POST /consular-registrations
+- [2026-04-07] | telegram.js: comando /embajada ES NZ — formato con flag emojis, type emoji (🏛️/📋/⭐), address+phone+email+notes
+- [2026-04-07] | E2E: /embassies?representing=DZ → 5 representations (Canberra/Ottawa/Barcelona/Madrid/Paris). ES en NZ → Wellington completo con +64-4-802-5665.
+
+### #27 P3 Tax reporting Modelo 720/721
+- [2026-04-07] | NEW src/tax_reporting.js — generadores Modelo 720 (bienes en extranjero) y 721 (cripto exchanges extranjeros). Umbral 50K€ ambos. Heurística foreign account: NO contiene es/spain/sabadell/santander/bbva/caixabank/openbank/euro. nzdToEur() via fin_exchange_rates más reciente.
+- [2026-04-07] | Modelo 720: lee finances grouped by account, computes balance, filtra foreign, suma EUR cat 1 (cuentas). Cat 2 (valores) y 3 (inmuebles) marcadas TODO manual.
+- [2026-04-07] | Modelo 721: lee fin_crypto_holdings, filtra exchanges españoles (Bit2Me/Bitnovo que ya reportan AEAT), computa value EUR via cached prices CoinGecko. Note sobre umbral "any moment" requeriría histórico precios.
+- [2026-04-07] | routes/finances.js: GET /tax/modelo-720?year=X y /tax/modelo-721?year=X
+- [2026-04-07] | E2E: ambos endpoints devuelven obligated:false (DB sin holdings reales seeded), threshold/deadline/notes correctos. Listos para activar cuando user añada datos.
+
+### #28 P7 Mental health modules
+- [2026-04-07] | DB: 3 tablas nuevas — bio_mood (mood/energy/anxiety 1-10 + tags + notes), bio_journal (Markdown body + cbt_prompt_id FK + sentiment), bio_cbt_prompts (category/technique/prompt). 30 seed prompts CBT/DBT/ACT/positive_psych/mindfulness/burnout en español.
+- [2026-04-07] | routes/bio.js: 6 endpoints — GET/POST /mood (con averages 7d/30d), GET/POST /journal, GET /cbt/random?category=, GET /cbt (categories breakdown)
+- [2026-04-07] | telegram.js: 3 comandos — /mood 8 7 3 [notes] (mood/energy/anxiety inline) con avg 7d response, /cbt [category] (random prompt formateado), /diario (últimas 5 entries con preview)
+- [2026-04-07] | 30 prompts cubren 16 categorías: cognitive_distortion, reframing, grounding, values, gratitude, self_compassion, exposure, behavioral_activation, problem_solving, mindfulness, burnout_check, relationships, boundaries, positive_recall, future_self, curiosity
+- [2026-04-07] | E2E: /cbt/random → "¿Estoy catastrofizando?" CBT cognitive_distortion. POST /mood 8/7/3 → averages computed. /cbt categories → 30 total en 16 cat.
+
+### #29 P3 Investments tracking
+- [2026-04-07] | DB: tabla fin_investments (symbol, quantity NUMERIC(20,8), avg_cost, currency, account, opened_at, is_active). 2 índices.
+- [2026-04-07] | NEW src/investments.js — Stooq.com free CSV API (sin auth, no rate limits). getQuote(symbol) con currency inference por extensión (.US=USD, .DE=EUR, .L=GBP, .JP=JPY). getPortfolio() lee fin_investments + fetch live + fxToNzd via fin_exchange_rates + computa pnl_nzd + return_pct.
+- [2026-04-07] | routes/finances.js: 3 endpoints — GET /investments (portfolio con valuation), POST /investments (add position), GET /investments/quote/:symbol (live lookup)
+- [2026-04-07] | telegram.js: comando /portfolio (top 12 positions con current price + value NZD + pnl% emoji 🟢/🔴 + total return)
+- [2026-04-07] | E2E: AAPL.US live → $258.86 USD. POST 10 AAPL @$200 cost → portfolio NZD $4,535 / cost $3,503 / **PnL +$1,031 +29.43%**. FX USD→NZD aplicado correctamente.
+
+### #30 P1 Lightweight NLP (TextRank + AFINN)
+- [2026-04-07] | NEW src/nlp.js — pure JS sin HF containers ni GPU. AFINN-165 lexicon embedded (~280 EN + ~80 ES palabras con valencia -5 a +5). sentiment(text) → {score, comparative -5/+5 normalized, hits, label positive/negative/neutral}. summarize(text, {numSentences=3}) implementación TextRank (Mihalcea & Tarau 2004) — split sentences, Jaccard similarity matrix, PageRank iteration, top-N preserving original order.
+- [2026-04-07] | DB: rss_articles +3 cols (sentiment_score NUMERIC(6,4), sentiment_label, auto_summary TEXT) idempotente
+- [2026-04-07] | routes/feeds.js: POST /nlp/process (limit batch, recompute para articles sin sentiment), GET /sentiment-stats?days= (counts agrupados por label con avg_score)
+- [2026-04-07] | scheduler: nuevo cron nlp-process (cada hora :20). Total: 30 → 31 jobs.
+- [2026-04-07] | E2E unit tests: positive "fantastic amazing brilliant excellent beautiful" → score 21 / comp 1.62 / label positive (6 hits). Negative "terrible disaster catastrophic awful crash dangerous" → score -21 / comp -2.1 / label negative (8 hits). TextRank Bitcoin 8-sentence input → 2 sentence summary coherente.
+- [2026-04-07] | E2E live: 100 articles processed → 22 negative + 12 positive + 66 neutral con avg scores razonables (-0.15 / +0.07 / -0.002).
+
+### #31 P2 Workday universal scraper
+- [2026-04-07] | NEW src/workday.js — fetcher Workday CX endpoint público /wday/cxs/{tenant}/{site}/jobs (POST JSON, no auth). 3 tenants verificados: Salesforce (External_Career_Site/wd12, 1451+ jobs), NVIDIA (nvidiaexternalcareersite/wd5, 2000+ jobs), Accenture (AccentureCareers/wd103, 2000+ jobs). Otros tenants devuelven HTTP 422 con searchText vacío (defer).
+- [2026-04-07] | Filtra is_remote=false (P2 = presencial). Reusa jobApis.insertJob + computeScore + detectCountry. Fingerprint sha256 (company|title|location).
+- [2026-04-07] | gov_jobs.fetchAll() añade 'workday' al pipeline diario
+- [2026-04-07] | E2E: 60 jobs fetched (20×3 tenants), 58 inserted, 2 skipped (1 dup + 1 remote)
+
+## Coverage actualizado post-Fase 3b
+
+| Pilar | Pre-Fase3b | + Fase 3b | Total | Δ |
+|---|---|---|---|---|
+| P1 News | 46% | +6% (NLP) | **52%** | +6 |
+| P2 Empleo | 43% | +8% (Workday) | **51%** | +8 |
+| P3 Finanzas | 62% | +12% (tax+investments) | **74%** | +12 |
+| P4 Burocracia | 51% | +7% (embassies) | **58%** | +7 |
+| P5 Oportunidades | 55% | +5% (BOE grants) | **60%** | +5 |
+| P6 Logística | 48% | 0 | 48% | 0 |
+| P7 Bio-check | 41% | +14% (mental health) | **55%** | +14 |
+| **PROMEDIO** | **49%** | **+7%** | **56%** | +7 |
+
+Engine: 31 cron jobs · 11 containers · 19 modules src/ · 50+ endpoints · 30+ Telegram commands
+
 ## DEFERIDO post-Fase 2 ⏳
 - **OSRM self-hosted** — usar router.project-osrm.org público por ahora; deploy propio cuando rate limits molesten (necesita ~500MB OSM extract NZ + ~1GB RAM)
 - **tileserver-gl + PMTiles offline** — protomaps NZ extract (~30-50MB) + tileserver container. Defer hasta tener más disco libre (estamos al 87%)

@@ -329,12 +329,19 @@ async function fetchJobSpyOnsite({ countries = ['New Zealand', 'Australia', 'Spa
 
 async function fetchAll() {
   const results = [];
+  const workday = require('./workday');
   const fns = [
     ['usajobs', () => fetchUSAJobs({ keyword: 'engineer', limit: 25 })],
     ['jobtech_se', () => fetchJobTechSE({ q: '', limit: 25 })],
     ['hh_ru', () => fetchHHru({ text: '', perPage: 25 })],
     ['nav_no', () => fetchNAV({ size: 25 })],
     ['jobspy_onsite', () => fetchJobSpyOnsite()],
+    ['workday', async () => {
+      const r = await workday.fetchAll();
+      const inserted = r.reduce((a, x) => a + (x.inserted || 0), 0);
+      const skipped = r.reduce((a, x) => a + (x.skipped || 0), 0);
+      return { source: 'workday', tenants: r.length, inserted, skipped, details: r };
+    }],
   ];
   for (const [name, fn] of fns) {
     try { results.push(await fn()); }

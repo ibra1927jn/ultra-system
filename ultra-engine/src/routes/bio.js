@@ -65,6 +65,106 @@ router.post('/food/log', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════
+//  P7 FASE 3b — Mental health (mood + journal + CBT prompts)
+// ═══════════════════════════════════════════════════════════
+
+router.get('/mood', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days || '30', 10);
+    const rows = await db.queryAll(
+      `SELECT id, logged_at, mood, energy, anxiety, tags, notes
+       FROM bio_mood
+       WHERE logged_at >= NOW() - INTERVAL '${days} days'
+       ORDER BY logged_at DESC`
+    );
+    // Compute averages
+    const avg = (k) => rows.length ? rows.reduce((a, r) => a + (parseFloat(r[k]) || 0), 0) / rows.length : null;
+    res.json({
+      ok: true, count: rows.length,
+      averages: rows.length ? { mood: avg('mood'), energy: avg('energy'), anxiety: avg('anxiety') } : null,
+      data: rows,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/mood', async (req, res) => {
+  try {
+    const { mood, energy, anxiety, tags, notes } = req.body;
+    if (mood === undefined || mood < 1 || mood > 10) {
+      return res.status(400).json({ ok: false, error: 'mood (1-10) requerido' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO bio_mood (mood, energy, anxiety, tags, notes)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [mood, energy || null, anxiety || null, tags || null, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/journal', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit || '20', 10);
+    const rows = await db.queryAll(
+      `SELECT id, logged_at, title, body_md, tags, sentiment, cbt_prompt_id
+       FROM bio_journal ORDER BY logged_at DESC LIMIT $1`,
+      [limit]
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/journal', async (req, res) => {
+  try {
+    const { title, body_md, tags, cbt_prompt_id } = req.body;
+    if (!body_md) return res.status(400).json({ ok: false, error: 'body_md requerido' });
+    const row = await db.queryOne(
+      `INSERT INTO bio_journal (title, body_md, tags, cbt_prompt_id)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [title, body_md, tags || null, cbt_prompt_id || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/cbt/random', async (req, res) => {
+  try {
+    const { category } = req.query;
+    const where = category ? 'WHERE category=$1' : '';
+    const params = category ? [category] : [];
+    const row = await db.queryOne(
+      `SELECT id, category, technique, prompt
+       FROM bio_cbt_prompts ${where}
+       ORDER BY RANDOM() LIMIT 1`,
+      params
+    );
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/cbt', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT category, technique, COUNT(*) as count FROM bio_cbt_prompts
+       GROUP BY category, technique ORDER BY category`
+    );
+    res.json({ ok: true, total: rows.reduce((a, r) => a + parseInt(r.count, 10), 0), categories: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/food/today', async (req, res) => {
   try {
     const rows = await db.queryAll(
