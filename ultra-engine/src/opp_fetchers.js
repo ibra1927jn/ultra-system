@@ -336,6 +336,7 @@ const FETCHERS = [
   ['Dework', fetchDework],
   ['FLOSSFund', fetchFLOSSFund],
   ['GitHubFund', fetchGitHubFund],
+  ['OpenCollective', fetchOpenCollective],
   ['Clist', fetchClist],
   ['GitHubTrending', fetchGitHubTrending],
   ['Greenhouse', fetchGreenhouse],
@@ -1590,6 +1591,63 @@ async function fetchFLOSSFund() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+//  OpenCollective — OSS project fundraising (GraphQL v2, no-auth)
+//  https://api.opencollective.com/graphql/v2
+//  R5 2026-04-08: cubre el hueco de "OSS projects with active
+//  fundraising" sin requerir signup. 12K+ collectives etiquetadas
+//  "open source". Filtramos por balance > 0 (proyectos activos).
+// ═══════════════════════════════════════════════════════════
+async function fetchOpenCollective({ limit = 30 } = {}) {
+  try {
+    const query = `query {
+      accounts(type: [COLLECTIVE, PROJECT], tag: ["open source"], limit: ${limit}, orderBy: { field: ACTIVITY, direction: DESC }) {
+        totalCount
+        nodes {
+          slug name description
+          tags
+          stats { balance { value currency } }
+          createdAt
+        }
+      }
+    }`;
+    const r = await fetch('https://api.opencollective.com/graphql/v2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const nodes = data.data?.accounts?.nodes || [];
+    let inserted = 0, highScore = 0;
+    for (const n of nodes) {
+      const balance = n.stats?.balance?.value || 0;
+      const currency = n.stats?.balance?.currency || 'USD';
+      const text = `${n.name} ${n.description || ''} ${(n.tags || []).join(' ')}`;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: `${n.name} — OpenCollective OSS fundraising`,
+        source: 'OpenCollective',
+        url: `https://opencollective.com/${n.slug}`,
+        category: 'oss_fundraising',
+        description: (n.description || '').slice(0, 1500),
+        payout_type: 'sponsorship',
+        salary_min: balance > 0 ? balance : null,
+        currency: currency.slice(0, 3),
+        tags: ['oss', 'opencollective', ...(n.tags || []).slice(0, 3)],
+        match_score: score,
+        posted_at: n.createdAt ? new Date(n.createdAt) : null,
+        external_id: `oc:${n.slug}`,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'OpenCollective', total: nodes.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'OpenCollective', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
 // GitHub Fund / Sponsorship announcements — blog RSS
 async function fetchGitHubFund() {
   try {
@@ -1804,6 +1862,7 @@ module.exports = {
   fetchDework,
   fetchFLOSSFund,
   fetchGitHubFund,
+  fetchOpenCollective,
   fetchClist,
   fetchGitHubTrending,
   fetchGetOnBoardFull,

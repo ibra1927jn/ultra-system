@@ -47,6 +47,15 @@
 | P7 | **Fitbit** (si tienes pulsera) | Steps/HR/sleep | https://dev.fitbit.com/apps/new | `FITBIT_CLIENT_ID` + `_SECRET` | OAuth — callback: `/webhooks/wearable/fitbit/callback` |
 | P7 | **Withings** (báscula/wearable) | Body composition + HR | https://developer.withings.com/dashboard/ | `WITHINGS_CLIENT_ID` + `_SECRET` | OAuth — callback: `/webhooks/wearable/withings/callback` |
 | P7 | **CalorieNinjas** | NL parsing comida ("100g rice + chicken") | https://calorieninjas.com/register | `CALORIE_NINJAS_KEY` | Útil para Telegram bot food log |
+| P6 | **Trustroots** (hospitality) | Red nómada con hosts free en 200+ países. Perfil van-life friendly. | https://www.trustroots.org/signup | `TRUSTROOTS_USERNAME` + `TRUSTROOTS_PASSWORD` | Sin API oficial — requiere session scraping via Puppeteer post-login |
+| P6 | **BeWelcome** (hospitality) | Red hospitality libre-software (Couchsurfing alternative), 200K+ miembros | https://www.bewelcome.org/signup | `BEWELCOME_USERNAME` + `BEWELCOME_PASSWORD` | API REST v1 disponible pero account-bound |
+| P6 | **WarmShowers** (cycling hospitality) | Red para cicloturistas — 120K+ hosts, ideal para tu segmento van/bici EU | https://www.warmshowers.org/signup | `WARMSHOWERS_API_KEY` | Free API key tras signup |
+
+Notas hospitality (añadido 2026-04-08):
+- Los 3 servicios son **gratis** pero requieren cuenta — por eso quedaron para el final del plan post-R4.
+- Una vez loggeado, los 3 devuelven datos geo (lat/lon de hosts aceptando requests), perfecto para `logistics_pois` con `category='hospitality_host'`.
+- **Privacy**: solo almacenar handles públicos + lat/lon, NUNCA contacts reales.
+- Prioridad: **media** — alta para EU post-NZ, baja para NZ (donde el network es flojo).
 
 ---
 
