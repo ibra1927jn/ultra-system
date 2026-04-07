@@ -266,4 +266,78 @@ function pearson(x, y) {
   return Math.round((numerator / denominator) * 100) / 100;
 }
 
+// ═══════════════════════════════════════════════════════════
+//  P7 Phase 1 Quick Win — Health alerts + external services
+// ═══════════════════════════════════════════════════════════
+const healthScrapers = require('../health_scrapers');
+const externalHealth = require('../external_health');
+
+router.get('/health-alerts', async (req, res) => {
+  try {
+    const { country, limit } = req.query;
+    const rows = await healthScrapers.listAlerts(
+      country ? country.toUpperCase() : null,
+      parseInt(limit) || 20
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/health-alerts/refresh', async (req, res) => {
+  try {
+    const r = await healthScrapers.fetchAll();
+    res.json({ ok: true, data: r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/external-status', async (req, res) => {
+  try {
+    res.json({ ok: true, data: await externalHealth.getStatus() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/external-status/probe', async (req, res) => {
+  try {
+    res.json({ ok: true, data: await externalHealth.probeAll() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/health-documents', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, doc_type, date, country, provider, title, paperless_id, tags, notes, created_at
+       FROM health_documents ORDER BY date DESC LIMIT 50`
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/health-documents', async (req, res) => {
+  try {
+    const { doc_type, date, country, provider, title, file_path, paperless_id, metadata, tags, notes } = req.body;
+    if (!doc_type || !date || !title) {
+      return res.status(400).json({ ok: false, error: 'doc_type, date, title requeridos' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO health_documents (doc_type, date, country, provider, title, file_path, paperless_id, metadata, tags, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [doc_type, date, country?.toUpperCase() || null, provider || null, title,
+       file_path || null, paperless_id || null, metadata || null, tags || null, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

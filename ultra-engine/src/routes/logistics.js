@@ -201,4 +201,135 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════
+//  P6 Phase 1 Quick Win — POI / Weather / Memberships / Kiwi
+// ═══════════════════════════════════════════════════════════
+const overpass = require('../overpass');
+const weatherMod = require('../weather');
+const docNz = require('../doc_nz');
+const kiwi = require('../kiwi');
+
+// ─── GET /api/logistics/poi ─ POIs cerca ─────────────────
+// ?lat=&lon=&radius_km=&type=campsite|water|dump_station|...&refresh=true
+router.get('/poi', async (req, res) => {
+  try {
+    const lat = parseFloat(req.query.lat);
+    const lon = parseFloat(req.query.lon);
+    const radius = parseFloat(req.query.radius_km || 20);
+    const poiType = req.query.type || null;
+    if (isNaN(lat) || isNaN(lon)) {
+      return res.status(400).json({ ok: false, error: 'lat y lon requeridos (numeric)' });
+    }
+    // Si refresh=true, fuerza fetch de Overpass para los tipos relevantes
+    let fetched = null;
+    if (req.query.refresh === 'true' && poiType) {
+      fetched = await overpass.fetchNearby(lat, lon, poiType, radius);
+    }
+    const rows = await overpass.listNearby(lat, lon, radius, poiType);
+    res.json({ ok: true, count: rows.length, fetched, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/logistics/poi/refresh ─ Fetch + cache ─────
+router.post('/poi/refresh', async (req, res) => {
+  try {
+    const { lat, lon, types, radius_km = 20 } = req.body;
+    if (!lat || !lon) return res.status(400).json({ ok: false, error: 'lat/lon requeridos' });
+    const wantedTypes = types || ['campsite', 'water', 'dump_station', 'fuel'];
+    const results = {};
+    for (const t of wantedTypes) {
+      try {
+        results[t] = await overpass.fetchNearby(lat, lon, t, radius_km);
+      } catch (err) {
+        results[t] = { error: err.message };
+      }
+    }
+    res.json({ ok: true, data: results });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/logistics/weather ─ Forecast 7d ────────────
+// ?lat=&lon=&refresh=true
+router.get('/weather', async (req, res) => {
+  try {
+    const lat = parseFloat(req.query.lat);
+    const lon = parseFloat(req.query.lon);
+    if (isNaN(lat) || isNaN(lon)) {
+      return res.status(400).json({ ok: false, error: 'lat/lon requeridos' });
+    }
+    if (req.query.refresh === 'true') {
+      await weatherMod.fetchForecast(lat, lon);
+    }
+    let rows = await weatherMod.getForecast(lat, lon);
+    if (rows.length === 0) {
+      // Lazy fetch
+      await weatherMod.fetchForecast(lat, lon);
+      rows = await weatherMod.getForecast(lat, lon);
+    }
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/logistics/memberships ─ Lista subscriptions ─
+router.get('/memberships', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, platform, annual_cost, currency, renews_at, last_paid_at,
+        auto_renew, notes, is_active,
+        CASE WHEN renews_at IS NULL THEN NULL ELSE (renews_at - CURRENT_DATE) END AS days_to_renewal
+       FROM log_memberships ORDER BY renews_at ASC NULLS LAST`
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── PUT /api/logistics/memberships/:id ──────────────────
+router.put('/memberships/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { platform, annual_cost, currency, renews_at, last_paid_at, auto_renew, notes, is_active } = req.body;
+    const row = await db.queryOne(
+      `UPDATE log_memberships SET
+         platform = COALESCE($1, platform),
+         annual_cost = COALESCE($2, annual_cost),
+         currency = COALESCE($3, currency),
+         renews_at = COALESCE($4, renews_at),
+         last_paid_at = COALESCE($5, last_paid_at),
+         auto_renew = COALESCE($6, auto_renew),
+         notes = COALESCE($7, notes),
+         is_active = COALESCE($8, is_active),
+         updated_at = NOW()
+       WHERE id = $9 RETURNING *`,
+      [platform, annual_cost, currency, renews_at, last_paid_at, auto_renew, notes, is_active, id]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'Membership no encontrada' });
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/logistics/doc-nz/refresh ─ Fetch DOC NZ ───
+router.post('/doc-nz/refresh', async (req, res) => {
+  try {
+    const r = await docNz.refreshAll();
+    res.json({ ok: true, data: r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/logistics/kiwi/status ─ Wise/Kiwi config ───
+router.get('/kiwi/status', (req, res) => {
+  res.json({ ok: true, configured: kiwi.isConfigured() });
+});
+
 module.exports = router;

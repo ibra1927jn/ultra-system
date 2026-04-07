@@ -4,6 +4,8 @@
 
 const express = require('express');
 const scraper = require('../scraper');
+const db = require('../db');
+const jobApis = require('../job_apis');
 
 const router = express.Router();
 
@@ -89,6 +91,79 @@ router.patch('/:id/status', async (req, res) => {
     );
     if (!result) return res.status(404).json({ ok: false, error: 'Job not found' });
     res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P2 Phase 1 Quick Win — ATS APIs (Greenhouse/Lever/Ashby/SR)
+// ═══════════════════════════════════════════════════════════
+
+// ─── POST /api/jobs/fetch ─ Trigger fetch all tracked companies ─
+router.post('/fetch', async (req, res) => {
+  try {
+    res.json({ ok: true, data: await jobApis.fetchAll() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/jobs/companies ─ Lista tracked companies ──
+router.get('/companies', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, name, ats_type, ats_token, country, sector, visa_sponsor,
+        is_active, last_fetched, last_count, notes
+       FROM emp_tracked_companies ORDER BY last_count DESC NULLS LAST, name ASC`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/jobs/companies ─ Añadir empresa a trackear ─
+router.post('/companies', async (req, res) => {
+  try {
+    const { name, ats_type, ats_token, country, sector, visa_sponsor, notes } = req.body;
+    if (!name || !ats_type || !ats_token) {
+      return res.status(400).json({ ok: false, error: 'name, ats_type, ats_token requeridos' });
+    }
+    if (!['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(ats_type)) {
+      return res.status(400).json({ ok: false, error: 'ats_type debe ser greenhouse|lever|ashby|smartrecruiters' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO emp_tracked_companies (name, ats_type, ats_token, country, sector, visa_sponsor, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (ats_type, ats_token) DO UPDATE SET name=EXCLUDED.name, updated_at=NOW()
+       RETURNING *`,
+      [name, ats_type, ats_token, country || null, sector || null, visa_sponsor || false, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/jobs/high-score ─ Top match jobs ───────────
+router.get('/high-score', async (req, res) => {
+  try {
+    const minScore = parseInt(req.query.min_score) || 50;
+    const limit = parseInt(req.query.limit) || 20;
+    const rows = await db.queryAll(
+      `SELECT id, title, company, location_country, location_raw, sector,
+        salary_min, salary_max, salary_currency, visa_sponsorship,
+        match_score, speed_score, difficulty_score, total_score,
+        url, posted_at
+       FROM job_listings
+       WHERE total_score >= $1 AND status = 'new'
+         AND (is_remote = FALSE OR is_remote IS NULL)
+       ORDER BY total_score DESC, posted_at DESC NULLS LAST
+       LIMIT $2`,
+      [minScore, limit]
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

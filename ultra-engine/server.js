@@ -22,8 +22,10 @@ const db = require('./src/db');
 const telegram = require('./src/telegram');
 const scheduler = require('./src/scheduler');
 const { apiKeyAuth } = require('./src/middleware/auth');
+const { requireAuth } = require('./src/middleware/jwt-auth');
 
 // ─── Rutas API ─────────────────────────────────────────────
+const authRouter = require('./src/routes/auth');
 const documentsRouter = require('./src/routes/documents');
 const statusRouter = require('./src/routes/status');
 const feedsRouter = require('./src/routes/feeds');
@@ -32,6 +34,7 @@ const financesRouter = require('./src/routes/finances');
 const opportunitiesRouter = require('./src/routes/opportunities');
 const logisticsRouter = require('./src/routes/logistics');
 const bioRouter = require('./src/routes/bio');
+const bureaucracyRouter = require('./src/routes/bureaucracy');
 const agentBusRouter = require("./src/routes/agentbus");
 
 const app = express();
@@ -45,15 +48,19 @@ app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store, no-cac
 // ─── Archivos estáticos (Dashboard) ────────────────────────
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── API Routes (protegidas con API key) ──────────────────
-app.use('/api/documents', apiKeyAuth, documentsRouter);
-app.use('/api/status', apiKeyAuth, statusRouter);
-app.use('/api/feeds', apiKeyAuth, feedsRouter);
-app.use('/api/jobs', apiKeyAuth, jobsRouter);
-app.use('/api/finances', apiKeyAuth, financesRouter);
-app.use('/api/opportunities', apiKeyAuth, opportunitiesRouter);
-app.use('/api/logistics', apiKeyAuth, logisticsRouter);
-app.use('/api/bio', apiKeyAuth, bioRouter);
+// ─── Auth Routes (públicas) ───────────────────────────────
+app.use('/api/auth', authRouter);
+
+// ─── API Routes (protegidas con JWT) ──────────────────────
+app.use('/api/documents', requireAuth, documentsRouter);
+app.use('/api/status', requireAuth, statusRouter);
+app.use('/api/feeds', requireAuth, feedsRouter);
+app.use('/api/jobs', requireAuth, jobsRouter);
+app.use('/api/finances', requireAuth, financesRouter);
+app.use('/api/opportunities', requireAuth, opportunitiesRouter);
+app.use('/api/logistics', requireAuth, logisticsRouter);
+app.use('/api/bio', requireAuth, bioRouter);
+app.use('/api/bureaucracy', requireAuth, bureaucracyRouter);
 app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
 
 // ─── Health endpoint (publico, sin auth para monitoreo) ───
@@ -121,12 +128,12 @@ app.get('/{*path}', (req, res) => {
 
 // ─── Iniciar servidor ──────────────────────────────────────
 async function start() {
-  console.log('');
+  process.stdout.write('\n');
   console.log('╔══════════════════════════════════════════════════════╗');
   console.log('║  🌎 ULTRA ENGINE — Sistema de Inteligencia Personal  ║');
   console.log('║     100% código propio · 0 servicios de terceros    ║');
   console.log('╚══════════════════════════════════════════════════════╝');
-  console.log('');
+  process.stdout.write('\n');
 
   // 1. Verificar DB
   console.log('🗄️ Conectando a PostgreSQL...');
@@ -148,11 +155,11 @@ async function start() {
 
   // 4. Iniciar servidor HTTP
   app.listen(PORT, '0.0.0.0', () => {
-    console.log('');
+    process.stdout.write('\n');
     console.log(`🚀 Ultra Engine corriendo en http://0.0.0.0:${PORT}`);
     console.log(`   Dashboard: http://localhost:${PORT}`);
     console.log(`   API:       http://localhost:${PORT}/api/status`);
-    console.log('');
+    process.stdout.write('\n');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('  Pilares activos:');
     console.log('    P1 📰 Noticias     — RSS Reader');

@@ -4,9 +4,17 @@
 // ╚══════════════════════════════════════════════════════════╝
 
 const express = require('express');
+const multer = require('multer');
 const db = require('../db');
+const fx = require('../fx');
+const bankCsv = require('../bank_csv');
+const wise = require('../wise');
 
 const router = express.Router();
+const upload = multer({
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max para CSV bancarios
+  storage: multer.memoryStorage(),
+});
 
 // ─── GET /api/finances ─ Listar movimientos ──────────────
 router.get('/', async (req, res) => {
@@ -238,6 +246,169 @@ router.post('/', async (req, res) => {
     );
 
     res.status(201).json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P3 Phase 1 Quick Win — CSV import, FX, runway extendido
+// ═══════════════════════════════════════════════════════════
+
+// ─── POST /api/finances/import-csv ─ Sube CSV bancario ───
+// multipart/form-data: file=<csv>, bank=<asb|anz|westpac|bnz|kiwibank|auto>
+router.post('/import-csv', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, error: 'No se envió archivo' });
+
+    const csvText = req.file.buffer.toString('utf8');
+    const requestedBank = (req.body.bank || 'auto').toLowerCase();
+    const profileId = requestedBank === 'auto' ? null : requestedBank;
+
+    const result = bankCsv.parseCsv(csvText, profileId);
+    if (result.error || !result.rows) {
+      return res.status(400).json({ ok: false, error: result.error || 'Parse falló' });
+    }
+
+    let inserted = 0, skipped = 0, failed = 0;
+    for (const row of result.rows) {
+      try {
+        // Convierte amount a NZD via FX cache (si la cuenta es NZD, amount_nzd = amount)
+        const amountNzd = await fx.convert(row.amount, 'NZD', 'NZD');
+        const r = await db.queryOne(
+          `INSERT INTO finances
+             (type, amount, currency, amount_nzd, category, description, date,
+              account, source, fingerprint)
+           VALUES ($1, $2, 'NZD', $3, 'csv_import', $4, $5, $6, 'csv', $7)
+           ON CONFLICT (fingerprint) WHERE fingerprint IS NOT NULL DO NOTHING
+           RETURNING id`,
+          [row.type, row.amount, amountNzd, row.description, row.date, row.account, row.fingerprint]
+        );
+        if (r) inserted++;
+        else skipped++;
+      } catch (err) {
+        failed++;
+        console.warn('CSV row failed:', err.message);
+      }
+    }
+
+    res.json({
+      ok: true,
+      bank: result.profile,
+      bank_name: result.name,
+      total_rows: result.rows.length,
+      inserted,
+      skipped_duplicates: skipped,
+      failed,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/import-csv/profiles ─ Lista perfiles ─
+router.get('/import-csv/profiles', (req, res) => {
+  res.json({ ok: true, data: bankCsv.PROFILES });
+});
+
+// ─── GET /api/finances/fx ─ Tipos de cambio ──────────────
+// /api/finances/fx                       → todos los rates cacheados
+// /api/finances/fx?from=NZD&to=EUR&amount=100 → conversión específica
+router.get('/fx', async (req, res) => {
+  try {
+    const { from, to, amount } = req.query;
+    if (from && to) {
+      const converted = await fx.convert(parseFloat(amount || 1), from, to);
+      if (converted === null) {
+        return res.status(404).json({
+          ok: false,
+          error: `Rate ${from}→${to} no cacheado. Llama POST /api/finances/fx/refresh primero.`,
+        });
+      }
+      return res.json({
+        ok: true,
+        data: { from: from.toUpperCase(), to: to.toUpperCase(), amount: parseFloat(amount || 1), converted },
+      });
+    }
+    const rates = await fx.listLatestRates();
+    res.json({ ok: true, base: fx.BASE, data: rates });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/finances/fx/refresh ─ Forzar refresh ──────
+router.post('/fx/refresh', async (req, res) => {
+  try {
+    const r = await fx.fetchLatest();
+    res.json({ ok: true, data: r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/runway ─ Runway extendido + NW ────
+router.get('/runway', async (req, res) => {
+  try {
+    const month = new Date().toISOString().slice(0, 7);
+    const income = parseFloat((await db.queryOne(
+      `SELECT COALESCE(SUM(amount_nzd), SUM(amount)) AS total FROM finances
+       WHERE type='income' AND TO_CHAR(date,'YYYY-MM')=$1`, [month]
+    )).total || 0);
+    const expense = parseFloat((await db.queryOne(
+      `SELECT COALESCE(SUM(amount_nzd), SUM(amount)) AS total FROM finances
+       WHERE type='expense' AND TO_CHAR(date,'YYYY-MM')=$1`, [month]
+    )).total || 0);
+
+    // Burn rate de los últimos 90 días (más estable que solo el mes actual)
+    const burn90 = parseFloat((await db.queryOne(
+      `SELECT COALESCE(SUM(amount_nzd), SUM(amount))/90.0 AS daily FROM finances
+       WHERE type='expense' AND date >= CURRENT_DATE - 90`
+    )).daily || 0);
+
+    const remaining = income - expense;
+    const dayOfMonth = new Date().getDate();
+    const burnMonth = dayOfMonth > 0 ? expense / dayOfMonth : 0;
+    const runwayMonth = burnMonth > 0 ? Math.floor(remaining / burnMonth) : 999;
+    const runway90 = burn90 > 0 ? Math.floor(remaining / burn90) : 999;
+
+    // Net worth snapshot del día (si existe)
+    const nw = await db.queryOne(
+      `SELECT date, total_nzd, breakdown FROM fin_net_worth_snapshots
+       ORDER BY date DESC LIMIT 1`
+    );
+
+    // Breakdown por cuenta (multi-currency aware)
+    const byAccount = await db.queryAll(
+      `SELECT
+         COALESCE(account, 'manual') AS account,
+         COALESCE(currency, 'NZD') AS currency,
+         SUM(CASE WHEN type='income' THEN amount_nzd ELSE 0 END) AS in_nzd,
+         SUM(CASE WHEN type='expense' THEN amount_nzd ELSE 0 END) AS out_nzd,
+         COUNT(*) AS txns
+       FROM finances
+       WHERE TO_CHAR(date,'YYYY-MM') = $1
+       GROUP BY account, currency
+       ORDER BY (in_nzd - out_nzd) DESC`,
+      [month]
+    );
+
+    res.json({
+      ok: true,
+      data: {
+        month,
+        income_nzd: income,
+        expense_nzd: expense,
+        remaining_nzd: remaining,
+        burn_rate_month: Math.round(burnMonth * 100) / 100,
+        burn_rate_90d: Math.round(burn90 * 100) / 100,
+        runway_days_month: runwayMonth,
+        runway_days_90d: runway90,
+        net_worth_snapshot: nw,
+        by_account: byAccount,
+        wise_configured: wise.isConfigured(),
+      },
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

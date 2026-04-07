@@ -93,7 +93,13 @@ async function addFeed(url, name, category = 'general') {
  * Obtiene todos los feeds
  */
 async function getFeeds() {
-  return db.queryAll('SELECT * FROM rss_feeds WHERE is_active = TRUE ORDER BY name');
+  // Excluye pseudo-feeds (gdelt, bsky) — esos los maneja news_apis.js con fetchers dedicados
+  return db.queryAll(
+    `SELECT * FROM rss_feeds
+     WHERE is_active = TRUE
+       AND category NOT IN ('gdelt', 'bsky')
+     ORDER BY name`
+  );
 }
 
 /**

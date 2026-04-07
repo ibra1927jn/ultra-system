@@ -170,4 +170,73 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════
+//  P5 Phase 1 Quick Win — Multi-source remote fetchers
+// ═══════════════════════════════════════════════════════════
+const oppFetchers = require('../opp_fetchers');
+
+router.post('/fetch', async (req, res) => {
+  try {
+    res.json({ ok: true, data: await oppFetchers.fetchAll() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/fetch/:source', async (req, res) => {
+  try {
+    const fnMap = {
+      remoteok: oppFetchers.fetchRemoteOk,
+      remotive: oppFetchers.fetchRemotive,
+      himalayas: oppFetchers.fetchHimalayas,
+      jobicy: oppFetchers.fetchJobicy,
+      hn: oppFetchers.fetchHnWhoIsHiring,
+      github: oppFetchers.fetchGithubBounties,
+    };
+    const fn = fnMap[req.params.source.toLowerCase()];
+    if (!fn) return res.status(400).json({ ok: false, error: `Source desconocida. Opciones: ${Object.keys(fnMap).join(', ')}` });
+    res.json({ ok: true, data: await fn() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/high-score', async (req, res) => {
+  try {
+    const minScore = parseInt(req.query.min_score) || 8;
+    const limit = parseInt(req.query.limit) || 20;
+    const rows = await db.queryAll(
+      `SELECT id, title, source, url, category, payout_type, salary_min, salary_max, currency,
+        match_score, status, posted_at, last_seen
+       FROM opportunities
+       WHERE match_score >= $1 AND status = 'new'
+       ORDER BY match_score DESC, posted_at DESC NULLS LAST
+       LIMIT $2`,
+      [minScore, limit]
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/by-source', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT source, count(*) AS total,
+         count(*) FILTER (WHERE status='new') AS news,
+         count(*) FILTER (WHERE status='applied') AS applied,
+         count(*) FILTER (WHERE status='won') AS won,
+         max(match_score) AS top_score,
+         max(last_seen) AS last_fetched
+       FROM opportunities
+       WHERE source IS NOT NULL
+       GROUP BY source ORDER BY total DESC`
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

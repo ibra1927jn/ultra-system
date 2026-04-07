@@ -8,6 +8,15 @@ const cron = require('node-cron');
 const db = require('./db');
 const telegram = require('./telegram');
 const freelanceScraper = require('./freelance_scraper');
+const newsApis = require('./news_apis');
+const fx = require('./fx');
+const wise = require('./wise');
+const weatherMod = require('./weather');
+const docNz = require('./doc_nz');
+const healthScrapers = require('./health_scrapers');
+const externalHealth = require('./external_health');
+const oppFetchers = require('./opp_fetchers');
+const jobApis = require('./job_apis');
 
 const jobs = [];
 
@@ -17,20 +26,29 @@ const jobs = [];
 function init() {
   console.log('⏰ Iniciando scheduler...');
 
-  // ─── P4: Burocracia — Alerta documentos cada lunes 09:00 ───
+  // ─── P4: Burocracia — Multi-stage doc alerts diario 09:00 ───
+  // Reemplaza document-expiry-check + urgent-document-check (subsumidos)
   register(
-    'document-expiry-check',
-    '0 9 * * 1',
+    'document-expiry-multistage',
+    '0 9 * * *',
     checkDocumentExpiry,
-    'Lunes 09:00 — Chequear documentos por caducar'
+    'Diario 09:00 — Multi-stage alerts (90/60/30/7 días)'
   );
 
-  // ─── P4: Burocracia — Alerta diaria urgente (docs < 7 dias) ───
+  // ─── P4: Burocracia — Tax deadlines diario 09:10 ───
   register(
-    'urgent-document-check',
-    '0 8 * * *',
-    checkUrgentDocuments,
-    'Diario 08:00 — Alertas urgentes (<7 dias)'
+    'tax-deadlines',
+    '10 9 * * *',
+    checkTaxDeadlines,
+    'Diario 09:10 — Recordatorios fiscales (NZ/ES/AU)'
+  );
+
+  // ─── P4: Burocracia — Vacunaciones lunes 10:00 ───
+  register(
+    'vaccination-expiry',
+    '0 10 * * 1',
+    checkVaccinationExpiry,
+    'Lunes 10:00 — Vacunaciones próximas a expirar (<60 días)'
   );
 
   // ─── P1: Noticias — Fetch RSS cada 30 min con scoring ───
@@ -41,6 +59,22 @@ function init() {
     'Cada 30 min — Buscar noticias + scoring keywords'
   );
 
+  // ─── P1: GDELT DOC 2.0 cada 2h (free, no auth) ───
+  register(
+    'gdelt-fetch',
+    '0 */2 * * *',
+    fetchGdelt,
+    'Cada 2h — GDELT global news + early warning'
+  );
+
+  // ─── P1: Bluesky search cada 1h (free, no auth) ───
+  register(
+    'bsky-search',
+    '15 * * * *',
+    fetchBlueskySearch,
+    'Cada hora — Bluesky social-as-news'
+  );
+
   // ─── P2: Empleo — Scrape webs cada 6 horas ───
   register(
     'job-scrape',
@@ -49,12 +83,36 @@ function init() {
     'Cada 6 horas — Buscar ofertas de empleo'
   );
 
+  // ─── P2: ATS APIs (Greenhouse/Lever/Ashby/SR) cada 6h offset 30 ───
+  register(
+    'ats-fetch',
+    '30 */6 * * *',
+    fetchAtsJobs,
+    'Cada 6h (offset 30min) — ATS APIs tracked companies'
+  );
+
   // ─── P3: Finanzas — Budget alerts diario 09:00 ───
   register(
     'budget-alerts',
     '0 9 * * *',
     checkBudgetAlerts,
     'Diario 09:00 — Alertas de presupuesto (>80%)'
+  );
+
+  // ─── P3: FX rates diario 06:00 (Frankfurter free) ───
+  register(
+    'fx-fetch',
+    '0 6 * * *',
+    fetchFxRates,
+    'Diario 06:00 — Frankfurter rates NZD→{EUR,USD,...}'
+  );
+
+  // ─── P3: Net worth snapshot diario 23:55 ───
+  register(
+    'nw-snapshot',
+    '55 23 * * *',
+    snapshotNetWorth,
+    'Diario 23:55 — Snapshot net worth a fin_net_worth_snapshots'
   );
 
   // ─── P5: Oportunidades — Deadline + follow-up diario 09:00 ───
@@ -72,12 +130,44 @@ function init() {
     checkLogisticsNext48h,
     'Diario 08:00 — Items en las proximas 48 horas'
   );
+
+  // ─── P6: Weather forecast diario 06:30 (Open-Meteo free) ───
+  register(
+    'weather-fetch',
+    '30 6 * * *',
+    fetchWeatherCurrentLocation,
+    'Diario 06:30 — Forecast 7d Open-Meteo en current location'
+  );
+
+  // ─── P6: DOC NZ refresh semanal lunes 04:00 ───
+  register(
+    'doc-nz-refresh',
+    '0 4 * * 1',
+    refreshDocNz,
+    'Lunes 04:00 — DOC NZ campsites GeoJSON refresh'
+  );
+
+  // ─── P6: Membership renewal alerts lunes 09:30 ───
+  register(
+    'membership-expiry',
+    '30 9 * * 1',
+    checkMembershipExpiry,
+    'Lunes 09:30 — Workaway/MindMyHouse/WWOOF/HelpX renewals (<60 días)'
+  );
   // ─── P5: Oportunidades — Scrape freelance cada 12 horas ───
   register(
     'freelance-scrape',
     '0 */12 * * *',
     freelanceScraper.fetchAll,
     'Cada 12 horas — Buscar oportunidades freelance'
+  );
+
+  // ─── P5: Multi-source remote fetcher diario 06:00 ───
+  register(
+    'opp-fetch',
+    '0 6 * * *',
+    fetchOpportunities,
+    'Diario 06:00 — RemoteOK/Remotive/Himalayas/Jobicy/HN/GitHub bounties'
   );
 
 
@@ -87,6 +177,22 @@ function init() {
     '0 20 * * 0',
     sendBioWeeklySummary,
     'Domingo 20:00 — Resumen bio semanal + correlaciones'
+  );
+
+  // ─── P7: Outbreak alerts diario 08:30 (WHO/CDC/ECDC) ───
+  register(
+    'health-outbreak-fetch',
+    '30 8 * * *',
+    fetchHealthAlerts,
+    'Diario 08:30 — WHO/CDC/ECDC outbreak alerts'
+  );
+
+  // ─── P7: External services health probe cada 5 min ───
+  register(
+    'external-health-probe',
+    '*/5 * * * *',
+    probeExternalHealth,
+    'Cada 5 min — Probe wger/mealie/grocy/fasten'
   );
 
   // ─── Health check — Cada hora ───
@@ -142,53 +248,139 @@ async function logJob(name, status, durationMs, error = null) {
 // ═══════════════════════════════════════════════════════════
 
 /**
- * P4: Chequea documentos proximos a caducar y envia alerta
+ * P4: Multi-stage document expiry alerts.
+ * Dispara alerta cuando days_remaining coincide exactamente con cualquier
+ * stage en alert_days_array (p.ej. {90,60,30,7}). Dedup por día via notification_log.
  */
 async function checkDocumentExpiry() {
   const docs = await db.queryAll(
-    `SELECT id, document_name, document_type, expiry_date, alert_days, notes,
-     (expiry_date - CURRENT_DATE) AS days_remaining
+    `SELECT id, document_name, document_type, expiry_date, country, notes,
+       alert_days_array,
+       (expiry_date - CURRENT_DATE) AS days_remaining
      FROM document_alerts
      WHERE is_active = TRUE
-       AND (expiry_date - CURRENT_DATE) <= alert_days
        AND (expiry_date - CURRENT_DATE) >= 0
+       AND ARRAY[(expiry_date - CURRENT_DATE)::int] && alert_days_array
+       AND NOT EXISTS (
+         SELECT 1 FROM notification_log nl
+         WHERE nl.alert_id = document_alerts.id
+           AND nl.sent_at::date = CURRENT_DATE
+       )
      ORDER BY days_remaining ASC`
   );
 
   if (!docs.length) {
-    console.log('✅ Sin documentos por caducar');
+    console.log('✅ Sin documentos en stage de alerta hoy');
     return;
   }
 
   const message = telegram.formatDocumentAlert(docs);
   await telegram.sendAlert(message);
-  await telegram.logNotification(docs[0].id, message, 'sent');
+  // Loggear UN row por doc para que el dedup funcione correctamente
+  for (const d of docs) {
+    await telegram.logNotification(d.id, `[stage=${d.days_remaining}d] ${d.document_name}`, 'sent');
+  }
 
-  console.log(`📲 Alerta enviada: ${docs.length} documentos`);
+  console.log(`📲 Multi-stage alert: ${docs.length} documentos`);
 }
 
 /**
- * P4: Alerta urgente para docs a punto de caducar (<7 dias)
+ * P4: Tax deadlines — chequea bur_tax_deadlines y dispara según alert_days_array.
+ * Multi-país: NZ/ES/AU/EU para usuario dual ES/DZ con WHV NZ.
+ * Auto-rolling: si recurring=TRUE y deadline pasó, lo avanza un año.
  */
-async function checkUrgentDocuments() {
-  const docs = await db.queryAll(
-    `SELECT id, document_name, document_type, expiry_date, notes,
-     (expiry_date - CURRENT_DATE) AS days_remaining
-     FROM document_alerts
+async function checkTaxDeadlines() {
+  // Auto-roll deadlines vencidas con recurring=TRUE → +1 año
+  await db.query(
+    `UPDATE bur_tax_deadlines
+     SET deadline = (deadline + INTERVAL '1 year')::date,
+         updated_at = NOW()
      WHERE is_active = TRUE
-       AND (expiry_date - CURRENT_DATE) <= 7
-       AND (expiry_date - CURRENT_DATE) >= 0
-     ORDER BY days_remaining ASC`
+       AND recurring = TRUE
+       AND recurrence_rule = 'YEARLY'
+       AND deadline < CURRENT_DATE`
   );
 
-  if (!docs.length) return;
+  const deadlines = await db.queryAll(
+    `SELECT id, country, name, description, deadline, alert_days_array, notes,
+       (deadline - CURRENT_DATE) AS days_remaining
+     FROM bur_tax_deadlines
+     WHERE is_active = TRUE
+       AND (deadline - CURRENT_DATE) >= 0
+       AND ARRAY[(deadline - CURRENT_DATE)::int] && alert_days_array
+     ORDER BY deadline ASC`
+  );
 
-  let msg = '🚨 *ALERTA URGENTE — Documentos a punto de caducar*\n\n';
-  for (const d of docs) {
-    const expDate = new Date(d.expiry_date).toISOString().split('T')[0];
-    msg += `🔴 *${d.document_name}* — ${d.days_remaining} dias (${expDate})\n`;
+  if (!deadlines.length) {
+    console.log('✅ Sin deadlines fiscales hoy');
+    return;
   }
-  await telegram.sendAlert(msg);
+
+  const flag = (c) => ({ NZ: '🇳🇿', ES: '🇪🇸', AU: '🇦🇺', EU: '🇪🇺', DZ: '🇩🇿' }[c] || '🏛️');
+  const urgency = (d) => (d <= 7 ? '🔴' : d <= 14 ? '🟠' : d <= 30 ? '🟡' : '🟢');
+
+  const lines = [
+    '💼 *ULTRA SYSTEM — Recordatorio Fiscal*',
+    '━━━━━━━━━━━━━━━━━━━━━━━━',
+  ];
+
+  for (const d of deadlines) {
+    const dateStr = new Date(d.deadline).toISOString().split('T')[0];
+    lines.push(`${urgency(d.days_remaining)} ${flag(d.country)} *${d.name}*`);
+    lines.push(`   📅 ${dateStr} — *${d.days_remaining} días*`);
+    if (d.description) lines.push(`   📝 ${d.description}`);
+    if (d.notes) lines.push(`   💡 ${d.notes}`);
+    lines.push('');
+  }
+
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push('🤖 _Ultra Engine — P4 Burocracia_');
+  await telegram.sendAlert(lines.join('\n'));
+
+  console.log(`📲 Tax deadlines alert: ${deadlines.length} entries`);
+}
+
+/**
+ * P4: Vacunaciones próximas a expirar (<60 días).
+ * Decisión 2026-04-07: P4 owner de bur_vaccinations.
+ * P7 consume vía evento bur.vaccination_updated (publicado por la route POST/PUT).
+ */
+async function checkVaccinationExpiry() {
+  const vaccines = await db.queryAll(
+    `SELECT id, vaccine, dose_number, date_given, expiry_date, country, notes,
+       (expiry_date - CURRENT_DATE) AS days_remaining
+     FROM bur_vaccinations
+     WHERE expiry_date IS NOT NULL
+       AND (expiry_date - CURRENT_DATE) BETWEEN 0 AND 60
+     ORDER BY expiry_date ASC`
+  );
+
+  if (!vaccines.length) {
+    console.log('✅ Sin vacunaciones expirando');
+    return;
+  }
+
+  const flag = (c) => ({ NZ: '🇳🇿', ES: '🇪🇸', AU: '🇦🇺', EU: '🇪🇺', DZ: '🇩🇿' }[c] || '');
+
+  const lines = [
+    '💉 *ULTRA SYSTEM — Vacunaciones por renovar*',
+    '━━━━━━━━━━━━━━━━━━━━━━━━',
+  ];
+
+  for (const v of vaccines) {
+    const exp = new Date(v.expiry_date).toISOString().split('T')[0];
+    const urgent = v.days_remaining <= 14 ? '🔴' : v.days_remaining <= 30 ? '🟡' : '🟢';
+    const dose = v.dose_number ? ` (dosis ${v.dose_number})` : '';
+    lines.push(`${urgent} *${v.vaccine}*${dose} ${flag(v.country)}`);
+    lines.push(`   📅 Caduca ${exp} — ${v.days_remaining} días`);
+    if (v.notes) lines.push(`   💬 ${v.notes}`);
+    lines.push('');
+  }
+
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+  await telegram.sendAlert(lines.join('\n'));
+
+  console.log(`📲 Vaccination expiry alert: ${vaccines.length} entries`);
 }
 
 /**
@@ -228,6 +420,46 @@ async function fetchRssFeeds() {
     // Modulo P1 puede no estar listo
     console.warn('⚠️ RSS fetch falló:', err.message);
   }
+}
+
+/**
+ * P1: GDELT DOC 2.0 — global news + early warning
+ * Alerta via Telegram si hay artículos de alta relevancia
+ */
+async function fetchGdelt() {
+  const { newCount, highScoreArticles } = await newsApis.fetchGdelt();
+  if (highScoreArticles.length > 0) {
+    const lines = ['🌐 *ULTRA SYSTEM — GDELT High-Score*', '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
+    for (const a of highScoreArticles.slice(0, 5)) {
+      lines.push(`⭐ *${a.title.substring(0, 120)}*`);
+      lines.push(`   📊 Score: ${a.score}`);
+      lines.push(`   🔗 ${a.url}`);
+      lines.push('');
+    }
+    if (highScoreArticles.length > 5) lines.push(`... y ${highScoreArticles.length - 5} más`);
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    await telegram.sendAlert(lines.join('\n'));
+  }
+  console.log(`🌐 GDELT: ${newCount} nuevos, ${highScoreArticles.length} alertados`);
+}
+
+/**
+ * P1: Bluesky search por keywords (social-as-news)
+ */
+async function fetchBlueskySearch() {
+  const { newCount, highScoreArticles } = await newsApis.fetchBlueskySearch();
+  if (highScoreArticles.length > 0) {
+    const lines = ['🦋 *ULTRA SYSTEM — Bluesky Relevant*', '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
+    for (const a of highScoreArticles.slice(0, 5)) {
+      lines.push(`⭐ ${a.title.substring(0, 200)}`);
+      lines.push(`   📊 Score: ${a.score}`);
+      lines.push(`   🔗 ${a.url}`);
+      lines.push('');
+    }
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    await telegram.sendAlert(lines.join('\n'));
+  }
+  console.log(`🦋 Bluesky: ${newCount} nuevos, ${highScoreArticles.length} alertados`);
 }
 
 /**
@@ -302,6 +534,164 @@ async function checkBudgetAlerts() {
   await telegram.sendAlert(lines.join('\n'));
 
   console.log(`📲 ${alerts.length} alertas de presupuesto enviadas`);
+}
+
+/**
+ * P3: Fetch daily FX rates (Frankfurter primary, fawazahmed0 fallback)
+ */
+async function fetchFxRates() {
+  const r = await fx.fetchLatest();
+  console.log(`💱 FX: ${r.count} rates para ${r.date}`);
+}
+
+/**
+ * P3: Snapshot net worth diario.
+ * Calcula income - expense acumulado en NZD desde inicio + cualquier balance Wise (si configurado).
+ */
+async function snapshotNetWorth() {
+  const total = await db.queryOne(
+    `SELECT COALESCE(
+       SUM(CASE WHEN type='income' THEN COALESCE(amount_nzd, amount) ELSE 0 END) -
+       SUM(CASE WHEN type='expense' THEN COALESCE(amount_nzd, amount) ELSE 0 END),
+       0
+     ) AS nw FROM finances`
+  );
+  const breakdown = await db.queryAll(
+    `SELECT COALESCE(account, 'manual') AS account,
+       SUM(CASE WHEN type='income' THEN COALESCE(amount_nzd, amount) ELSE 0 END) -
+       SUM(CASE WHEN type='expense' THEN COALESCE(amount_nzd, amount) ELSE 0 END) AS nw
+     FROM finances GROUP BY account`
+  );
+  const today = new Date().toISOString().split('T')[0];
+  await db.query(
+    `INSERT INTO fin_net_worth_snapshots (date, total_nzd, breakdown)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (date) DO UPDATE SET total_nzd = EXCLUDED.total_nzd, breakdown = EXCLUDED.breakdown`,
+    [today, total.nw, JSON.stringify(breakdown)]
+  );
+  console.log(`📊 NW snapshot ${today}: $${parseFloat(total.nw).toFixed(2)} NZD`);
+}
+
+/**
+ * P6: Fetch weather forecast 7d para current location del usuario.
+ * Si no hay current location en log_locations, no hace nada.
+ */
+async function fetchWeatherCurrentLocation() {
+  const cur = await weatherMod.getCurrentLocation();
+  if (!cur) {
+    console.log('🌡️ [weather] Sin current location en log_locations');
+    return;
+  }
+  const r = await weatherMod.fetchForecast(parseFloat(cur.latitude), parseFloat(cur.longitude));
+  console.log(`🌡️ [weather] ${r.inserted} días para ${cur.name}`);
+}
+
+/**
+ * P6: DOC NZ campsites refresh semanal.
+ */
+async function refreshDocNz() {
+  try {
+    const r = await docNz.refreshAll();
+    console.log(`🏕️ [doc-nz] ${r.inserted} new + ${r.updated} updated (${r.total} total)`);
+  } catch (err) {
+    console.warn('⚠️ [doc-nz] Falló:', err.message);
+  }
+}
+
+/**
+ * P6: Membership renewal alerts.
+ * Avisa si Workaway/MindMyHouse/WWOOF/HelpX renueva en <60 días.
+ */
+async function checkMembershipExpiry() {
+  const rows = await db.queryAll(
+    `SELECT id, platform, annual_cost, currency, renews_at,
+       (renews_at - CURRENT_DATE) AS days_remaining
+     FROM log_memberships
+     WHERE is_active = TRUE AND renews_at IS NOT NULL
+       AND (renews_at - CURRENT_DATE) BETWEEN 0 AND 60
+     ORDER BY renews_at ASC`
+  );
+  if (!rows.length) {
+    console.log('✅ Sin memberships expirando');
+    return;
+  }
+  const lines = ['🏠 *Memberships housesit/work-exchange — Renovación próxima*', '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
+  for (const r of rows) {
+    const d = new Date(r.renews_at).toISOString().split('T')[0];
+    const urgent = r.days_remaining <= 14 ? '🔴' : r.days_remaining <= 30 ? '🟡' : '🟢';
+    lines.push(`${urgent} *${r.platform}* — ${r.annual_cost} ${r.currency}`);
+    lines.push(`   📅 Renueva ${d} (${r.days_remaining} días)`);
+    lines.push('');
+  }
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+  await telegram.sendAlert(lines.join('\n'));
+  console.log(`📲 Membership alert: ${rows.length}`);
+}
+
+/**
+ * P2: ATS APIs fetcher (Greenhouse/Lever/Ashby/SmartRecruiters).
+ * Decisión 2026-04-07: P2 = presencial. Las posiciones is_remote=true
+ * son descartadas (las cubre P5 via opp_fetchers).
+ */
+async function fetchAtsJobs() {
+  const r = await jobApis.fetchAll();
+  console.log(`💼 [ats-fetch] ${r.totalInserted} new presencial · ${r.totalSkippedRemote} remote→P5`);
+
+  // Alertar high-score (≥75 = match casi total)
+  const top = await db.queryAll(
+    `SELECT title, company, location_country, location_raw, salary_min, salary_max, salary_currency, total_score, url
+     FROM job_listings
+     WHERE total_score >= 75 AND scraped_at > NOW() - INTERVAL '15 minutes'
+     ORDER BY total_score DESC LIMIT 5`
+  );
+  if (top.length > 0) {
+    const flag = (c) => ({ NZ: '🇳🇿', AU: '🇦🇺', ES: '🇪🇸', US: '🇺🇸', GB: '🇬🇧', DE: '🇩🇪' }[c] || '🌍');
+    const lines = ['💼 *Empleo High-Score (presencial)*', '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
+    for (const j of top) {
+      const sal = j.salary_min && j.salary_max
+        ? ` · 💰 ${j.salary_min}-${j.salary_max} ${j.salary_currency || 'USD'}` : '';
+      lines.push(`⭐ *${j.total_score}* ${flag(j.location_country)} ${j.title.substring(0, 80)}`);
+      lines.push(`   🏢 ${j.company} · ${j.location_raw}${sal}`);
+      lines.push(`   🔗 ${j.url}`);
+      lines.push('');
+    }
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+    await telegram.sendAlert(lines.join('\n'));
+  }
+}
+
+/**
+ * P5: Multi-source remote opportunities fetcher.
+ * Decisión 2026-04-07: P5 = remoto. Las 6 fuentes (RemoteOK, Remotive,
+ * Himalayas, Jobicy, HN Who's Hiring, GitHub bounty issues) devuelven
+ * todas posiciones remotas → entran a `opportunities`.
+ */
+async function fetchOpportunities() {
+  const r = await oppFetchers.fetchAll();
+  console.log(`🎯 [opp-fetch] ${r.totalInserted} new total · ${r.totalHighScore} high-score`);
+
+  if (r.totalHighScore > 0) {
+    // Pull top high-score nuevos para alertar
+    const top = await db.queryAll(
+      `SELECT title, source, url, match_score, salary_min, salary_max, currency
+       FROM opportunities
+       WHERE match_score >= 8 AND last_seen > NOW() - INTERVAL '15 minutes'
+       ORDER BY match_score DESC LIMIT 5`
+    );
+    if (top.length > 0) {
+      const lines = ['🎯 *Oportunidades High-Score*', '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
+      for (const o of top) {
+        const salary = o.salary_min && o.salary_max ? ` · ${o.salary_min}-${o.salary_max} ${o.currency || 'USD'}` :
+                       o.salary_min ? ` · ${o.salary_min}+ ${o.currency || 'USD'}` : '';
+        lines.push(`⭐ ${o.match_score} · *${o.title.substring(0, 100)}*`);
+        lines.push(`   📍 ${o.source}${salary}`);
+        lines.push(`   🔗 ${o.url}`);
+        lines.push('');
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      await telegram.sendAlert(lines.join('\n'));
+    }
+  }
 }
 
 /**
@@ -406,6 +796,52 @@ async function checkLogisticsNext48h() {
 }
 
 /**
+ * P7: Fetch outbreak alerts WHO/CDC/ECDC. Si hay nuevas para país relevante,
+ * envía resumen via Telegram.
+ */
+async function fetchHealthAlerts() {
+  const r = await healthScrapers.fetchAll();
+  if (r.totalNew > 0) {
+    // Si hay alertas de WHO o ECDC con país en lista del usuario, alertar
+    const recent = await db.queryAll(
+      `SELECT source, country_iso, disease, title, url
+       FROM health_alerts
+       WHERE fetched_at > NOW() - INTERVAL '1 hour'
+         AND source IN ('WHO','ECDC','CDC')
+       ORDER BY published_at DESC LIMIT 5`
+    );
+    if (recent.length > 0) {
+      const lines = ['🩺 *Outbreak Alerts — Última hora*', '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
+      for (const a of recent) {
+        const flag = a.country_iso ? `[${a.country_iso}]` : '[GLOBAL]';
+        const dis = a.disease ? `*${a.disease}* · ` : '';
+        lines.push(`⚠️ ${flag} ${dis}${a.title.substring(0, 120)}`);
+        lines.push(`   📰 ${a.source} · ${a.url}`);
+        lines.push('');
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      await telegram.sendAlert(lines.join('\n'));
+    }
+  }
+  console.log(`🩺 Health alerts: ${r.totalNew} new ·`, r.bySource);
+}
+
+/**
+ * P7: Probe los 4 containers self-hosted cada 5 minutos.
+ * Si alguno cae (status -1) por más de 15 min consecutivos, alerta.
+ */
+async function probeExternalHealth() {
+  const results = await externalHealth.probeAll();
+  // Solo alertar si hay servicios down (no spam por degraded)
+  const down = results.filter(r => r.status === -1);
+  if (down.length > 0) {
+    // Verificar si llevaba >15 min caído (3 probes fallidos)
+    // Por ahora solo log, sin spam Telegram
+    console.warn(`🩺 [external] DOWN:`, down.map(d => d.service).join(', '));
+  }
+}
+
+/**
  * P7: Resumen bio semanal con promedios y correlaciones
  * Se ejecuta domingo a las 20:00
  */
@@ -490,18 +926,6 @@ async function sendBioWeeklySummary() {
  * Health ping — verifica DB y registra
  */
 async function healthPing() {
-
-/**
- * P5: Scrape Freelancer.com para oportunidades relevantes
- */
-async function scrapeFreelanceOpportunities() {
-  try {
-    const { totalNew, highScoreProjects } = await freelanceScraper.fetchAll();
-    console.log(`🎯 Freelancer: ${totalNew} nuevas, ${highScoreProjects.length} de alto score`);
-  } catch (err) {
-    console.warn('⚠️ Freelance scrape falló:', err.message);
-  }
-}
   const health = await db.healthCheck();
   if (!health.ok) {
     console.error('❌ Health check fallido:', health.error);

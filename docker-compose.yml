@@ -54,9 +54,115 @@ services:
       API_KEY: ${API_KEY}
       ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
       ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      JWT_SECRET: ${JWT_SECRET:-}
     volumes:
       - engine_uploads:/app/uploads
       - /root/ultra-system/agent_bus.json:/data/agent_bus.json
+    networks:
+      - ultra_net
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P7 BIO-CHECK — 4 self-hosted services (Opción B)
+  #  Decisión usuario 2026-04-07
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # ─── wger: fitness tracker (Django + Vue) ─────────────────
+  # API completa: 896 ejercicios, 15 músculos, 11 equipment
+  wger:
+    image: wger/server:latest
+    container_name: ultra_wger
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      SECRET_KEY: ${WGER_SECRET_KEY:-change-me-please-with-random-string}
+      SIGNING_KEY: ${WGER_SIGNING_KEY:-change-me-please-with-random-string-2}
+      DJANGO_DEBUG: "False"
+      ALLOW_REGISTRATION: "False"
+      ALLOW_GUEST_USERS: "True"
+      WGER_INSTANCE: https://wger.local
+      TIME_ZONE: ${TZ:-Pacific/Auckland}
+      X_FORWARDED_PROTO_HEADER_SET: "True"
+      CSRF_TRUSTED_ORIGINS: "http://localhost:8001"
+    volumes:
+      - wger_static:/home/wger/static
+      - wger_media:/home/wger/media
+      - wger_db:/db
+    networks:
+      - ultra_net
+
+  # ─── mealie: recetas + meal planning (FastAPI + Vue) ──────
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:latest
+    container_name: ultra_mealie
+    restart: unless-stopped
+    ports:
+      - "8002:9000"
+    environment:
+      ALLOW_SIGNUP: "false"
+      PUID: "1000"
+      PGID: "1000"
+      TZ: ${TZ:-Pacific/Auckland}
+      MAX_WORKERS: "1"
+      WEB_CONCURRENCY: "1"
+      BASE_URL: http://localhost:8002
+    volumes:
+      - mealie_data:/app/data/
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 1000M
+
+  # ─── grocy: despensa van + expiry + shopping list (PHP) ───
+  grocy:
+    image: lscr.io/linuxserver/grocy:latest
+    container_name: ultra_grocy
+    restart: unless-stopped
+    ports:
+      - "8003:80"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: ${TZ:-Pacific/Auckland}
+    volumes:
+      - grocy_data:/config
+    networks:
+      - ultra_net
+
+  # ─── fasten-onprem: personal health record vault (Go) ─────
+  fasten:
+    image: ghcr.io/fastenhealth/fasten-onprem:main
+    container_name: ultra_fasten
+    restart: unless-stopped
+    ports:
+      - "8004:8080"
+    volumes:
+      - fasten_data:/opt/fasten/db
+      - fasten_cache:/opt/fasten/cache
+    networks:
+      - ultra_net
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P2 EMPLEO — JobSpy Python sidecar
+  #  rainmanjam/jobspy-api: REST wrapper sobre python-jobspy
+  #  Cubre LinkedIn/Indeed/Glassdoor/Google/ZipRecruiter/Bayt/BDJobs
+  #  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  jobspy:
+    image: rainmanjam/jobspy-api:latest
+    container_name: ultra_jobspy
+    restart: unless-stopped
+    ports:
+      - "8005:8000"
+    environment:
+      API_KEY: ${JOBSPY_API_KEY:-}
+      ENABLE_API_KEY_AUTH: "false"
+      RATE_LIMIT_ENABLED: "true"
+      LOG_LEVEL: INFO
+      TZ: ${TZ:-Pacific/Auckland}
     networks:
       - ultra_net
 
@@ -68,6 +174,14 @@ volumes:
     driver: local
   engine_uploads:
     driver: local
+  # P7 self-hosted services
+  wger_static:
+  wger_media:
+  wger_db:
+  mealie_data:
+  grocy_data:
+  fasten_data:
+  fasten_cache:
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  RED INTERNA
