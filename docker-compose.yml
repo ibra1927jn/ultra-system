@@ -355,6 +355,83 @@ services:
         limits:
           memory: 800M
 
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P3 — FIREFLY III ledger (decisión usuario 2026-04-07)
+  #  Reemplaza progresivamente el ledger custom (`finances` table).
+  #  Profile gated → no arranca por defecto. Activar:
+  #    docker compose --profile firefly up -d firefly_iii
+  #  Schema vive en database `firefly_db` dentro del PG existente.
+  #  Acceso: http://localhost:8080
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  firefly_iii:
+    image: fireflyiii/core:latest
+    container_name: ultra_firefly
+    restart: unless-stopped
+    profiles: ["firefly"]
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      APP_KEY: ${FIREFLY_APP_KEY}
+      APP_URL: ${FIREFLY_APP_URL:-http://localhost:8080}
+      TRUSTED_PROXIES: "**"
+      TZ: ${TZ:-Pacific/Auckland}
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: firefly_db
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DEFAULT_LANGUAGE: en_US
+      DEFAULT_LOCALE: equal
+      # Currency setup: el usuario está en NZ con WHV → primary NZD
+      # Currency real se setea en el primer wizard, esto es solo locale.
+      # Static token para que el migration script pueda llamar la API
+      # sin pasar por OAuth flow. NO commitear el valor — sólo el var name.
+      STATIC_CRON_TOKEN: ${FIREFLY_STATIC_TOKEN}
+      # Disable telemetry
+      SEND_TELEMETRY: "false"
+      SEND_ERROR_MESSAGE: "false"
+      SEND_LOGIN_NEW_IP_WARNING: "false"
+      LOG_CHANNEL: stack
+      APP_LOG_LEVEL: notice
+    volumes:
+      - firefly_upload:/var/www/html/storage/upload
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+
+  # ─── Firefly III importer (Data Importer for CSV/Spectre/Nordigen)
+  # Lo correremos puntualmente para importar histórico bancario una vez
+  # que la base de Firefly esté configurada. Profile separado.
+  firefly_importer:
+    image: fireflyiii/data-importer:latest
+    container_name: ultra_firefly_importer
+    restart: unless-stopped
+    profiles: ["firefly-importer"]
+    depends_on:
+      - firefly_iii
+    ports:
+      - "8081:8080"
+    environment:
+      APP_URL: http://localhost:8081
+      FIREFLY_III_URL: http://firefly_iii:8080
+      VANITY_URL: ${FIREFLY_APP_URL:-http://localhost:8080}
+      FIREFLY_III_ACCESS_TOKEN: ${FIREFLY_PERSONAL_TOKEN:-}
+      TZ: ${TZ:-Pacific/Auckland}
+      TRUSTED_PROXIES: "**"
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  VOLÚMENES PERSISTENTES
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -377,6 +454,7 @@ volumes:
   traccar_logs:
   apprise_data:
   n8n_data:
+  firefly_upload:
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  RED INTERNA

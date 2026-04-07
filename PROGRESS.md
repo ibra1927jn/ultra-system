@@ -24,6 +24,20 @@
 - [2026-03-28] | Enhanced Employment panel: tabs, search, save/applied/skip, clickable | Commit f6b5f0c
 - [2026-03-28] | Fix syntax error line 754 + tab event handling | Commit 8ef95db
 
+## Firefly III — Install + config base (post-R4 step 1) ✅
+
+- [2026-04-08] | **Firefly III container** añadido como servicio `firefly_iii` en docker-compose.yml, profile-gated (`--profile firefly`), image `fireflyiii/core:latest`, memory limit 400M, depends_on db healthy.
+- [2026-04-08] | **Firefly importer** añadido como servicio `firefly_importer` (profile `firefly-importer`), para importar CSV/Spectre/Nordigen puntualmente.
+- [2026-04-08] | **DB dedicada**: `firefly_db` creada dentro del PG existente (no nuevo cluster). 81 tablas Laravel migradas automáticamente al primer boot.
+- [2026-04-08] | **Env vars** añadidas a `.env.example`: `FIREFLY_APP_KEY` (32B base64), `FIREFLY_STATIC_TOKEN` (64 hex), `FIREFLY_APP_URL` (default http://localhost:8080), `FIREFLY_PERSONAL_TOKEN` (se genera vía UI en próximo paso).
+- [2026-04-08] | **Primer usuario admin** registrado vía `/register` (CSRF flow). Credenciales guardadas como `FIREFLY_ADMIN_EMAIL`/`FIREFLY_ADMIN_PASSWORD` en `.env` (password random 32 chars, no reusa `ADMIN_PASSWORD` del engine). Verificado: `users` tiene 1 row, session auth devuelve 200 en `/accounts/asset`.
+- [2026-04-08] | **Acceso**: http://95.217.158.7:8080 (firewall del host permite 8080).
+
+**Pendiente (próxima sesión):**
+- Generar `FIREFLY_PERSONAL_TOKEN` real vía Profile → OAuth → Personal Access Tokens (reemplaza placeholder).
+- Migration script `scripts/migrate_finances_to_firefly.js`: lee `finances` table + inserta vía API REST Firefly (accounts → transactions → budgets → recurring).
+- Bridge en `routes/finances.js`: mantener como proxy/extender sobre Firefly API para endpoints custom (tax_reporting Modelo 720/721/100, FIF NZ, Beckham, PAYE NZ — NO están en Firefly).
+
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).
 - Limpieza de contexto.
