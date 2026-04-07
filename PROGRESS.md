@@ -523,6 +523,22 @@ Engine: 32 cron jobs · 12 containers · 24 modules src/ + map.html UI · 80+ en
 - [2026-04-07] | routes/bio.js: 5 endpoints más — GET/POST /biomarkers, GET /fasting/current, POST /fasting/start, POST /fasting/end. Auto-end ongoing fast cuando inicia uno nuevo.
 - [2026-04-07] | E2E: vitamin D 42 ng/mL biomarker logged correct ref range. fasting 16:8 start/current/end con hours_elapsed live calculation.
 
+## Completado (Tier A R4 — P1 sub-batch NLP) ✅
+
+### #13 spaCy NER sidecar
+- [2026-04-07] | NEW `spacy/Dockerfile` + `spacy/app.py` — FastAPI + uvicorn + spaCy 3.8.2 con modelos `en_core_web_sm` + `es_core_news_sm` (~100MB total). Endpoints: `GET /health`, `POST /ner {text, lang}` → returns `{entities:[{text,label,start,end}]}`. Healthcheck curl interno cada 30s.
+- [2026-04-07] | docker-compose.yml: nuevo servicio `spacy` (container `ultra_spacy`, build `./spacy`, port 8009→8000, memory limit 600M, en `ultra_net`). Engine env `SPACY_BASE_URL=http://spacy:8000`.
+- [2026-04-07] | NEW `ultra-engine/src/spacy.js` — cliente HTTP thin con AbortController timeout 5s, devuelve `null` si falla (caller fallback).
+- [2026-04-07] | `ultra-engine/src/nlp.js`: nueva función async `extractEntitiesSpacy(text, lang)` — opt-in para contenido importante (high-score articles, opportunities, OCR'd docs). Maneja labels EN (PERSON/ORG/GPE/LOC) y ES (PER/ORG/LOC). Países/currencies/money se mantienen vía regex (más estables que NER). Fallback automático a `extractEntities()` (compromise) si sidecar no responde. compromise.js sigue siendo el fast-path por defecto en el resto del código.
+- [2026-04-07] | external_health.js: añadido probe `spacy: { path: '/health', expect200: true }` (registro DB pendiente, no bloquea).
+- [2026-04-07] | NEW `scripts/test_spacy.js` — smoke test con 3 samples EN/ES (Apple/EU/Sánchez/NZ visa) verificando people/orgs/places/countries y source attribution.
+- DEFER: integración en rss.js cron y opp_fetchers — punto de extensión claro vía `extractEntitiesSpacy(article.title + ' ' + article.summary, article.lang)` cuando `relevance_score >= 8`. Sub-batch siguiente.
+
+### #14 Kill the Newsletter (email→Atom)
+- [2026-04-07] | DECISIÓN: usar instancia pública kill-the-newsletter.com en lugar de self-host. Razón: KtN no tiene imagen Docker oficial mantenida; instancia pública lleva años estable, sin auth, sin rate limit. Si en el futuro hay razón de privacidad para self-host, ver BACKLOG item separado. Cero containers nuevos = cero superficie de ataque + cero deploy risk.
+- [2026-04-07] | NEW `docs/NEWSLETTER_TO_RSS.md` — workflow completo: crear inbox en kill-the-newsletter.com → suscribir newsletter con email único → POST atom URL a `/api/feeds` (endpoint ya existente). rss.js cron lo procesa como cualquier otro feed (keyword scoring + dedup + sentiment + NER).
+- Cero código nuevo en engine. La integración es 100% reutilización del CRUD `POST /api/feeds` existente.
+
 ## Estado post-sprints
 
 | Métrica | Pre-Tier S | Post-Tier A |
@@ -635,3 +651,91 @@ Continuación masiva del Tier A. Plan: ejecutar todo lo que NO requiere keys, de
 - Quedan en código con error logs graceful — reemplazar URLs cuando se verifiquen
 
 ---
+
+## Completado (Tier A R4 — P2-P7 sweep + dead URL curation) ✅
+
+### Dead URL curation 2026-04-07 (P1 — `db/init.sql`, `seed_multilingual_feeds.js`, `early_warning.js`)
+- Probe completo de los 338 RSS feeds en producción desde Hetzner. Identificados 49 fallos (~14%).
+- 14 URLs corregidas vía UPDATE idempotente (Aristegui→editorial subdomain, La Prensa PA→TVN-2, El Comercio PE→arc/outboundfeeds, DW→rss.dw.com, Euronews sin format=xml, DN sin /senaste-nytt, UN News trailing slash, O Globo sin /top_noticias, EFE→Europa Press, Wikinews feed=rss en vez de format=rss).
+- 34 feeds soft-disabled (`is_active=FALSE`, no DELETE — preserva `rss_articles` históricos vía CASCADE): 22 CF/IP block desde datacenter, 8 RSS removed por publisher, 3 Mastodon dead handles, 4 duplicados de URLs canónicas.
+- `early_warning.js`: ProMED → stub `skipped:rss_discontinued_2023` (oficialmente discontinuado julio 2023). FEWS NET → URL real `/taxonomy/term/{5,44,16}/feed` con loop sobre 3 streams (Food Security Outlook + Integrated analysis + Weather Hazards).
+- E2E: 296/298 active feeds OK tras curación (los 2 "fallos" residuales son Atom de The Verge — falso positivo del regex de test).
+
+### #15 R4 P2 — Visa sponsor importers (`gov_jobs.js` + cron)
+- Reescrito `importVisaSponsorshipCompanies()` (estaba silenciosamente roto: usaba columna `website` que no existe + no mapeaba country names a ISO-2). Ahora usa GitHub Contents API para listar `/countries/*.json` + descarga raw + mapping de 16 países.
+- NEW `importGeshanAU()`: parse markdown bullets del README de geshan/au-companies-providing-work-visa-sponsorship (branch master).
+- NEW `importNLINDSponsors()`: parse markdown table de oussamabouchikhi/companies-sponsoring-visas-netherlands.
+- NEW `importCanadaLMIA()`: auto-discover último _en.csv del CKAN dataset 90fed587… via package_show API. Skip línea 1 (título), header en línea 2.
+- NEW `importAllSponsorRepos()`: aggregate runner que ejecuta los 4 + crossRefVisaSponsors al final.
+- Nuevo cron `visa-sponsors-import` lunes 04:00 semanal.
+- EURES + Job Bank CA removidos de `fetchAll()`: ambos bloqueados desde IP datacenter (EURES 403 CF, Job Bank CA HTTP 000). Funciones siguen exportadas para uso manual.
+- E2E: SiaExplains 337 sponsors en 12 países (DE 270, NL 34, SE 14, GB 6, ES/AT/IT/IE/FI/DK/BE/NO/FR), Geshan AU 60, Oussama NL 5, Canada LMIA 6,616 únicos. **Total: 60 → 7,018 sponsors (+11,597%)**. 38 cron jobs registrados.
+
+### #16 R4 P3 — Finanzas (`tax_reporting.js`, `investments.js`, `routes/finances.js`)
+- NEW `computeFIF_NZ({positions, marginalRate})` — Foreign Investment Fund tax NZ. De minimis NZD 50K, método FDR (5% market value × marginal). Test 30K offshore → exempt actual_dividends; 120K → FDR 5% × 140K × 33% = $2,310 tax.
+- NEW `computeBeckham({gross_income_eur})` — Régimen Beckham ES vs IRPF estándar comparativa. Brackets 24%/47% × 600K. Test 60K → ahorro €3,501; 800K → ahorro €122,901.
+- NEW `getPerformanceRanges(symbol)` — returns 1d/1w/1m/3m/ytd/1y/max desde fin_investment_history. Test AAPL.US 1Y → +47.02%.
+- NEW `getTwrAndSharpe(symbol, {riskFreeAnnual})` — TWR + annualized vol + Sharpe ratio. Test AAPL.US 249 muestras → cumulative 47%, ann return 47.71%, vol 28.81%, **Sharpe 1.517** (rf=4%).
+- BUG FIX `syncHistory()`: Stooq CSV download cerrado para non-browser clients ("Write to www@stooq.com..."). NEW `getHistoryYahoo(symbol, {range, interval})` con Yahoo Finance v8 chart API (free, no auth, JSON) + Stooq→Yahoo symbol suffix mapping (.US/.DE/.PA/.L/.T). Fallback automático en `syncHistory()` reporta `source: 'stooq' | 'yahoo'`.
+- BUG FIX getPerformanceRanges + getTwrAndSharpe: protección contra `relation does not exist` con error friendly que dice qué endpoint llamar primero.
+- NEW endpoints: `GET/POST /tax/fif-nz`, `GET /tax/beckham`, `GET /investments/performance?symbol=`, `GET /investments/twr?symbol=&rf=`.
+- NEW `POST /api/finances/receipt` (multipart file) — Tesseract OCR via `ocr.extractText` + `parseReceiptText()` heurístico (merchant first alphanum line + total via TOTAL/AMOUNT/IMPORTE keyword + currency NZD/EUR/USD/GBP/AUD/CHF/JPY/CAD + symbols €/£/$/¥ + dates dd/mm/yyyy). Test recibo Mercadona simulado → `{merchant:'SUPERMERCADO MERCADONA', amount:4.64, currency:'EUR', date:'2026-04-12'}` ✓.
+- Tabla `fin_investment_history` creada on-demand por syncHistory (228→229 tablas DB).
+
+### #17 R4 P4 — Burocracia (`routes/bureaucracy.js`, `scheduler.js`, `telegram.js`)
+- 12 endpoints CRUD nuevos para 3 tablas que tenían schema pero no API: `bur_apostilles`, `bur_driver_licenses`, `bur_military_obligations`. GET/POST/PATCH dinámico con whitelist + DELETE soft (apostilles/driver_licenses) o hard (military). Cada GET incluye `days_until_expiry` calculado en SQL.
+- NEW cron `bur-docs-expiry` lunes 10:05 → `checkBurDocsExpiry()` con UNION ALL contra las 3 tablas, threshold 90 días (más conservador que vaccinations 60d porque re-emit de apostille tarda semanas), Telegram alert con flag/icono/urgency.
+- 3 nuevos comandos Telegram: `/apostillas`, `/licencias`, `/militar`. Help actualizado.
+- Embassies seed expansion: **11 → 46 embajadas** (28 ES + 18 DZ) cubriendo NZ, AU (3 cities), DZ (2), MA, TN, MX, AR, CL, CO, PE, BR, JP, SG, TH, VN, ID, PH, PT, FR, IT, DE, GB para ES + ES, AU, NZ, FR, GB, DE, IT, BE, CH, TR, AE, CA, US, BR, MX, JP para DZ.
+- 39 cron jobs registrados (era 38, +1 bur-docs-expiry).
+- DECISIÓN: schengencalc npm migration (#47 BACKLOG) descartada — el schengen.js custom (147 LOC) maneja dual nationality ES/DZ vía `passport_used` field, npm package no soporta esa lógica.
+
+### #18 R4 P5 — Oportunidades (`opp_fetchers.js`)
+- BUG FIX `fetchAlgora`: el endpoint `/api/bounties` devolvía HTML wrapper desde la SPA migration. Pivote a `/api/trpc/bounty.list` (real JSON usado por el frontend Next.js). Estructura: `[{result:{data:{json:{items:[{task:{title,url}, reward:{amount,currency}, tech, ...}]}}}}]`. E2E: 9/10 bounties insertados primer run.
+- 13 fetchers convertidos de stubs silenciosos a `skipped:reason` explícitos para logs limpios:
+  - `cf_block_datacenter`: DailyRemote, Lablab
+  - `rss_removed`: Nodesk, Huntr, Euraxess, SovereignTechFund
+  - `rss_method_not_allowed`: F6S
+  - `spa_no_rss`: Immunefi, Code4rena
+  - `spa_no_api`: IssueHunt
+- 3 fetchers convertidos a static seeds (insertan info baseline para que aparezcan en /api/opportunities como referencia mientras el usuario decide si aplicar): EICAccelerator, HorizonEurope, FLOSSFund.
+- NEW `fetchDevToHiring()`: DEV.to articles tagged hiring/remote/remotework/jobs (free, no auth). Filtra a últimos 30 días + descarta listicles "Top X" sin keywords job/hire. **+87 inserts primer run de 115 fetched**.
+- 47 fetchers totales (era 46, +1 DevToHiring). Top sources DB después: Greenhouse 4851, Freelancer 700, RemoteOK 97, **dev.to 87**, ethglobal 83, GetOnBoard 68, BOE 48, superteam 46.
+
+### #19 R4 P6 — Logística (`logistics_extras.js`, `scheduler.js`)
+- BUG FIX `fetchTransferCar`: `/Car-Relocations/All` ahora 404. Pivote a scrape de homepage con regex `/relocation/{From}/{To}/{ID}.html`. E2E: **6/6 relocations inserted** primer run.
+- 5 fetchers convertidos a `skipped:reason`: park4night (api_closed_2024 — API cerró en 2024), freecycle (datacenter_blocked_422 — RSS gatea IPs datacenter), imoova (spa_needs_puppeteer — Next.js SPA), nzta_news (incapsula_block_datacenter — Incapsula bot detection desde datacenter), esimdb (spa_needs_puppeteer — Vue SPA).
+- NEW `fetchOverpassEssentials({country})` — bulk Overpass query para 6 categorías van-life critical: amenity=fuel, amenity=drinking_water, amenity=shower, amenity=toilets, shop=laundry, tourism=picnic_site. Persiste a `log_pois` (schema canónico con poi_type + source_id + UNIQUE(source, source_id)). Throttle 7s entre queries para respetar Overpass público.
+- NEW cron `overpass-essentials` mensual día 1 a las 03:00 (frecuencia conservadora porque OSM cambia poco y Overpass público tiene rate limits estrictos).
+- E2E NZ: **+1,894 POIs nuevos** (drinking_water 1449 + laundry 445). Las 4 queries restantes (fuel/showers/toilets/picnic) dieron 504/429 — Overpass público sobrecargado, retry mensual. log_pois total 35,357 → **37,251**.
+- Telegram `/poi` ya existía con `listNearby()` desde overpass.js — los nuevos POIs aparecen automáticamente sin tocar el comando.
+
+### #20 R4 P7 — Bio-Check (`bio_calc.js` NEW, `bio_extras.js`, `openfoodfacts.js`, `routes/bio.js`, `telegram.js`)
+- NEW `bio_calc.js` — pure-math health/fitness calculators sin dependencias externas:
+  - `computeBMR({weight_kg,height_cm,age,sex,formula})` — Mifflin-St Jeor (default) + Harris-Benedict (alt). 78kg/178cm/32 male → 1738 kcal.
+  - `computeTDEE(...)` — 5 activity levels (sedentary/light/moderate/active/very_active). Moderate → 2694 kcal/day.
+  - `computeMacros(...)` — 3 goals (cut -20% kcal/2.2g protein, maintain TDEE/1.8g, bulk +15%/1.8g). Cut → 2155 kcal con 32/42/26 protein/carbs/fat split.
+  - `computeHydration({weight_kg,exercise_hours,temp_c,altitude_m})` — baseline 35 ml/kg + 500/h ex + 500 si T>27°C + 500 si alt>2500m. 78kg/1h/30°C → 3,730 ml.
+  - `computeSleepScore({date})` — 0-100 ponderado sobre `bio_checks` (40% sleep_hours target 7-9h, 20% sleep_quality, 20% HRV vs baseline 30d, 20% RHR vs baseline). 5 niveles (excellent ≥85, good ≥70, fair ≥55, poor ≥40, critical <40).
+- PIVOT `fetchOpenUV()` en `bio_extras.js`: ya no requiere `OPENUV_API_KEY`. Ahora usa **Open-Meteo `uv_index_max + uv_index_clear_sky_max`** (free, no auth). Persiste 3 días forecast a `bio_environmental` con dedup ad-hoc (source='open_meteo', metric='uv_index_max'). E2E Auckland: 3 días insertados (UV 4.6, 5.65, 5.7).
+- NEW `searchFood(query)` en `openfoodfacts.js` — natural language nutrition search via `/cgi/search.pl?json=1` (free, no auth). Mozilla UA + retry on 503/429 + content-type validation (CF returns HTML challenge cuando rate-limita). Test "chicken breast" → 13,214 matches con `nutrition_per_100g`.
+- `parseNutrition()` actualizado: fallback chain CalorieNinjas → OFF. Si la key no está, usa OFF transparentemente.
+- 7 endpoints nuevos en `routes/bio.js`: `/calc/bmr`, `/calc/tdee`, `/calc/macros`, `/calc/hydration`, `/calc/sleep-score?date=`, `/food/search?q=&limit=`, `/uv?lat=&lon=`.
+- 2 comandos Telegram: `/macros [w h age sex activity goal]` (con defaults razonables 75/175/32/male/moderate/maintain) + `/sueno` (alias `/sleepscore`) con breakdown de componentes.
+- 230 tablas DB (+1 fin_investment_history desde R4 P3 + bio_environmental ya existía pero distinto schema).
+
+## Estado post-Tier A R4
+
+| Métrica | Pre-R4 | Post-R4 |
+|---|---|---|
+| Cron jobs | 36 | **39** (+spacy-probe, +visa-sponsors-import, +bur-docs-expiry, +overpass-essentials) |
+| DB tablas | 228 | **230** (+fin_investment_history, +bio_environmental new schema) |
+| DB tamaño | 75 MB | **79 MB** |
+| Visa sponsors | 60 | **7,018** (+11,597%) |
+| Embajadas | 11 | **46** (+318%) |
+| log_pois | 35,357 | **37,251** (+1,894 Overpass essentials NZ) |
+| Opp fetchers | 46 | **47** (+DevToHiring) |
+| Active RSS feeds | 338 (con 49 fallidos silenciosos) | **298 active + 40 explicit skipped** (logs limpios) |
+| Endpoints HTTP P3+P4+P7 nuevos | — | **25** (5 finanzas + 12 burocracia + 7 bio + 1 receipt) |
+| Telegram commands nuevos | — | **8** (apostillas, licencias, militar, macros, sueno + helpers) |
+

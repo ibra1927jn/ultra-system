@@ -458,6 +458,88 @@ INSERT INTO rss_keywords (keyword, weight) VALUES
 ON CONFLICT (keyword) DO NOTHING;
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  Dead URL curation 2026-04-07 — second pass tras probe completo
+--  desde Hetzner CX43. Fixes URL paths que cambiaron y soft-disable
+--  de fuentes inalcanzables (CF block, RSS removed, dead handles).
+--  Idempotente: WHERE clauses con la URL antigua, no-op tras run.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- Path/host updates (fuente sigue viva, solo cambió la URL)
+UPDATE rss_feeds SET url='https://editorial.aristeguinoticias.com/feed/'
+ WHERE url='https://aristeguinoticias.com/feed/';
+UPDATE rss_feeds SET url='https://www.tvn-2.com/rss', name='TVN-2 (PA)'
+ WHERE url='https://www.laprensa.com.pa/feeds/rss/';
+UPDATE rss_feeds SET url='https://elcomercio.pe/arc/outboundfeeds/rss/?outputType=xml'
+ WHERE url='https://elcomercio.pe/feed/';
+UPDATE rss_feeds SET url='https://rss.dw.com/xml/rss-sp-all'
+ WHERE url='https://www.dw.com/atom/rss-es-es';
+UPDATE rss_feeds SET url='https://www.euronews.com/rss'
+ WHERE url='https://www.euronews.com/rss?format=xml';
+UPDATE rss_feeds SET url='https://www.dn.se/rss'
+ WHERE url='https://www.dn.se/rss/senaste-nytt/';
+UPDATE rss_feeds SET url='https://news.un.org/feed/subscribe/en/news/all/rss.xml/'
+ WHERE url='https://news.un.org/feed/subscribe/en/news/all/rss.xml';
+UPDATE rss_feeds SET url='https://oglobo.globo.com/rss'
+ WHERE url='https://oglobo.globo.com/rss/top_noticias/';
+UPDATE rss_feeds SET url='https://feeds.feedburner.com/EuropaPress', name='Europa Press (ES)'
+ WHERE url='https://www.efe.com/efe/espana/1/rss';
+UPDATE rss_feeds SET url='https://en.wikinews.org/w/index.php?title=Special:NewsFeed&feed=rss'
+ WHERE url='https://en.wikinews.org/w/index.php?title=Special:NewsFeed&format=rss';
+
+-- Soft-disable: Cloudflare/IP-blocked desde datacenter (sin proxy residencial no hay fix)
+UPDATE rss_feeds SET is_active=FALSE WHERE url IN (
+  'https://www.moroccoworldnews.com/feed',
+  'https://tvn24.pl/najwazniejsze.xml',
+  'https://www.bangkokpost.com/rss',
+  'https://www.cnbc.com/id/100003114/device/rss/rss.html',
+  'https://www.cnbc.com/id/19854910/device/rss/rss.html',
+  'https://www.cisa.gov/cybersecurity-advisories/all.xml',
+  'https://www.aei.org/feed/',
+  'https://responsiblestatecraft.org/feed/',
+  'https://www.jeuneafrique.com/feed/',
+  'https://rsshub.app/nhk/news/en',
+  'https://rsshub.app/gov/miit/zcjd',
+  'https://rsshub.app/gov/mofcom/article/xwfb',
+  'https://www.csis.org/analysis?type=analysis',
+  'https://www.rand.org/rss/all.xml',
+  'https://www.nti.org/rss/',
+  'https://www.stimson.org/feed/',
+  'https://www.service.nsw.gov.au/news.xml',
+  'https://www.vicroads.vic.gov.au/about-vicroads/news-and-media/news.rss',
+  'https://www.tmr.qld.gov.au/About-us/News-and-events.aspx?rss=1',
+  'https://www.transport.wa.gov.au/imagesource/Newscentre/news.rss',
+  'https://www.sa.gov.au/news/feed',
+  'https://www.liberation.fr/arc/outboundfeeds/collection/accueil-une/?outputType=xml'
+);
+
+-- Soft-disable: RSS removed by publisher (no replacement)
+UPDATE rss_feeds SET is_active=FALSE WHERE url IN (
+  'https://www.proceso.com.mx/rss',
+  'https://xml2.corriereobjects.it/rss/incipit.xml',
+  'https://www.eluniversal.com.mx/rss.xml',
+  'https://www.brookings.edu/feed/',
+  'https://carnegieendowment.org/rss/',
+  'https://www.rigzone.com/news/rss.asp',
+  'https://www.lusa.pt/rss',
+  'https://www.elwatan-dz.com/feed'
+);
+
+-- Soft-disable: dead Mastodon handles (404/410)
+UPDATE rss_feeds SET is_active=FALSE WHERE url IN (
+  'https://mastodon.world/@bellingcat.rss',
+  'https://newsie.social/@reuters.rss',
+  'https://mstdn.social/@BBCBreakingNews.rss'
+);
+
+-- Soft-disable: duplicates de URLs canónicas existentes
+UPDATE rss_feeds SET is_active=FALSE WHERE url IN (
+  'https://www.dw.com/es/temas/s-30684?maca=spa-rss-spa-all-1491-rdf',  -- dup DW
+  'https://vnexpress.net/rss',                                          -- dup VnExpress
+  'https://www.latercera.com/feed/',                                    -- dup La Tercera
+  'https://www.khaleejtimes.com/rss'                                    -- dup Khaleej
+);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 --  P3: FINANZAS Phase 1 — multi-currency + CSV import + FX
 --  Fase 1 Quick Win — 2026-04-07
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

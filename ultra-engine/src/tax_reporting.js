@@ -371,7 +371,155 @@ function computePayeNZ({ annual_income_nzd } = {}) {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  FIF NZ — Foreign Investment Fund tax (R4 Tier A 2026-04-07)
+//  Inversiones offshore >NZD 50K cost: aplica FDR (Fair Dividend Rate)
+//  por defecto = 5% del valor de mercado al inicio del año fiscal NZ.
+//  Año fiscal NZ: 1 abril → 31 marzo.
+//
+//  Métodos disponibles (simplificados, hardcoded core rules):
+//   - FDR (default): 5% del valor de mercado al 1-Apr
+//   - CV (Comparative Value): no implementado, requiere precios apertura+cierre
+//   - Cost: para activos no cotizados (5% del coste)
+//
+//  De minimis: si total cost de offshore < NZD 50,000 → exento (puede usar
+//  método actual basis, dividendos directos).
+// ════════════════════════════════════════════════════════════
+const FIF_DE_MINIMIS_NZD = 50000;
+const FIF_DEFAULT_RATE = 0.05;
+
+/**
+ * computeFIF_NZ({ positions, marginalRate })
+ *   positions: [{ symbol, market_value_nzd, cost_nzd, dividends_nzd? }]
+ *   marginalRate: 0.105 / 0.175 / 0.30 / 0.33 / 0.39 (NZ PAYE bracket)
+ * Devuelve { exempt, total_cost_nzd, total_market_value_nzd,
+ *            method, fif_income_nzd, tax_payable_nzd }
+ */
+function computeFIF_NZ({ positions = [], marginalRate = 0.33 } = {}) {
+  if (!Array.isArray(positions)) {
+    return { error: 'positions must be an array of {symbol, market_value_nzd, cost_nzd}' };
+  }
+  const totalCost = positions.reduce((s, p) => s + (parseFloat(p.cost_nzd) || 0), 0);
+  const totalMV = positions.reduce((s, p) => s + (parseFloat(p.market_value_nzd) || 0), 0);
+
+  if (totalCost < FIF_DE_MINIMIS_NZD) {
+    const dividends = positions.reduce((s, p) => s + (parseFloat(p.dividends_nzd) || 0), 0);
+    return {
+      exempt: true,
+      reason: `total cost NZD ${totalCost.toFixed(2)} < de minimis ${FIF_DE_MINIMIS_NZD}`,
+      total_cost_nzd: Number(totalCost.toFixed(2)),
+      total_market_value_nzd: Number(totalMV.toFixed(2)),
+      method: 'actual_dividends',
+      fif_income_nzd: Number(dividends.toFixed(2)),
+      tax_payable_nzd: Number((dividends * marginalRate).toFixed(2)),
+      marginal_rate: marginalRate,
+    };
+  }
+
+  // FDR: 5% × market value at start of year
+  const fdrIncome = totalMV * FIF_DEFAULT_RATE;
+  const taxFDR = fdrIncome * marginalRate;
+
+  return {
+    exempt: false,
+    total_cost_nzd: Number(totalCost.toFixed(2)),
+    total_market_value_nzd: Number(totalMV.toFixed(2)),
+    method: 'FDR',
+    fdr_rate: FIF_DEFAULT_RATE,
+    fif_income_nzd: Number(fdrIncome.toFixed(2)),
+    tax_payable_nzd: Number(taxFDR.toFixed(2)),
+    marginal_rate: marginalRate,
+    notes: [
+      'FDR is the default method. CV (Comparative Value) may yield lower tax in down years — not implemented.',
+      'Quick FIF rules only — no fair value adjustments, quick sale gain rules, or peak holding tests.',
+      'For offical filing, consult a NZ tax advisor or use Inland Revenue IR461 worksheet.',
+    ],
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  Régimen Beckham (España) — inpat regime estimator
+//  Ley 35/2006 art. 93 + RD 439/2007: trabajadores desplazados a España
+//  pueden optar por tributar como no-residentes durante 6 años:
+//   - Tipo fijo 24% sobre primeros 600.000€ rendimientos del trabajo
+//   - 47% sobre exceso por encima de 600.000€
+//   - Solo tributan rentas de fuente española (NO patrimonio mundial,
+//     NO modelo 720, NO IRPF progresivo)
+//  Requisitos: no haber sido residente fiscal ES en últimos 5 años,
+//  desplazamiento por contrato laboral, comunicación a Hacienda en 6m.
+// ════════════════════════════════════════════════════════════
+const BECKHAM_THRESHOLD_EUR = 600000;
+const BECKHAM_LOW_RATE = 0.24;
+const BECKHAM_HIGH_RATE = 0.47;
+
+/**
+ * computeBeckham({ gross_income_eur }) → comparativa Beckham vs IRPF estándar.
+ * IRPF estatal+autonómico simplificado a brackets ESTATAL 2024 (sin variación CCAA).
+ */
+function computeBeckham({ gross_income_eur } = {}) {
+  if (!gross_income_eur || gross_income_eur <= 0) {
+    return { error: 'gross_income_eur required and > 0' };
+  }
+  const gross = parseFloat(gross_income_eur);
+
+  // Beckham
+  const lowPart = Math.min(gross, BECKHAM_THRESHOLD_EUR);
+  const highPart = Math.max(0, gross - BECKHAM_THRESHOLD_EUR);
+  const beckhamTax = lowPart * BECKHAM_LOW_RATE + highPart * BECKHAM_HIGH_RATE;
+  const beckhamEffective = (beckhamTax / gross) * 100;
+
+  // IRPF estándar simplificado (estatal + autonómico aproximado, brackets 2024 unificados)
+  // 0-12450 19%, 12450-20200 24%, 20200-35200 30%, 35200-60000 37%, 60000-300000 45%, >300000 47%
+  const brackets = [
+    { upper: 12450, rate: 0.19 },
+    { upper: 20200, rate: 0.24 },
+    { upper: 35200, rate: 0.30 },
+    { upper: 60000, rate: 0.37 },
+    { upper: 300000, rate: 0.45 },
+    { upper: Infinity, rate: 0.47 },
+  ];
+  let irpfTax = 0;
+  let prev = 0;
+  for (const b of brackets) {
+    if (gross > prev) {
+      const taxable = Math.min(gross, b.upper) - prev;
+      irpfTax += taxable * b.rate;
+      prev = b.upper;
+    }
+  }
+  const irpfEffective = (irpfTax / gross) * 100;
+
+  const savings = irpfTax - beckhamTax;
+
+  return {
+    gross_income_eur: gross,
+    beckham: {
+      tax_eur: Number(beckhamTax.toFixed(2)),
+      effective_rate_pct: Number(beckhamEffective.toFixed(2)),
+      net_eur: Number((gross - beckhamTax).toFixed(2)),
+      threshold_breakdown: {
+        below_600k_at_24pct: Number((lowPart * BECKHAM_LOW_RATE).toFixed(2)),
+        above_600k_at_47pct: Number((highPart * BECKHAM_HIGH_RATE).toFixed(2)),
+      },
+    },
+    irpf_standard: {
+      tax_eur: Number(irpfTax.toFixed(2)),
+      effective_rate_pct: Number(irpfEffective.toFixed(2)),
+      net_eur: Number((gross - irpfTax).toFixed(2)),
+    },
+    savings_with_beckham_eur: Number(savings.toFixed(2)),
+    beckham_better: savings > 0,
+    notes: [
+      'Estimación simplificada — no contempla deducciones, mínimo personal/familiar, reducciones por rendimientos del trabajo.',
+      'IRPF brackets son ESTATAL+AUTONÓMICO aproximados 2024. Variación real por CCAA ±2-4%.',
+      'Beckham requiere comunicación a AEAT en 6 meses desde alta SS. Validez máx 6 años.',
+      'Beckham NO declara modelo 720 ni patrimonio mundial. Sólo rentas fuente española.',
+    ],
+  };
+}
+
 module.exports = {
   generateModelo720, generateModelo721, generateModelo100, computeResidencyES, computePayeNZ,
-  UMBRAL_720_EUR, UMBRAL_721_EUR,
+  computeFIF_NZ, computeBeckham,
+  UMBRAL_720_EUR, UMBRAL_721_EUR, FIF_DE_MINIMIS_NZD, BECKHAM_THRESHOLD_EUR,
 };

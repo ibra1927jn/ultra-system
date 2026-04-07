@@ -182,7 +182,54 @@ async function getHistory(symbol, { from, to, interval = 'd' } = {}) {
 }
 
 /**
+ * Yahoo Finance v8 chart API — JSON, free, no auth.
+ * Fallback usado por syncHistory cuando Stooq devuelve la página de gating.
+ *   range: '1d','5d','1mo','3mo','6mo','1y','2y','5y','10y','ytd','max'
+ *   interval: '1m','2m','5m','15m','30m','60m','90m','1h','1d','5d','1wk','1mo','3mo'
+ * Acepta símbolos con sufijo Stooq (.US/.DE/...): se mapea para Yahoo.
+ * Devuelve [{date,open,high,low,close,volume}] con la misma forma que getHistory().
+ */
+async function getHistoryYahoo(symbol, { range = '1y', interval = '1d' } = {}) {
+  // Stooq → Yahoo symbol mapping (best effort, sólo casos comunes)
+  let yahooSym = symbol;
+  const m = symbol.match(/^([^.]+)\.([A-Z]{1,3})$/i);
+  if (m) {
+    const root = m[1].toUpperCase();
+    const ext = m[2].toUpperCase();
+    const suffix = { US: '', DE: '.DE', AS: '.AS', PA: '.PA', UK: '.L', L: '.L', JP: '.T' }[ext];
+    yahooSym = root + (suffix !== undefined ? suffix : '.' + ext);
+  }
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=${interval}&range=${range}`;
+  const r = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 UltraSystem/1.0' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!r.ok) throw new Error(`Yahoo HTTP ${r.status}`);
+  const j = await r.json();
+  const result = j?.chart?.result?.[0];
+  if (!result) throw new Error('Yahoo: empty result');
+  const ts = result.timestamp || [];
+  const q = result.indicators?.quote?.[0] || {};
+  const out = [];
+  for (let i = 0; i < ts.length; i++) {
+    const close = q.close?.[i];
+    if (close == null || isNaN(close)) continue;
+    out.push({
+      date: new Date(ts[i] * 1000).toISOString().slice(0, 10),
+      open: q.open?.[i] ?? null,
+      high: q.high?.[i] ?? null,
+      low: q.low?.[i] ?? null,
+      close,
+      volume: q.volume?.[i] ?? 0,
+    });
+  }
+  return out;
+}
+
+/**
  * Persiste históricos a fin_investment_history (idempotente por symbol+date).
+ * 2026-04-07: Stooq gating su CSV download desde non-browser clients →
+ * fallback automático a Yahoo Finance v8 chart API.
  */
 async function syncHistory(symbol, days = 365) {
   await db.query(
@@ -198,10 +245,29 @@ async function syncHistory(symbol, days = 365) {
        UNIQUE(symbol, date)
      )`
   );
-  const to = new Date();
-  const from = new Date(Date.now() - days * 86400000);
-  const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, '');
-  const rows = await getHistory(symbol, { from: fmt(from), to: fmt(to) });
+
+  let rows = [];
+  let source = null;
+  // Intento 1: Stooq (legacy)
+  try {
+    const to = new Date();
+    const from = new Date(Date.now() - days * 86400000);
+    const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, '');
+    rows = await getHistory(symbol, { from: fmt(from), to: fmt(to) });
+    if (rows.length > 0) source = 'stooq';
+  } catch { /* ignore, try yahoo */ }
+
+  // Fallback: Yahoo
+  if (rows.length === 0) {
+    const range = days <= 30 ? '1mo' : days <= 90 ? '3mo' : days <= 180 ? '6mo' : days <= 365 ? '1y' : days <= 730 ? '2y' : '5y';
+    try {
+      rows = await getHistoryYahoo(symbol, { range });
+      source = 'yahoo';
+    } catch (e) {
+      return { symbol, fetched: 0, inserted: 0, error: `both stooq+yahoo failed: ${e.message}` };
+    }
+  }
+
   let inserted = 0;
   for (const r of rows) {
     const res = await db.queryOne(
@@ -212,7 +278,140 @@ async function syncHistory(symbol, days = 365) {
     );
     if (res) inserted++;
   }
-  return { symbol, fetched: rows.length, inserted };
+  return { symbol, source, fetched: rows.length, inserted };
 }
 
-module.exports = { getQuote, getQuotes, getPortfolio, fxToNzd, getHistory, syncHistory };
+// ════════════════════════════════════════════════════════════
+//  Performance metrics (R4 Tier A 2026-04-07)
+//  TWR (time-weighted return) + period ranges + Sharpe ratio.
+//  Usa fin_investment_history (close prices) para calcular returns.
+//  No depende de ningún broker — pure math sobre datos ya en DB.
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Stdev de un array de números (sample stdev, n-1).
+ */
+function _stdev(arr) {
+  if (arr.length < 2) return 0;
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const variance = arr.reduce((s, x) => s + (x - mean) ** 2, 0) / (arr.length - 1);
+  return Math.sqrt(variance);
+}
+
+/**
+ * Returns periodicos para un símbolo.
+ *   { period: { start_date, end_date, start_close, end_close, return_pct } }
+ * Periodos: 1d, 1w, 1m, 3m, ytd, 1y, max
+ */
+async function getPerformanceRanges(symbol) {
+  const sym = symbol.toUpperCase();
+  let rows;
+  try {
+    rows = await db.queryAll(
+      `SELECT date::text AS date, close::float AS close
+       FROM fin_investment_history
+       WHERE symbol = $1 AND close IS NOT NULL
+       ORDER BY date ASC`,
+      [sym]
+    );
+  } catch (err) {
+    if (/relation .* does not exist/i.test(err.message)) {
+      return { symbol: sym, error: 'fin_investment_history table missing — POST /api/finances/investments/sync-history first' };
+    }
+    throw err;
+  }
+  if (rows.length < 2) return { symbol: sym, error: 'insufficient history (run /investments/sync-history first)' };
+
+  const last = rows[rows.length - 1];
+  const lastDate = new Date(last.date);
+  const lastClose = last.close;
+
+  // Helper: encuentra la fila más cercana <= fecha objetivo
+  const closestBefore = (target) => {
+    let candidate = null;
+    for (const r of rows) {
+      if (new Date(r.date) <= target) candidate = r;
+      else break;
+    }
+    return candidate;
+  };
+
+  const periods = {
+    '1d':  new Date(lastDate.getTime() - 1   * 86400000),
+    '1w':  new Date(lastDate.getTime() - 7   * 86400000),
+    '1m':  new Date(lastDate.getTime() - 30  * 86400000),
+    '3m':  new Date(lastDate.getTime() - 90  * 86400000),
+    'ytd': new Date(lastDate.getFullYear(), 0, 1),
+    '1y':  new Date(lastDate.getTime() - 365 * 86400000),
+    'max': new Date(rows[0].date),
+  };
+
+  const out = { symbol: sym, last_date: last.date, last_close: lastClose, periods: {} };
+  for (const [name, target] of Object.entries(periods)) {
+    const start = closestBefore(target) || rows[0];
+    const ret = start.close > 0 ? ((lastClose - start.close) / start.close) * 100 : 0;
+    out.periods[name] = {
+      start_date: start.date,
+      start_close: start.close,
+      return_pct: Number(ret.toFixed(2)),
+    };
+  }
+  return out;
+}
+
+/**
+ * Time-Weighted Return + Sharpe ratio para un símbolo.
+ *   - dailyReturns = (close_t - close_{t-1}) / close_{t-1}
+ *   - TWR cumulative = product(1 + r_i) - 1
+ *   - Annualized vol = stdev(daily) * sqrt(252)
+ *   - Annualized return = (1 + cumReturn)^(252/n) - 1
+ *   - Sharpe = (annReturn - rf) / annVol  (rf default 0.04 = 4% NZD risk-free)
+ */
+async function getTwrAndSharpe(symbol, { riskFreeAnnual = 0.04 } = {}) {
+  const sym = symbol.toUpperCase();
+  let rows;
+  try {
+    rows = await db.queryAll(
+      `SELECT close::float AS close FROM fin_investment_history
+       WHERE symbol=$1 AND close IS NOT NULL ORDER BY date ASC`,
+      [sym]
+    );
+  } catch (err) {
+    if (/relation .* does not exist/i.test(err.message)) {
+      return { symbol: sym, error: 'fin_investment_history table missing — POST /api/finances/investments/sync-history first' };
+    }
+    throw err;
+  }
+  if (rows.length < 30) return { symbol: sym, error: 'need >=30 daily closes for TWR/Sharpe' };
+
+  const dailyReturns = [];
+  for (let i = 1; i < rows.length; i++) {
+    const prev = rows[i - 1].close;
+    if (prev > 0) dailyReturns.push((rows[i].close - prev) / prev);
+  }
+
+  let cum = 1;
+  for (const r of dailyReturns) cum *= 1 + r;
+  const cumReturn = cum - 1;
+
+  const n = dailyReturns.length;
+  const annReturn = Math.pow(1 + cumReturn, 252 / n) - 1;
+  const dailyVol = _stdev(dailyReturns);
+  const annVol = dailyVol * Math.sqrt(252);
+  const sharpe = annVol > 0 ? (annReturn - riskFreeAnnual) / annVol : null;
+
+  return {
+    symbol: sym,
+    samples: n,
+    cumulative_return_pct: Number((cumReturn * 100).toFixed(2)),
+    annualized_return_pct: Number((annReturn * 100).toFixed(2)),
+    annualized_volatility_pct: Number((annVol * 100).toFixed(2)),
+    sharpe_ratio: sharpe !== null ? Number(sharpe.toFixed(3)) : null,
+    risk_free_rate_used: riskFreeAnnual,
+  };
+}
+
+module.exports = {
+  getQuote, getQuotes, getPortfolio, fxToNzd, getHistory, getHistoryYahoo, syncHistory,
+  getPerformanceRanges, getTwrAndSharpe,
+};

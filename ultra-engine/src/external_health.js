@@ -26,6 +26,7 @@ const PROBES = {
   mealie: { path: '/api/app/about', expect200: true },
   grocy:  { path: '/manifest.json', expect200: false },
   fasten: { path: '/web/auth/signin', expect200: false, insecure: true },
+  spacy:  { path: '/health', expect200: true },
 };
 
 /**

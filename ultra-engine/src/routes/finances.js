@@ -15,6 +15,7 @@ const investments = require('../investments');
 const recurring = require('../recurring');
 const crypto = require('../crypto');
 const bridges = require('../bridges');
+const ocr = require('../ocr');
 
 const router = express.Router();
 const upload = multer({
@@ -810,6 +811,178 @@ router.get('/tax/modelo-721', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+// ─── GET /api/finances/tax/fif-nz — FIF NZ calculator ───
+// Default: usa fin_investments offshore (no NZD currency) actuales como input.
+// Override: POST con body {positions, marginalRate} para escenarios hipotéticos.
+router.get('/tax/fif-nz', async (req, res) => {
+  try {
+    const marginalRate = parseFloat(req.query.marginal_rate) || 0.33;
+    // Construir positions desde portfolio actual (excluyendo NZD)
+    const portfolio = await investments.getPortfolio();
+    const offshore = portfolio.positions.filter(p => p.currency && p.currency !== 'NZD');
+    const positions = offshore.map(p => ({
+      symbol: p.symbol,
+      market_value_nzd: p.value_nzd,
+      cost_nzd: p.cost_nzd,
+      dividends_nzd: 0,
+    }));
+    const result = taxReporting.computeFIF_NZ({ positions, marginalRate });
+    res.json({ ok: true, source: 'fin_investments_offshore', positions_used: positions.length, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/tax/fif-nz', async (req, res) => {
+  try {
+    const { positions, marginal_rate } = req.body || {};
+    const result = taxReporting.computeFIF_NZ({
+      positions: positions || [],
+      marginalRate: parseFloat(marginal_rate) || 0.33,
+    });
+    res.json({ ok: true, source: 'request_body', data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/tax/beckham?gross=NN ── Beckham vs IRPF estándar
+router.get('/tax/beckham', async (req, res) => {
+  try {
+    const gross = parseFloat(req.query.gross || '0');
+    const result = taxReporting.computeBeckham({ gross_income_eur: gross });
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/investments/performance?symbol=AAPL.US ──
+// Performance ranges (1d/1w/1m/3m/ytd/1y/max) sobre fin_investment_history
+router.get('/investments/performance', async (req, res) => {
+  try {
+    const symbol = req.query.symbol;
+    if (!symbol) return res.status(400).json({ ok: false, error: 'symbol query param required' });
+    const data = await investments.getPerformanceRanges(symbol);
+    res.json({ ok: true, data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/investments/twr?symbol=AAPL.US&rf=0.04 ──
+// Time-weighted return + Sharpe ratio
+router.get('/investments/twr', async (req, res) => {
+  try {
+    const symbol = req.query.symbol;
+    if (!symbol) return res.status(400).json({ ok: false, error: 'symbol query param required' });
+    const rf = parseFloat(req.query.rf) || 0.04;
+    const data = await investments.getTwrAndSharpe(symbol, { riskFreeAnnual: rf });
+    res.json({ ok: true, data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+//  POST /api/finances/receipt — Receipt OCR → suggest finance row
+//  Recibe multipart/form-data con file (imagen/PDF), corre Tesseract,
+//  parsea el texto buscando total + fecha + merchant. Devuelve sugerencia
+//  para que el front llame POST /api/finances con datos pre-rellenados.
+//  Reusa el OCR de P4 sin tocarlo (ocr.extractText).
+// ════════════════════════════════════════════════════════════
+function parseReceiptText(text) {
+  if (!text) return { merchant: null, amount: null, currency: null, date: null };
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Merchant: primera línea no-numérica con >3 chars (heurística)
+  const merchant = lines.find(l => l.length > 3 && l.length < 60 && !/^\d/.test(l) && /[a-z]/i.test(l)) || null;
+
+  // Currency: NZD/EUR/USD/GBP/AUD/CHF aparece en el texto
+  const currencyMatch = text.match(/\b(NZD|EUR|USD|GBP|AUD|CHF|JPY|CAD)\b/i)
+    || text.match(/(€|£|\$|¥)/);
+  const symbolMap = { '€': 'EUR', '£': 'GBP', '$': 'USD', '¥': 'JPY' };
+  const currency = currencyMatch
+    ? (symbolMap[currencyMatch[1]] || currencyMatch[1].toUpperCase())
+    : null;
+
+  // Total: busca línea con keyword TOTAL/AMOUNT/TO PAY/IMPORTE/TOTAL A PAGAR
+  // y extrae el último número decimal
+  let amount = null;
+  for (const line of lines) {
+    if (/total|amount|importe|a pagar|to pay|grand total|total due/i.test(line)) {
+      const matches = line.match(/(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/g);
+      if (matches && matches.length) {
+        const raw = matches[matches.length - 1].replace(/\./g, '').replace(',', '.');
+        const parsed = parseFloat(raw);
+        if (!isNaN(parsed) && parsed > 0) { amount = parsed; break; }
+      }
+    }
+  }
+  // Fallback: el mayor número decimal del recibo
+  if (amount === null) {
+    const all = (text.match(/\b\d{1,4}[.,]\d{2}\b/g) || [])
+      .map(s => parseFloat(s.replace(',', '.')))
+      .filter(n => !isNaN(n) && n > 0);
+    if (all.length) amount = Math.max(...all);
+  }
+
+  // Date: dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd, dd.mm.yyyy
+  let date = null;
+  const dateMatch = text.match(/\b(\d{4}-\d{2}-\d{2})\b/)
+    || text.match(/\b(\d{2}[/.\-]\d{2}[/.\-]\d{4})\b/);
+  if (dateMatch) {
+    const raw = dateMatch[1];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      date = raw;
+    } else {
+      const parts = raw.split(/[/.\-]/);
+      // Heurística: dd/mm/yyyy (formato ES/NZ/AU), no mm/dd/yyyy
+      date = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+  }
+
+  return {
+    merchant: merchant ? merchant.slice(0, 100) : null,
+    amount,
+    currency,
+    date,
+  };
+}
+
+router.post('/receipt', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, error: 'file required (multipart/form-data)' });
+    const filePath = ocr.saveFile(req.file.buffer, req.file.originalname);
+    const { text, confidence, method } = await ocr.extractText(filePath);
+    const parsed = parseReceiptText(text);
+
+    // Suggest finances row (no commit, lo decide el front)
+    const suggestion = {
+      type: 'expense',
+      amount: parsed.amount,
+      currency: parsed.currency || 'NZD',
+      category: null,
+      description: parsed.merchant,
+      date: parsed.date || new Date().toISOString().slice(0, 10),
+      account: null,
+    };
+
+    res.json({
+      ok: true,
+      ocr: { confidence, method, text_length: text.length, raw_text: text.slice(0, 500) },
+      parsed,
+      suggested_row: suggestion,
+      hint: 'POST suggested_row a /api/finances tras editar/confirmar en el front',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Export parseReceiptText para tests
+router._parseReceiptText = parseReceiptText;
 
 // ─── GET /api/finances/providers ─ Status de integraciones ─
 router.get('/providers', async (req, res) => {

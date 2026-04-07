@@ -39,61 +39,95 @@ async function searchUSDAFood(query) {
 //  OpenUV API — UV index by lat/lon
 //  Docs: https://www.openuv.io/api
 // ════════════════════════════════════════════════════════════
+// 2026-04-07: OpenUV requiere key gated. Pivot a Open-Meteo (free, no auth).
+// Devuelve uv_index_max + uv_index_clear_sky_max para 3 días forecast.
+// Persiste cada día como una fila separada en bio_environmental con metric='uv_index_max'.
+// Mantiene compat con el cron existente que llama fetchOpenUV().
 async function fetchOpenUV({ lat = -36.85, lon = 174.76 } = {}) {
-  const key = process.env.OPENUV_API_KEY;
-  if (!key) return { source: 'openuv', skipped: 'OPENUV_API_KEY no configurada' };
+  // Asegura tabla compatible con schema legacy generic K/V
+  await db.query(
+    `CREATE TABLE IF NOT EXISTS bio_environmental (
+       id SERIAL PRIMARY KEY,
+       source TEXT NOT NULL,
+       metric TEXT NOT NULL,
+       value NUMERIC,
+       unit TEXT,
+       latitude DOUBLE PRECISION,
+       longitude DOUBLE PRECISION,
+       measured_at TIMESTAMPTZ,
+       payload JSONB
+     )`
+  );
+
   try {
-    const url = `https://api.openuv.io/api/v1/uv?lat=${lat}&lng=${lon}`;
-    const r = await fetch(url, {
-      headers: { 'x-access-token': key, ...UA },
-      signal: AbortSignal.timeout(TIMEOUT),
-    });
-    if (!r.ok) throw new Error(`OpenUV HTTP ${r.status}`);
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=uv_index_max,uv_index_clear_sky_max&forecast_days=3&timezone=UTC`;
+    const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
+    if (!r.ok) throw new Error(`open-meteo HTTP ${r.status}`);
     const data = await r.json();
-    const result = data.result || {};
-    // Persist to bio_environmental table (create on demand)
-    await db.query(
-      `CREATE TABLE IF NOT EXISTS bio_environmental (
-         id SERIAL PRIMARY KEY,
-         source TEXT NOT NULL,
-         metric TEXT NOT NULL,
-         value NUMERIC,
-         unit TEXT,
-         latitude DOUBLE PRECISION,
-         longitude DOUBLE PRECISION,
-         measured_at TIMESTAMPTZ,
-         payload JSONB
-       )`
-    );
-    await db.query(
-      `INSERT INTO bio_environmental (source, metric, value, unit, latitude, longitude, measured_at, payload)
-       VALUES ('openuv', 'uv_index', $1, 'index', $2, $3, $4, $5)`,
-      [result.uv, lat, lon, result.uv_time || new Date(), JSON.stringify(result)]
-    );
-    return { source: 'openuv', uv: result.uv, max: result.uv_max, sun_info: result.sun_info };
+    const days = data?.daily?.time || [];
+    let inserted = 0;
+    for (let i = 0; i < days.length; i++) {
+      const date = days[i];
+      const uvMax = data.daily.uv_index_max?.[i];
+      if (uvMax == null) continue;
+      const uvClear = data.daily.uv_index_clear_sky_max?.[i];
+      // Idempotencia ad-hoc: skip si ya existe (source, metric, lat, lon, measured_at)
+      const exists = await db.queryOne(
+        `SELECT id FROM bio_environmental
+          WHERE source='open_meteo' AND metric='uv_index_max'
+            AND latitude=$1 AND longitude=$2 AND measured_at=$3 LIMIT 1`,
+        [lat, lon, date]
+      );
+      if (exists) continue;
+      await db.query(
+        `INSERT INTO bio_environmental (source, metric, value, unit, latitude, longitude, measured_at, payload)
+         VALUES ('open_meteo', 'uv_index_max', $1, 'index', $2, $3, $4, $5)`,
+        [uvMax, lat, lon, date, JSON.stringify({ uv_clear_sky_max: uvClear })]
+      );
+      inserted++;
+    }
+    return { source: 'open_meteo_uv', lat, lon, days: days.length, inserted };
   } catch (err) {
-    return { source: 'openuv', error: err.message };
+    return { source: 'open_meteo_uv', error: err.message };
   }
 }
 
 // ════════════════════════════════════════════════════════════
-//  CalorieNinjas — natural-language nutrition parsing
-//  Docs: https://calorieninjas.com/api
+//  Nutrition NL search — fallback chain CalorieNinjas → OFF
+//  2026-04-07: si CALORIE_NINJAS_KEY no está, usa Open Food Facts
+//  search (free, no auth) que da resultados decentes para queries
+//  cortas tipo "100g chicken breast" → matches en el catálogo OFF.
 // ════════════════════════════════════════════════════════════
 async function parseNutrition(naturalText) {
   const key = process.env.CALORIE_NINJAS_KEY;
-  if (!key) return { skipped: 'CALORIE_NINJAS_KEY no configurada' };
+  if (key) {
+    try {
+      const url = `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(naturalText)}`;
+      const r = await fetch(url, {
+        headers: { 'X-Api-Key': key, ...UA },
+        signal: AbortSignal.timeout(TIMEOUT),
+      });
+      if (!r.ok) throw new Error(`CalorieNinjas HTTP ${r.status}`);
+      const data = await r.json();
+      return { source: 'calorie_ninjas', items: data.items || [] };
+    } catch (err) {
+      // fall through to OFF
+    }
+  }
+  // Fallback OFF: ya no es NL parsing real (cantidad parsing) pero da catálogo
+  // de productos con nutrition_per_100g. El front puede mostrar al usuario
+  // y dejarlo seleccionar uno + multiplicar por gramos.
   try {
-    const url = `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(naturalText)}`;
-    const r = await fetch(url, {
-      headers: { 'X-Api-Key': key, ...UA },
-      signal: AbortSignal.timeout(TIMEOUT),
-    });
-    if (!r.ok) throw new Error(`CalorieNinjas HTTP ${r.status}`);
-    const data = await r.json();
-    return { source: 'calorie_ninjas', items: data.items || [] };
+    const off = require('./openfoodfacts');
+    const result = await off.searchFood(naturalText, { pageSize: 5 });
+    return {
+      source: 'open_food_facts',
+      query: naturalText,
+      results: result.results || [],
+      note: 'OFF fallback — products with nutrition_per_100g, multiplica por tu cantidad real',
+    };
   } catch (err) {
-    return { source: 'calorie_ninjas', error: err.message };
+    return { source: 'parse_nutrition', error: err.message };
   }
 }
 

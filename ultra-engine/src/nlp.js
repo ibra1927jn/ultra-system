@@ -411,6 +411,45 @@ function extractEntities(text) {
     people: extractPeople(text),
     organizations: extractOrganizations(text),
     places: extractPlaces(text),
+    _source: 'compromise',
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  spaCy NER sidecar (opt-in, async)
+//  Usar para contenido importante: high-score articles,
+//  opportunities, OCR'd documents. Más exacto que compromise
+//  pero llamada HTTP (~20-100ms). Fallback automático si el
+//  sidecar no responde.
+// ════════════════════════════════════════════════════════════
+const uniq = (arr, max) => [...new Set(arr.filter(s => s && s.length > 1 && s.length < 80))].slice(0, max);
+
+async function extractEntitiesSpacy(text, lang = 'en') {
+  if (!text) return extractEntities('');
+  const spacy = require('./spacy');
+  const result = await spacy.ner(text, lang);
+  if (!result || !Array.isArray(result.entities)) {
+    // sidecar down → fallback síncrono a compromise
+    return extractEntities(text);
+  }
+  const ents = result.entities;
+  const byLabel = (lbl) => ents.filter(e => e.label === lbl).map(e => e.text.trim());
+  // spaCy labels: PERSON, ORG, GPE (countries/cities), LOC, MONEY, NORP, FAC, PRODUCT, EVENT, ...
+  // ES (es_core_news_sm): PER, ORG, LOC, MISC
+  const people = [...byLabel('PERSON'), ...byLabel('PER')];
+  const orgs = byLabel('ORG');
+  const places = [...byLabel('GPE'), ...byLabel('LOC')];
+  return {
+    // Países/currencies/money se mantienen con regex (más estables que NER)
+    countries: extractCountries(text),
+    currencies: extractCurrencies(text),
+    money: extractMoneyAmounts(text),
+    people: uniq(people, 15),
+    organizations: uniq(orgs, 15),
+    places: uniq(places, 15),
+    _source: 'spacy',
+    _lang: lang,
+    _raw_count: ents.length,
   };
 }
 
@@ -418,4 +457,5 @@ module.exports = {
   sentiment, summarize, splitSentences, tokenize, AFINN,
   extractCountries, extractCurrencies, extractMoneyAmounts,
   extractPeople, extractOrganizations, extractPlaces, extractEntities,
+  extractEntitiesSpacy,
 };

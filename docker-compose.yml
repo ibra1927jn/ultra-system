@@ -64,6 +64,7 @@ services:
       PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-admin}
       PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-changeme}
       OSRM_BASE_URL: http://osrm:5000
+      SPACY_BASE_URL: http://spacy:8000
     volumes:
       - engine_uploads:/app/uploads
       - /root/ultra-system/agent_bus.json:/data/agent_bus.json
@@ -287,6 +288,25 @@ services:
       resources:
         limits:
           memory: 400M
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P1 NLP — spaCy NER sidecar
+  #  Used opt-in for high-value content (high-score articles,
+  #  opportunities, OCR'd documents). compromise.js sigue siendo
+  #  el fast-path por defecto en nlp.js.
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  spacy:
+    build: ./spacy
+    container_name: ultra_spacy
+    restart: unless-stopped
+    ports:
+      - "8009:8000"
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 600M
 
   # ─── APPRISE — multi-channel notifications (P4 opcional) ────
   # Activar: docker compose --profile notify up -d apprise

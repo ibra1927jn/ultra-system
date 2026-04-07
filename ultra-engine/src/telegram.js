@@ -49,6 +49,11 @@ function init() {
       '/docs — Documentos proximos a caducar',
       '/impuestos — Recordatorios fiscales (NZ/ES/AU)',
       '/vacunas — Vacunaciones registradas',
+      '/apostillas — Apostillas legalizadas',
+      '/licencias — Licencias de conducir',
+      '/militar — Obligaciones militares (DZ)',
+      '/macros [w h age sex activity goal] — TDEE + macros',
+      '/sueno — Sleep score último bio_check',
       '/schengen — Días Schengen 90/180 disponibles',
       '/visa ES NZ — Requisitos visado (passport→destino)',
       '/viaje DZ 2026-05-01 FR — Log entrada Schengen',
@@ -316,6 +321,142 @@ function init() {
     } catch (err) {
       send(msg.chat.id, `❌ Error: ${err.message}`);
     }
+  });
+
+  // ─── P7 R4: Macros calculator ──────────────────────
+  // Uso: /macros 78 178 32 male moderate maintain
+  //   weight_kg height_cm age sex activity goal
+  bot.onText(/\/macros(?:\s+(\d+(?:\.\d+)?))?(?:\s+(\d+(?:\.\d+)?))?(?:\s+(\d+))?(?:\s+(male|female))?(?:\s+(\w+))?(?:\s+(cut|maintain|bulk))?/,
+    async (msg, match) => {
+      try {
+        const bc = require('./bio_calc');
+        const r = bc.computeMacros({
+          weight_kg: parseFloat(match[1]) || 75,
+          height_cm: parseFloat(match[2]) || 175,
+          age: parseInt(match[3]) || 32,
+          sex: match[4] || 'male',
+          activity: match[5] || 'moderate',
+          goal: match[6] || 'maintain',
+        });
+        if (r.error) { send(msg.chat.id, `❌ ${r.error}`); return; }
+        const lines = [
+          `🍎 *Macros — ${r.goal}* (${r.activity_level})`,
+          '━━━━━━━━━━━━━━━━━━━━━━━━',
+          `BMR: ${r.bmr_kcal} kcal · TDEE: ${r.tdee_kcal} kcal`,
+          `🎯 Target: *${r.target_kcal} kcal*`,
+          '',
+          `🥩 Protein: *${r.macros.protein_g}g* (${r.macro_split_pct.protein}%)`,
+          `🍞 Carbs:   *${r.macros.carbs_g}g* (${r.macro_split_pct.carbs}%)`,
+          `🥑 Fat:     *${r.macros.fat_g}g* (${r.macro_split_pct.fat}%)`,
+          '',
+          `_Uso: /macros 78 178 32 male moderate maintain_`,
+        ];
+        send(msg.chat.id, lines.join('\n'), 'Markdown');
+      } catch (err) { send(msg.chat.id, `❌ ${err.message}`); }
+    });
+
+  // ─── P7 R4: Sleep score ────────────────────────────
+  bot.onText(/\/sueno|\/sleepscore/, async (msg) => {
+    try {
+      const bc = require('./bio_calc');
+      const r = await bc.computeSleepScore({});
+      if (r.error) { send(msg.chat.id, `😴 ${r.error}`); return; }
+      const emoji = r.score >= 85 ? '🌟' : r.score >= 70 ? '✅' : r.score >= 55 ? '🟡' : r.score >= 40 ? '🟠' : '🔴';
+      const lines = [
+        `${emoji} *Sleep score:* ${r.score}/100 — _${r.label}_`,
+        `📅 ${r.date}`,
+        '',
+        '*Componentes:*',
+      ];
+      for (const [k, v] of Object.entries(r.components)) {
+        const baseline = v.baseline ? ` (baseline ${v.baseline})` : '';
+        lines.push(`  • ${k}: ${v.value}${baseline} → ${v.score}/100 (peso ${v.weight}%)`);
+      }
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) { send(msg.chat.id, `❌ ${err.message}`); }
+  });
+
+  // ─── P4 R4: Apostilles ─────────────────────────────
+  bot.onText(/\/apostillas/, async (msg) => {
+    try {
+      const rows = await db.queryAll(
+        `SELECT document_name, document_type, country_origin, expiry_date, apostille_number,
+                CASE WHEN expiry_date IS NULL THEN NULL
+                     ELSE (expiry_date - CURRENT_DATE) END AS days_remaining
+         FROM bur_apostilles
+         WHERE is_active = TRUE
+         ORDER BY expiry_date ASC NULLS LAST LIMIT 15`
+      );
+      if (!rows.length) { send(msg.chat.id, '📜 Sin apostillas registradas. Usa POST /api/bureaucracy/apostilles'); return; }
+      const flag = (c) => ({ NZ: '🇳🇿', ES: '🇪🇸', AU: '🇦🇺', DZ: '🇩🇿', FR: '🇫🇷', GB: '🇬🇧' }[c] || '🌐');
+      const lines = ['📜 *Apostillas registradas*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const r of rows) {
+        lines.push(`${flag(r.country_origin)} *${r.document_name}*${r.document_type ? ` (${r.document_type})` : ''}`);
+        if (r.expiry_date) {
+          const exp = new Date(r.expiry_date).toISOString().split('T')[0];
+          const urg = r.days_remaining <= 30 ? '🔴' : r.days_remaining <= 90 ? '🟡' : '🟢';
+          lines.push(`   ${urg} Caduca: ${exp} (${r.days_remaining} días)`);
+        }
+        if (r.apostille_number) lines.push(`   🔢 ${r.apostille_number}`);
+        lines.push('');
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) { send(msg.chat.id, `❌ Error: ${err.message}`); }
+  });
+
+  // ─── P4 R4: Driver licenses ────────────────────────
+  bot.onText(/\/licencias/, async (msg) => {
+    try {
+      const rows = await db.queryAll(
+        `SELECT country, license_number, expiry_date, classes,
+                (expiry_date - CURRENT_DATE) AS days_remaining
+         FROM bur_driver_licenses
+         WHERE is_active = TRUE
+         ORDER BY expiry_date ASC LIMIT 10`
+      );
+      if (!rows.length) { send(msg.chat.id, '🚗 Sin licencias de conducir registradas.'); return; }
+      const flag = (c) => ({ NZ: '🇳🇿', ES: '🇪🇸', AU: '🇦🇺', DZ: '🇩🇿', FR: '🇫🇷', GB: '🇬🇧' }[c] || '🌐');
+      const lines = ['🚗 *Licencias de conducir*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const r of rows) {
+        const exp = new Date(r.expiry_date).toISOString().split('T')[0];
+        const urg = r.days_remaining <= 30 ? '🔴' : r.days_remaining <= 90 ? '🟡' : '🟢';
+        lines.push(`${flag(r.country)} ${r.license_number || '(sin número)'}`);
+        if (r.classes && r.classes.length) lines.push(`   Clases: ${r.classes.join(', ')}`);
+        lines.push(`   ${urg} Caduca: ${exp} (${r.days_remaining} días)`);
+        lines.push('');
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) { send(msg.chat.id, `❌ Error: ${err.message}`); }
+  });
+
+  // ─── P4 R4: Military obligations (DZ) ──────────────
+  bot.onText(/\/militar/, async (msg) => {
+    try {
+      const rows = await db.queryAll(
+        `SELECT country, obligation_type, status, document_number, expiry_date,
+                CASE WHEN expiry_date IS NULL THEN NULL
+                     ELSE (expiry_date - CURRENT_DATE) END AS days_remaining
+         FROM bur_military_obligations
+         ORDER BY expiry_date ASC NULLS LAST LIMIT 10`
+      );
+      if (!rows.length) { send(msg.chat.id, '🎖️ Sin obligaciones militares registradas.'); return; }
+      const flag = (c) => ({ DZ: '🇩🇿', ES: '🇪🇸', FR: '🇫🇷' }[c] || '🌐');
+      const lines = ['🎖️ *Obligaciones militares*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const r of rows) {
+        lines.push(`${flag(r.country)} *${r.obligation_type || '?'}* — ${r.status || 'sin estado'}`);
+        if (r.document_number) lines.push(`   📄 ${r.document_number}`);
+        if (r.expiry_date) {
+          const exp = new Date(r.expiry_date).toISOString().split('T')[0];
+          const urg = r.days_remaining <= 30 ? '🔴' : r.days_remaining <= 90 ? '🟡' : '🟢';
+          lines.push(`   ${urg} Caduca: ${exp} (${r.days_remaining} días)`);
+        }
+        lines.push('');
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) { send(msg.chat.id, `❌ Error: ${err.message}`); }
   });
 
   // ─── P4 Fase 2: Schengen 90/180 calculator ─────────

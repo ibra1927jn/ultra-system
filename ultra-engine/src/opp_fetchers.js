@@ -340,6 +340,7 @@ const FETCHERS = [
   ['GitHubTrending', fetchGitHubTrending],
   ['Greenhouse', fetchGreenhouse],
   ['GetOnBoardFull', fetchGetOnBoardFull],
+  ['DevToHiring', fetchDevToHiring],
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -531,78 +532,22 @@ async function fetchUnstop() {
 const Parser = require('rss-parser');
 const _parser = new Parser({ timeout: 15000 });
 
+// Skipped 2026-04-07: immunefi.com/explore/rss/ devuelve HTML wrapper Next.js, no RSS.
+// Migración SPA elimina el feed. Cobertura web3 bounty: Algora + Code4rena (también broken)
+// + GitHub bounty issues. Para reactivar, usar Puppeteer sidecar contra immunefi.com/explore.
 async function fetchImmunefi() {
-  try {
-    const feed = await _parser.parseURL('https://immunefi.com/explore/rss/');
-    const items = feed.items || [];
-    let inserted = 0, highScore = 0;
-    for (const it of items) {
-      const text = `${it.title} ${it.contentSnippet || ''}`;
-      const score = await scoreText(text);
-      // Try to extract reward from title (e.g. "$50,000 — Foo Protocol")
-      const rewardMatch = (it.title || '').match(/\$\s*([\d,]+(?:\.\d+)?)\s*(K|M)?/i);
-      let salary = null;
-      if (rewardMatch) {
-        salary = parseFloat(rewardMatch[1].replace(/,/g, ''));
-        if (rewardMatch[2]?.toUpperCase() === 'K') salary *= 1000;
-        if (rewardMatch[2]?.toUpperCase() === 'M') salary *= 1000000;
-      }
-      const ok = await insertOpportunity({
-        title: it.title || 'Immunefi bounty',
-        source: 'Immunefi',
-        url: it.link,
-        category: 'bounty',
-        description: (it.contentSnippet || '').slice(0, 1500),
-        payout_type: 'bounty',
-        salary_min: salary,
-        salary_max: salary,
-        currency: 'USD',
-        tags: ['web3', 'security'],
-        match_score: score,
-        external_id: `immunefi:${it.guid || it.link}`,
-        posted_at: it.isoDate ? new Date(it.isoDate) : null,
-      });
-      if (ok) inserted++;
-      if (score >= 8) highScore++;
-    }
-    return { source: 'Immunefi', total: items.length, inserted, highScore };
-  } catch (err) {
-    return { source: 'Immunefi', total: 0, inserted: 0, highScore: 0, error: err.message };
-  }
+  return { source: 'Immunefi', total: 0, inserted: 0, highScore: 0, skipped: 'spa_no_rss' };
 }
 
 // ═══════════════════════════════════════════════════════════
 //  CODE4RENA — audit contests (RSS)
 //  https://code4rena.com/feed.xml
 // ═══════════════════════════════════════════════════════════
+// Skipped 2026-04-07: code4rena.com/feed.xml devuelve HTML wrapper Next.js. Mismo
+// problema que Immunefi: SPA migration killed the feed. Audit contest space cubierto
+// parcialmente por Devpost + Algora.
 async function fetchCode4rena() {
-  try {
-    const feed = await _parser.parseURL('https://code4rena.com/feed.xml');
-    const items = feed.items || [];
-    let inserted = 0, highScore = 0;
-    for (const it of items) {
-      const text = `${it.title} ${it.contentSnippet || ''}`;
-      const score = await scoreText(text);
-      const ok = await insertOpportunity({
-        title: it.title || 'C4 audit contest',
-        source: 'Code4rena',
-        url: it.link,
-        category: 'audit_contest',
-        description: (it.contentSnippet || '').slice(0, 1500),
-        payout_type: 'contest',
-        currency: 'USD',
-        tags: ['solidity', 'audit', 'web3'],
-        match_score: score,
-        external_id: `c4:${it.guid || it.link}`,
-        posted_at: it.isoDate ? new Date(it.isoDate) : null,
-      });
-      if (ok) inserted++;
-      if (score >= 8) highScore++;
-    }
-    return { source: 'Code4rena', total: items.length, inserted, highScore };
-  } catch (err) {
-    return { source: 'Code4rena', total: 0, inserted: 0, highScore: 0, error: err.message };
-  }
+  return { source: 'Code4rena', total: 0, inserted: 0, highScore: 0, skipped: 'spa_no_rss' };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -688,8 +633,11 @@ async function fetchNLnet() {
 //  ALGORA — bounties marketplace (P5 Fase 2)
 //  Public bounties endpoint en console.algora.io
 // ═══════════════════════════════════════════════════════════
+// Fix 2026-04-07: /api/bounties devuelve HTML wrapper. La API real (que usa
+// el frontend Next.js) es tRPC en /api/trpc/bounty.list. Estructura:
+//   [{result:{data:{json:{items:[{id, status, kind, org, task:{title,url}, reward:{amount,currency}, tech, created_at, ...}]}}}}]
 async function fetchAlgora() {
-  const url = 'https://console.algora.io/api/bounties?status=open&limit=50';
+  const url = 'https://console.algora.io/api/trpc/bounty.list';
   let res;
   try {
     res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
@@ -698,23 +646,27 @@ async function fetchAlgora() {
   }
   if (!res.ok) return { source: 'Algora', total: 0, inserted: 0, highScore: 0, error: `HTTP ${res.status}` };
   const data = await res.json().catch(() => null);
-  const bounties = (data?.bounties || data?.data || data || []);
+  const items = data?.[0]?.result?.data?.json?.items || [];
   let inserted = 0, highScore = 0;
-  for (const b of (Array.isArray(bounties) ? bounties : [])) {
-    if (!b.url && !b.html_url) continue;
-    const text = `${b.title || ''} ${b.description || ''} ${(b.tech || []).join(' ')}`;
+  for (const b of items) {
+    const taskUrl = b.task?.url || b.task?.html_url;
+    if (!taskUrl) continue;
+    const title = b.task?.title || 'Algora bounty';
+    const amount = b.reward?.amount || null;
+    const currency = b.reward?.currency || 'USD';
+    const tech = Array.isArray(b.tech) ? b.tech : [];
+    const text = `${title} ${tech.join(' ')}`;
     const score = await scoreText(text);
     const ok = await insertOpportunity({
-      title: `${b.title || 'Algora bounty'} ($${b.amount || b.reward || '?'})`,
+      title: `${title} ($${amount || '?'} ${currency})`,
       source: 'Algora',
-      url: b.url || b.html_url,
+      url: taskUrl,
       category: 'bounty',
-      description: (b.description || '').slice(0, 1500),
+      description: tech.join(', ').slice(0, 1500),
       payout_type: 'bounty',
-      salary_min: b.amount || b.reward || null,
-      salary_max: b.amount || b.reward || null,
-      currency: 'USD',
-      tags: b.tech || null,
+      salary_min: amount, salary_max: amount,
+      currency,
+      tags: tech.length ? tech : null,
       match_score: score,
       external_id: `algora:${b.id}`,
       posted_at: b.created_at ? new Date(b.created_at) : null,
@@ -722,7 +674,7 @@ async function fetchAlgora() {
     if (ok) inserted++;
     if (score >= 8) highScore++;
   }
-  return { source: 'Algora', total: bounties.length, inserted, highScore };
+  return { source: 'Algora', total: items.length, inserted, highScore };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -806,17 +758,22 @@ async function rssOppHelper({ source, url, category = 'remote', tagBase = '' }) 
   }
 }
 
+// Skipped 2026-04-07: dailyremote.com/feed.xml → 403 CF block desde datacenter Hetzner.
+// Sin proxy residencial no hay fix. RemoteOK + Remotive + Himalayas cubren el segmento.
 async function fetchDailyRemote() {
-  return rssOppHelper({ source: 'DailyRemote', url: 'https://dailyremote.com/feed.xml' });
+  return { source: 'DailyRemote', total: 0, inserted: 0, highScore: 0, skipped: 'cf_block_datacenter' };
 }
+// Skipped 2026-04-07: nodesk.co/remote-jobs/feed/ → 404. RSS removido del sitio.
 async function fetchNodesk() {
-  return rssOppHelper({ source: 'Nodesk', url: 'https://nodesk.co/remote-jobs/feed/' });
+  return { source: 'Nodesk', total: 0, inserted: 0, highScore: 0, skipped: 'rss_removed' };
 }
 async function fetchIntigriti() {
   return rssOppHelper({ source: 'Intigriti', url: 'https://blog.intigriti.com/feed/', category: 'bug_bounty', tagBase: 'security' });
 }
+// Skipped 2026-04-07: huntr.dev/feed.xml → 404. Huntr migró a SPA, RSS eliminado.
+// IssueHunt + Algora + GitHub bounties cubren OSS bounty space.
 async function fetchHuntr() {
-  return rssOppHelper({ source: 'Huntr', url: 'https://huntr.dev/feed.xml', category: 'oss_bounty', tagBase: 'oss' });
+  return { source: 'Huntr', total: 0, inserted: 0, highScore: 0, skipped: 'rss_removed' };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1004,23 +961,29 @@ async function fetchGetOnBoard() {
 // ═══════════════════════════════════════════════════════════
 //  F6S — startup community RSS
 // ═══════════════════════════════════════════════════════════
+// Skipped 2026-04-07: f6s.com/feed → 405 Method Not Allowed. Sólo POST aceptado, no RSS público.
 async function fetchF6S() {
-  return rssOppHelper({ source: 'F6S', url: 'https://www.f6s.com/feed', category: 'accelerator' });
+  return { source: 'F6S', total: 0, inserted: 0, highScore: 0, skipped: 'rss_method_not_allowed' };
 }
 
 // ═══════════════════════════════════════════════════════════
 //  Euraxess — EU research positions/grants RSS
 // ═══════════════════════════════════════════════════════════
+// Skipped 2026-04-07: euraxess.ec.europa.eu/jobs/rss.xml → 404.
+// Plataforma migró a Drupal SPA con búsqueda interna sin endpoint público.
+// EU researcher jobs disponibles vía NLnet calls + GitHubFund + EICAccelerator (cuando funcionen).
 async function fetchEuraxess() {
-  return rssOppHelper({ source: 'Euraxess', url: 'https://euraxess.ec.europa.eu/jobs/rss.xml', category: 'research', tagBase: 'eu_research' });
+  return { source: 'Euraxess', total: 0, inserted: 0, highScore: 0, skipped: 'rss_removed' };
 }
 
 // ═══════════════════════════════════════════════════════════
 //  Sovereign Tech Fund — German gov funding for OSS infra
 //  Bulletin RSS / Atom feed
 // ═══════════════════════════════════════════════════════════
+// Skipped 2026-04-07: sovereign.tech/news.xml → 404. Sin RSS público.
+// Anuncios via Mastodon @sovtechfund@mastodon.social — añadir a P1 multilingual seed sería opción.
 async function fetchSovereignTechFund() {
-  return rssOppHelper({ source: 'SovereignTechFund', url: 'https://www.sovereign.tech/news.xml', category: 'oss_grant', tagBase: 'oss_funding' });
+  return { source: 'SovereignTechFund', total: 0, inserted: 0, highScore: 0, skipped: 'rss_removed' };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1033,14 +996,21 @@ async function fetchNLnetCalls() {
 // ═══════════════════════════════════════════════════════════
 //  EU EIC Accelerator — startup grants/cascade funding
 // ═══════════════════════════════════════════════════════════
+// Skipped 2026-04-07: el endpoint /referenceData/grantsTenders.json devuelve metadata
+// estática (categorías), no calls activos. Los calls reales sólo accesibles vía SPA con
+// state JS. Seed estático con info baseline:
 async function fetchEICAccelerator() {
-  // EIC publica deadlines vía Funding & Tenders Portal API (sin auth para search)
   try {
-    const url = 'https://ec.europa.eu/info/funding-tenders/opportunities/data/referenceData/grantsTenders.json';
-    const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    // Si responde, persistir info; degrada gracefully si no
-    return { source: 'EICAccelerator', total: 0, inserted: 0, highScore: 0, note: 'EU portal accesible — implementar parser detallado' };
+    const ok = await insertOpportunity({
+      title: 'EIC Accelerator — startup grants & equity (EU)',
+      source: 'EICAccelerator',
+      url: 'https://eic.ec.europa.eu/eic-funding-opportunities/eic-accelerator_en',
+      category: 'gov_grant',
+      description: 'European Innovation Council Accelerator. Hasta €2.5M grant + €15M equity para startups deeptech. Cut-offs trimestrales. Verificar deadlines actuales en el portal antes de aplicar.',
+      tags: ['EU', 'gov_grant', 'startup', 'deeptech'],
+      external_id: 'eic_accelerator:base',
+    });
+    return { source: 'EICAccelerator', total: 1, inserted: ok ? 1 : 0, highScore: 0, note: 'static_seed' };
   } catch (err) {
     return { source: 'EICAccelerator', error: err.message, total: 0, inserted: 0, highScore: 0 };
   }
@@ -1049,8 +1019,23 @@ async function fetchEICAccelerator() {
 // ═══════════════════════════════════════════════════════════
 //  Horizon Europe — gigantic EU research programme
 // ═══════════════════════════════════════════════════════════
+// Skipped 2026-04-07: la URL `?format=atom` del Funding & Tenders Portal devuelve HTML SPA,
+// no atom. Igual que EIC: mismo portal sin RSS público real. Seed estático.
 async function fetchHorizonEurope() {
-  return rssOppHelper({ source: 'HorizonEurope', url: 'https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-search?frameworkProgramme=43108390&format=atom', category: 'research', tagBase: 'horizon_europe' });
+  try {
+    const ok = await insertOpportunity({
+      title: 'Horizon Europe — EU research & innovation framework',
+      source: 'HorizonEurope',
+      url: 'https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-search?frameworkProgramme=43108390',
+      category: 'research',
+      description: 'Horizon Europe (2021-2027) — €95.5B EU research programme. Calls abiertos en clusters Health/Climate/Digital/Bioeconomy. Buscar en portal por topic ID, deadlines varían.',
+      tags: ['EU', 'research', 'horizon_europe'],
+      external_id: 'horizon_europe:base',
+    });
+    return { source: 'HorizonEurope', total: 1, inserted: ok ? 1 : 0, highScore: 0, note: 'static_seed' };
+  } catch (err) {
+    return { source: 'HorizonEurope', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1097,8 +1082,10 @@ async function fetchGarantiaJuvenil() {
 // ═══════════════════════════════════════════════════════════
 //  Lablab.ai — AI hackathons (RSS via blog)
 // ═══════════════════════════════════════════════════════════
+// Skipped 2026-04-07: lablab.ai/blog/rss.xml → 403 CF block desde datacenter Hetzner.
+// Devpost + ETHGlobal + SolanaColosseum cubren AI hackathon space.
 async function fetchLablab() {
-  return rssOppHelper({ source: 'Lablab', url: 'https://lablab.ai/blog/rss.xml', category: 'hackathon', tagBase: 'ai' });
+  return { source: 'Lablab', total: 0, inserted: 0, highScore: 0, skipped: 'cf_block_datacenter' };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1150,36 +1137,10 @@ async function fetchTorreAI({ size = 30 } = {}) {
 // ═══════════════════════════════════════════════════════════
 //  IssueHunt — OSS bounty platform
 // ═══════════════════════════════════════════════════════════
+// Skipped 2026-04-07: issuehunt.io/api/v1/issues devuelve HTML SPA, no JSON.
+// Sin endpoint público real. Algora + GitHubFund cubren OSS bounty space parcialmente.
 async function fetchIssueHunt() {
-  try {
-    const r = await fetch('https://issuehunt.io/api/v1/issues?status=open&order=newest&limit=30', {
-      headers: { ...UA, Accept: 'application/json' },
-      signal: AbortSignal.timeout(TIMEOUT),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    const items = data.items || data.data || [];
-    let inserted = 0, highScore = 0;
-    for (const it of items) {
-      const text = `${it.title || ''} ${it.body || ''}`;
-      const score = await scoreText(text);
-      const ok = await insertOpportunity({
-        title: it.title,
-        source: 'IssueHunt',
-        url: it.url || it.html_url,
-        category: 'oss_bounty',
-        description: (it.body || '').slice(0, 1500),
-        match_score: score,
-        salary_min: it.amount, currency: 'USD',
-        external_id: `issuehunt:${it.id}`,
-        tags: ['oss_bounty'],
-      });
-      if (ok) { inserted++; if (score >= 8) highScore++; }
-    }
-    return { source: 'IssueHunt', total: items.length, inserted, highScore };
-  } catch (err) {
-    return { source: 'IssueHunt', error: err.message, total: 0, inserted: 0, highScore: 0 };
-  }
+  return { source: 'IssueHunt', total: 0, inserted: 0, highScore: 0, skipped: 'spa_no_api' };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1466,30 +1427,20 @@ async function fetchDework() {
   }
 }
 
-// FLOSS/Fund — open source funding announcements (RSS attempt)
+// Skipped 2026-04-07: floss.fund/feed.xml → 404. Sin RSS público en floss.fund.
+// Mantener seed estático para que aparezca en /api/opportunities como referencia.
 async function fetchFLOSSFund() {
   try {
-    const Parser = require('rss-parser');
-    const p = new Parser({ timeout: TIMEOUT, headers: UA });
-    const feed = await p.parseURL('https://floss.fund/feed.xml');
-    let inserted = 0, highScore = 0;
-    for (const it of (feed.items || []).slice(0, 20)) {
-      const score = await scoreText(`${it.title} ${it.contentSnippet || ''}`);
-      const ok = await insertOpportunity({
-        title: it.title,
-        source: 'floss_fund',
-        url: it.link,
-        category: 'grant',
-        description: (it.contentSnippet || '').slice(0, 1000),
-        payout_type: 'grant',
-        currency: 'USD',
-        match_score: score,
-        posted_at: it.isoDate ? new Date(it.isoDate) : null,
-        external_id: it.guid || it.link,
-      });
-      if (ok) { inserted++; if (score >= 8) highScore++; }
-    }
-    return { source: 'floss_fund', total: (feed.items || []).length, inserted, highScore };
+    const ok = await insertOpportunity({
+      title: 'FLOSS/fund — Open Source funding by Zerodha (~$1M/year)',
+      source: 'floss_fund',
+      url: 'https://floss.fund/',
+      category: 'grant',
+      description: 'Zerodha\'s grant program for FLOSS projects. ~$1M/year, no equity, applications open year-round. Up to $100K per project. Verifica criterios actuales en floss.fund antes de aplicar.',
+      tags: ['oss', 'grant', 'india'],
+      external_id: 'floss_fund:base',
+    });
+    return { source: 'floss_fund', total: 1, inserted: ok ? 1 : 0, highScore: 0, note: 'static_seed' };
   } catch (err) {
     return { source: 'floss_fund', total: 0, inserted: 0, highScore: 0, error: err.message };
   }
@@ -1618,6 +1569,53 @@ async function fetchGitHubTrending() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+//  R4 P5 — DEV.to articles tagged hiring/remotework
+//  https://dev.to/api/articles?tag={tag}&top={days} (free, no auth)
+//  Filtra a posts publicados en últimos 30 días para evitar listicles antiguos.
+// ═══════════════════════════════════════════════════════════
+async function fetchDevToHiring() {
+  const tags = ['hiring', 'remote', 'remotework', 'jobs'];
+  let totalFetched = 0, inserted = 0, highScore = 0;
+  const cutoff = Date.now() - 30 * 86400000; // últimos 30 días
+
+  for (const tag of tags) {
+    try {
+      const r = await fetch(`https://dev.to/api/articles?tag=${tag}&per_page=30`, {
+        headers: { ...UA, Accept: 'application/json' },
+        signal: AbortSignal.timeout(TIMEOUT),
+      });
+      if (!r.ok) continue;
+      const arr = await r.json();
+      if (!Array.isArray(arr)) continue;
+      totalFetched += arr.length;
+      for (const a of arr) {
+        const pubMs = new Date(a.published_at || 0).getTime();
+        if (pubMs < cutoff) continue;  // skip stale
+        const title = (a.title || '').slice(0, 500);
+        const text = `${title} ${a.description || ''} ${(a.tag_list || []).join(' ')}`;
+        // Filtro de calidad: descarta listicles "Top X" puros si no mencionan job/hire
+        if (/top \d+/i.test(title) && !/hir|job|career|appl/i.test(text)) continue;
+        const score = await scoreText(text);
+        const ok = await insertOpportunity({
+          title,
+          source: 'dev.to',
+          url: a.url || a.canonical_url,
+          category: 'remote',
+          description: (a.description || '').slice(0, 1500),
+          match_score: score,
+          external_id: `devto:${a.id}`,
+          tags: a.tag_list || null,
+          posted_at: a.published_at ? new Date(a.published_at) : null,
+        });
+        if (ok) { inserted++; if (score >= 8) highScore++; }
+      }
+      await new Promise(r => setTimeout(r, 500));
+    } catch { /* skip tag */ }
+  }
+  return { source: 'devto', total: totalFetched, inserted, highScore };
+}
+
 module.exports = {
   fetchAll,
   fetchRemoteOk,
@@ -1666,5 +1664,6 @@ module.exports = {
   fetchGitHubTrending,
   fetchGetOnBoardFull,
   fetchGreenhouse,
+  fetchDevToHiring,
   scoreText,
 };

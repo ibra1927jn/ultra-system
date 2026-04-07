@@ -59,6 +59,14 @@ function init() {
     'Lunes 10:00 — Vacunaciones próximas a expirar (<60 días)'
   );
 
+  // ─── P4 R4: Burocracia — Apostilles + driver licenses + military lunes 10:05 ───
+  register(
+    'bur-docs-expiry',
+    '5 10 * * 1',
+    checkBurDocsExpiry,
+    'Lunes 10:05 — Apostilles/driver licenses/military obligations próximos a expirar (<90 días)'
+  );
+
   // ─── P4 Fase 2: changedetection.io sync (boot + diario 04:30) ───
   register(
     'cdio-sync',
@@ -99,6 +107,14 @@ function init() {
     '0 5 * * *',
     fetchGovJobs,
     'Diario 05:00 — USAJobs + JobTechSE + hh.ru + NAV + visa cross-ref'
+  );
+
+  // ─── P2 R4 Tier A: visa sponsor repos import — semanal lunes 04:00 ───
+  register(
+    'visa-sponsors-import',
+    '0 4 * * 1',
+    fetchVisaSponsors,
+    'Lunes 04:00 — SiaExplains + geshan AU + oussama NL + Canada LMIA → emp_visa_sponsors + xref'
   );
 
   // ─── P6 Fase 2: Traccar GPS sync — cada 5 min ───
@@ -305,6 +321,22 @@ function init() {
     'Jueves 04:30 — Park4Night/Freecycle/TransferCar/Imoova/eSIMDB/etc'
   );
 
+  // ─── P6 R4 Tier A: Overpass essentials POIs — mensual día 1 a las 03:00 ──
+  // Fetch fuel/water/showers/toilets/laundry/picnic_site para país base.
+  // Cron mensual porque OSM cambia poco y Overpass público tiene rate limits estrictos.
+  register(
+    'overpass-essentials',
+    '0 3 1 * *',
+    async () => {
+      const le = require('./logistics_extras');
+      try {
+        const r = await le.fetchOverpassEssentials({ country: 'NZ' });
+        console.log(`🗺️ overpass-essentials: ${r.fetched} fetched, ${r.inserted} inserted`);
+      } catch (err) { console.error('overpass-essentials err:', err.message); }
+    },
+    'Día 1 a las 03:00 — fuel/water/showers/toilets/laundry/picnic via Overpass NZ'
+  );
+
   // ─── P7 Tier A: Bio extras pollers cada 6h ──
   register(
     'bio-extras-poll',
@@ -485,6 +517,61 @@ async function checkTaxDeadlines() {
  * Decisión 2026-04-07: P4 owner de bur_vaccinations.
  * P7 consume vía evento bur.vaccination_updated (publicado por la route POST/PUT).
  */
+// ═══════════════════════════════════════════════════════════
+//  P4 R4 Tier A — Apostilles / driver licenses / military expiry
+//  Una sola query UNION para no abrir 3 conexiones por nada.
+//  Threshold: 90 días (más conservador que vaccinations 60d porque
+//  apostille re-emit puede tardar semanas).
+// ═══════════════════════════════════════════════════════════
+async function checkBurDocsExpiry() {
+  const rows = await db.queryAll(
+    `SELECT 'apostille' AS kind, id, document_name AS name, country_origin AS country,
+            expiry_date, (expiry_date - CURRENT_DATE) AS days_remaining, notes
+       FROM bur_apostilles
+      WHERE is_active = TRUE AND expiry_date IS NOT NULL
+        AND (expiry_date - CURRENT_DATE) BETWEEN 0 AND 90
+     UNION ALL
+     SELECT 'driver_license', id,
+            COALESCE(license_number, 'Driver license') AS name, country,
+            expiry_date, (expiry_date - CURRENT_DATE), notes
+       FROM bur_driver_licenses
+      WHERE is_active = TRUE
+        AND (expiry_date - CURRENT_DATE) BETWEEN 0 AND 90
+     UNION ALL
+     SELECT 'military', id,
+            COALESCE(obligation_type, 'Military obligation') AS name, country,
+            expiry_date, (expiry_date - CURRENT_DATE), notes
+       FROM bur_military_obligations
+      WHERE expiry_date IS NOT NULL
+        AND (expiry_date - CURRENT_DATE) BETWEEN 0 AND 90
+     ORDER BY days_remaining ASC`
+  );
+
+  if (!rows.length) {
+    console.log('✅ Sin apostilles/licencias/obligaciones militares expirando');
+    return;
+  }
+
+  const flag = (c) => ({ NZ: '🇳🇿', ES: '🇪🇸', AU: '🇦🇺', EU: '🇪🇺', DZ: '🇩🇿', FR: '🇫🇷', GB: '🇬🇧' }[c] || '');
+  const icon = (k) => ({ apostille: '📜', driver_license: '🚗', military: '🎖️' }[k] || '📂');
+
+  const lines = [
+    '📂 *ULTRA SYSTEM — Documentos burocracia por renovar*',
+    '━━━━━━━━━━━━━━━━━━━━━━━━',
+  ];
+  for (const r of rows) {
+    const exp = new Date(r.expiry_date).toISOString().split('T')[0];
+    const urgent = r.days_remaining <= 14 ? '🔴' : r.days_remaining <= 30 ? '🟡' : '🟢';
+    lines.push(`${urgent} ${icon(r.kind)} *${r.name}* ${flag(r.country)}`);
+    lines.push(`   📅 ${exp} — ${r.days_remaining} días`);
+    if (r.notes) lines.push(`   💬 ${r.notes.slice(0, 100)}`);
+    lines.push('');
+  }
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+  await telegram.sendAlert(lines.join('\n'));
+  console.log(`📲 bur-docs expiry alert: ${rows.length} entries`);
+}
+
 async function checkVaccinationExpiry() {
   const vaccines = await db.queryAll(
     `SELECT id, vaccine, dose_number, date_given, expiry_date, country, notes,
@@ -1338,6 +1425,22 @@ async function fetchGovJobs() {
     console.log(`🏛️ gov-jobs: ${summary}`);
   } catch (err) {
     console.error('❌ gov-jobs error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P2 R4 Tier A — Visa sponsor repos import (weekly)
+//  SiaExplains + geshan AU + oussama NL + Canada LMIA → emp_visa_sponsors
+// ═══════════════════════════════════════════════════════════
+async function fetchVisaSponsors() {
+  try {
+    const results = await govJobs.importAllSponsorRepos();
+    const summary = results
+      .map(r => `${r.source}=${r.inserted ?? r.updated ?? r.error?.slice(0, 30) ?? '?'}`)
+      .join(' ');
+    console.log(`🛂 visa-sponsors: ${summary}`);
+  } catch (err) {
+    console.error('❌ visa-sponsors error:', err.message);
   }
 }
 

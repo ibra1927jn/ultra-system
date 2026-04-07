@@ -660,4 +660,95 @@ router.post('/health-documents', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════
+//  R4 P7 Tier A — Calculators (BMR/TDEE/Macros/Hydration/Sleep)
+//  Pure-math endpoints. No DB writes (excepto sleep-score que LEE).
+// ═══════════════════════════════════════════════════════════
+const bioCalc = require('../bio_calc');
+
+router.get('/calc/bmr', (req, res) => {
+  const r = bioCalc.computeBMR({
+    weight_kg: req.query.weight_kg,
+    height_cm: req.query.height_cm,
+    age: req.query.age,
+    sex: req.query.sex || 'male',
+    formula: req.query.formula || 'mifflin',
+  });
+  res.json({ ok: !r.error, data: r });
+});
+
+router.get('/calc/tdee', (req, res) => {
+  const r = bioCalc.computeTDEE({
+    weight_kg: req.query.weight_kg,
+    height_cm: req.query.height_cm,
+    age: req.query.age,
+    sex: req.query.sex || 'male',
+    activity: req.query.activity || 'moderate',
+    formula: req.query.formula || 'mifflin',
+  });
+  res.json({ ok: !r.error, data: r });
+});
+
+router.get('/calc/macros', (req, res) => {
+  const r = bioCalc.computeMacros({
+    weight_kg: req.query.weight_kg,
+    height_cm: req.query.height_cm,
+    age: req.query.age,
+    sex: req.query.sex || 'male',
+    activity: req.query.activity || 'moderate',
+    goal: req.query.goal || 'maintain',
+    formula: req.query.formula || 'mifflin',
+  });
+  res.json({ ok: !r.error, data: r });
+});
+
+router.get('/calc/hydration', (req, res) => {
+  const r = bioCalc.computeHydration({
+    weight_kg: req.query.weight_kg,
+    exercise_hours: req.query.exercise_hours || 0,
+    temp_c: req.query.temp_c || 20,
+    altitude_m: req.query.altitude_m || 0,
+  });
+  res.json({ ok: !r.error, data: r });
+});
+
+router.get('/calc/sleep-score', async (req, res) => {
+  try {
+    const r = await bioCalc.computeSleepScore({ date: req.query.date || null });
+    res.json({ ok: !r.error, data: r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  R4 P7 — Food NL search via Open Food Facts (free, no auth)
+// ═══════════════════════════════════════════════════════════
+router.get('/food/search', async (req, res) => {
+  try {
+    const q = req.query.q;
+    if (!q) return res.status(400).json({ ok: false, error: 'q query param required' });
+    const r = await off.searchFood(q, { pageSize: parseInt(req.query.limit) || 10 });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  R4 P7 — UV index via Open-Meteo (replaces gated OpenUV)
+// ═══════════════════════════════════════════════════════════
+router.get('/uv', async (req, res) => {
+  try {
+    const lat = parseFloat(req.query.lat);
+    const lon = parseFloat(req.query.lon);
+    if (isNaN(lat) || isNaN(lon)) return res.status(400).json({ ok: false, error: 'lat + lon required' });
+    const bx = require('../bio_extras');
+    const r = await bx.fetchOpenUV({ lat, lon });
+    res.json({ ok: !r.error, data: r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

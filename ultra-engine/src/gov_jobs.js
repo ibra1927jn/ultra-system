@@ -427,46 +427,213 @@ async function fetchJobBankCanada({ limit = 50 } = {}) {
 
 // ════════════════════════════════════════════════════════════
 //  Visa-sponsorship-companies importer (multi-country)
-//  Source: github.com/SiaExplains/visa-sponsorship-companies (50+ countries)
-//  Stub: fetches the README/JSON if user clones it locally to data/
+//  Source: github.com/SiaExplains/visa-sponsorship-companies
+//  Reescrito 2026-04-07: README estaba vacío (data en /countries/*.json).
+//  Usa GitHub Contents API + raw JSON download. Mapea filename → ISO-2.
 // ════════════════════════════════════════════════════════════
+const COUNTRY_NAME_TO_ISO2 = {
+  // Subset relevante para el repo SiaExplains. Soporta lower/upper.
+  denmark:'DK', austria:'AT', belgium:'BE', england:'GB', finland:'FI',
+  france:'FR', germany:'DE', ireland:'IE', italy:'IT', netherlands:'NL',
+  norway:'NO', poland:'PL', portugal:'PT', spain:'ES', sweden:'SE',
+  switzerland:'CH', luxembourg:'LU', australia:'AU', 'new zealand':'NZ',
+  canada:'CA', 'united states':'US', usa:'US', 'united kingdom':'GB',
+  uk:'GB', japan:'JP', singapore:'SG', dubai:'AE', uae:'AE',
+  estonia:'EE', latvia:'LV', lithuania:'LT', czechia:'CZ', 'czech republic':'CZ',
+  hungary:'HU', romania:'RO', bulgaria:'BG', greece:'GR', cyprus:'CY',
+  malta:'MT', slovakia:'SK', slovenia:'SI', croatia:'HR', iceland:'IS',
+  scotland:'GB', wales:'GB', 'northern ireland':'GB',
+};
+function nameToIso2(name) {
+  return COUNTRY_NAME_TO_ISO2[name.toLowerCase().trim().replace(/\.json$/, '')] || null;
+}
+
 async function importVisaSponsorshipCompanies() {
   try {
-    // Try GitHub raw README parsing — README has tables per country
-    const url = 'https://raw.githubusercontent.com/SiaExplains/visa-sponsorship-companies/main/README.md';
-    const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const md = await r.text();
-    // Parse markdown lines like "| Company | Website | Country |"
-    const lines = md.split('\n');
-    let inserted = 0;
-    let currentCountry = null;
-    for (const line of lines) {
-      const h = line.match(/^##\s+(.+)/);
-      if (h) {
-        currentCountry = h[1].trim().slice(0, 50);
-        continue;
-      }
-      const m = line.match(/^\|\s*([^|]+)\s*\|\s*([^|]*)\s*\|/);
-      if (m && currentCountry && !/^---|company|name/i.test(m[1])) {
-        const name = m[1].trim();
-        const website = m[2].trim().replace(/[\[\]()]/g, '');
+    const idx = await fetch(
+      'https://api.github.com/repos/SiaExplains/visa-sponsorship-companies/contents/countries',
+      { headers: { ...UA, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(TIMEOUT) }
+    );
+    if (!idx.ok) throw new Error(`GH contents HTTP ${idx.status}`);
+    const files = await idx.json();
+    let inserted = 0, skippedCountries = 0;
+    for (const f of files) {
+      if (!f.name?.endsWith('.json') || !f.download_url) continue;
+      const iso = nameToIso2(f.name.replace(/\.json$/, ''));
+      if (!iso) { skippedCountries++; continue; }
+      const r = await fetch(f.download_url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
+      if (!r.ok) continue;
+      let arr;
+      try { arr = await r.json(); } catch { continue; }
+      if (!Array.isArray(arr)) continue;
+      for (const c of arr) {
+        const name = (c.name || c.company || '').trim();
         if (!name || name.length < 2) continue;
+        const city = (c.city || '').trim().slice(0, 100);
+        const industry = (c.industry || '').trim().slice(0, 100);
         try {
           await db.query(
-            `INSERT INTO emp_visa_sponsors (company_name, website, country, source)
-             VALUES ($1, $2, $3, 'siaexplains')
-             ON CONFLICT (company_name, country) DO NOTHING`,
-            [name, website || null, currentCountry]
+            `INSERT INTO emp_visa_sponsors (country, company_name, city, region, source, imported_at)
+             VALUES ($1, $2, $3, $4, 'siaexplains', NOW())
+             ON CONFLICT (country, company_name) DO UPDATE SET
+               city=EXCLUDED.city, region=EXCLUDED.region, imported_at=NOW()`,
+            [iso, name.slice(0, 200), city || null, industry || null]
           );
           inserted++;
-        } catch (_) { /* table may not exist; create on demand */ }
+        } catch { /* skip dup/error */ }
       }
     }
-    return { source: 'visa_sponsors_import', inserted };
+    return { source: 'siaexplains', files: files.length, inserted, skipped_unknown_country: skippedCountries };
   } catch (err) {
-    return { source: 'visa_sponsors_import', error: err.message };
+    return { source: 'siaexplains', error: err.message };
   }
+}
+
+// ════════════════════════════════════════════════════════════
+//  Geshan AU sponsors (github.com/geshan/au-companies-providing-work-visa-sponsorship)
+//  README markdown con bullets: "- [Company](url) | Location | Tech stack"
+//  Repo en branch master, no main.
+// ════════════════════════════════════════════════════════════
+async function importGeshanAU() {
+  try {
+    const r = await fetch(
+      'https://raw.githubusercontent.com/geshan/au-companies-providing-work-visa-sponsorship/master/README.md',
+      { headers: UA, signal: AbortSignal.timeout(TIMEOUT) }
+    );
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const md = await r.text();
+    const lines = md.split('\n');
+    let inserted = 0;
+    for (const line of lines) {
+      const m = line.match(/^-\s*\[([^\]]+)\]\(([^)]+)\)\s*\|\s*([^|]+?)(?:\s*\|\s*(.+))?$/);
+      if (!m) continue;
+      const name = m[1].trim();
+      const location = m[3].trim().slice(0, 100);
+      if (!name || name.length < 2) continue;
+      try {
+        await db.query(
+          `INSERT INTO emp_visa_sponsors (country, company_name, city, source, imported_at)
+           VALUES ('AU', $1, $2, 'geshan_au_repo', NOW())
+           ON CONFLICT (country, company_name) DO UPDATE SET
+             city=EXCLUDED.city, imported_at=NOW()`,
+          [name.slice(0, 200), location || null]
+        );
+        inserted++;
+      } catch { /* skip */ }
+    }
+    return { source: 'geshan_au_repo', inserted };
+  } catch (err) {
+    return { source: 'geshan_au_repo', error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  NL IND sponsors (github.com/oussamabouchikhi/companies-sponsoring-visas-netherlands)
+//  README markdown table: | Name | Location(s) | Department | Careers page | Bonus |
+// ════════════════════════════════════════════════════════════
+async function importNLINDSponsors() {
+  try {
+    const r = await fetch(
+      'https://raw.githubusercontent.com/oussamabouchikhi/companies-sponsoring-visas-netherlands/main/README.md',
+      { headers: UA, signal: AbortSignal.timeout(TIMEOUT) }
+    );
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const md = await r.text();
+    const lines = md.split('\n');
+    let inserted = 0;
+    for (const line of lines) {
+      // skip headers/separators
+      if (/^\|\s*[-:|\s]+\|/.test(line)) continue;
+      if (/^\|\s*Name\s*\|/i.test(line)) continue;
+      const m = line.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|/);
+      if (!m) continue;
+      const name = m[1].trim();
+      if (!name || name.length < 2 || /^---/.test(name)) continue;
+      const location = m[2].trim().replace(/,?\s*NL\s*$/i, '').slice(0, 100);
+      const dept = m[3].trim().slice(0, 100);
+      try {
+        await db.query(
+          `INSERT INTO emp_visa_sponsors (country, company_name, city, region, source, imported_at)
+           VALUES ('NL', $1, $2, $3, 'oussama_nl_repo', NOW())
+           ON CONFLICT (country, company_name) DO UPDATE SET
+             city=EXCLUDED.city, region=EXCLUDED.region, imported_at=NOW()`,
+          [name.slice(0, 200), location || null, dept || null]
+        );
+        inserted++;
+      } catch { /* skip */ }
+    }
+    return { source: 'oussama_nl_repo', inserted };
+  } catch (err) {
+    return { source: 'oussama_nl_repo', error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  Canada LMIA Positive Employers (open.canada.ca CKAN dataset)
+//  Auto-discover most recent _en.csv via package_show API.
+//  CSV format: skip line 1 (title), header on line 2:
+//    Province/Territory, Stream, Employer, Address, Occupation, Approved Positions
+// ════════════════════════════════════════════════════════════
+async function importCanadaLMIA() {
+  try {
+    const meta = await fetch(
+      'https://open.canada.ca/data/api/3/action/package_show?id=90fed587-1364-4f33-a9ee-208181dc0b97',
+      { headers: UA, signal: AbortSignal.timeout(TIMEOUT) }
+    );
+    if (!meta.ok) throw new Error(`CKAN HTTP ${meta.status}`);
+    const data = await meta.json();
+    const csvs = (data.result?.resources || []).filter(
+      r => (r.format || '').toLowerCase() === 'csv' && (r.url || '').includes('_en')
+    );
+    if (!csvs.length) throw new Error('no _en CSV resources found');
+    csvs.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+    const latest = csvs[0];
+    const csvR = await fetch(latest.url, { headers: UA, signal: AbortSignal.timeout(60000) });
+    if (!csvR.ok) throw new Error(`CSV HTTP ${csvR.status}`);
+    const text = await csvR.text();
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 3) throw new Error('CSV vacío');
+    // Header on line 2 (index 1) — line 1 is the dataset title.
+    const header = parseCsvLine(lines[1]).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase());
+    const provIdx = header.findIndex(h => h.includes('province'));
+    const employerIdx = header.findIndex(h => h.includes('employer'));
+    const addressIdx = header.findIndex(h => h.includes('address'));
+    if (employerIdx === -1) throw new Error(`employer col missing: ${header.join('|')}`);
+    let inserted = 0;
+    for (let i = 2; i < lines.length; i++) {
+      const parts = parseCsvLine(lines[i]);
+      const name = parts[employerIdx]?.replace(/^"|"$/g, '').trim();
+      if (!name || name.length < 2) continue;
+      const province = parts[provIdx]?.replace(/^"|"$/g, '').trim().slice(0, 100);
+      const address = parts[addressIdx]?.replace(/^"|"$/g, '').trim().slice(0, 100);
+      try {
+        await db.query(
+          `INSERT INTO emp_visa_sponsors (country, company_name, city, region, source, imported_at)
+           VALUES ('CA', $1, $2, $3, 'canada_lmia', NOW())
+           ON CONFLICT (country, company_name) DO UPDATE SET
+             city=EXCLUDED.city, region=EXCLUDED.region, imported_at=NOW()`,
+          [name.slice(0, 200), address || null, province || null]
+        );
+        inserted++;
+      } catch { /* skip */ }
+    }
+    return { source: 'canada_lmia', resource: latest.name?.slice(0, 80), inserted };
+  } catch (err) {
+    return { source: 'canada_lmia', error: err.message };
+  }
+}
+
+// Aggregate runner para todos los importers de sponsor lists
+async function importAllSponsorRepos() {
+  const out = [];
+  out.push(await importVisaSponsorshipCompanies());
+  out.push(await importGeshanAU());
+  out.push(await importNLINDSponsors());
+  out.push(await importCanadaLMIA());
+  // Cross-ref se ejecuta al final para taggear job_listings con visa_sponsorship=true
+  try { out.push({ source: 'visa_xref', ...(await crossRefVisaSponsors()) }); }
+  catch (e) { out.push({ source: 'visa_xref', error: e.message }); }
+  return out;
 }
 
 async function fetchAll() {
@@ -478,8 +645,9 @@ async function fetchAll() {
     ['hh_ru', () => fetchHHru({ text: '', perPage: 25 })],
     ['nav_no', () => fetchNAV({ size: 25 })],
     ['jobspy_onsite', () => fetchJobSpyOnsite()],
-    ['eures', () => fetchEURES({})],
-    ['jobbank_ca', () => fetchJobBankCanada({})],
+    // EURES + Job Bank CA están bloqueados desde IP datacenter Hetzner
+    // (Cloudflare/CDN-level block, verificado 2026-04-07). Ver gov_jobs.js docstrings.
+    // Permanecen exportados para uso manual desde otra IP cuando haga falta.
     ['workday', async () => {
       const r = await workday.fetchAll();
       const inserted = r.reduce((a, x) => a + (x.inserted || 0), 0);
@@ -516,6 +684,10 @@ module.exports = {
   fetchEURES,
   fetchJobBankCanada,
   importVisaSponsorshipCompanies,
+  importGeshanAU,
+  importNLINDSponsors,
+  importCanadaLMIA,
+  importAllSponsorRepos,
   importUKSponsorRegister,
   crossRefVisaSponsors,
   fetchAll,

@@ -638,16 +638,63 @@ router.get('/tax-deadlines.ics', async (req, res) => {
 //   Seed embajadas relevantes (ES, DZ, NZ, AU). Idempotente.
 router.post('/embassies/seed', async (_req, res) => {
   try {
+    // R4 P4 expansion: 30+ embassies relevant to ES/DZ dual nationality + nomad routes
+    // (NZ base + AU/MX/AR/CL/BR/UK/PT/IT/FR/DE/JP/SG/TH/VN/ID/MA primary destinations).
+    // Source: maec.es + algerianembassy.org per country search.
     const seed = [
-      // España representando a Ibrahim en países relevantes
+      // ─── ES representing in NZ/AU/Pacific (current base) ─────────
       { representing: 'ES', located_in: 'NZ', city: 'Wellington', address: '50 Manners Street', phone: '+64-4-802-5665', email: 'emb.wellington@maec.es', url: 'https://www.exteriores.gob.es/embajadas/wellington' },
-      { representing: 'ES', located_in: 'AU', city: 'Canberra', address: '15 Arkana Street, Yarralumla', phone: '+61-2-6273-3555', email: 'emb.canberra@maec.es', url: 'https://www.exteriores.gob.es/embajadas/canberra' },
-      { representing: 'ES', located_in: 'DZ', city: 'Argel', address: '46/46bis Boulevard Mohamed Khemisti', phone: '+213-21-92-12-22', url: 'https://www.exteriores.gob.es/embajadas/argel' },
-      // Argelia (segundo pasaporte) en países relevantes
-      { representing: 'DZ', located_in: 'AU', city: 'Canberra', address: '9 Terrigal Crescent, O\'Malley', phone: '+61-2-6286-7355', url: 'http://www.algerianembassy.org.au' },
-      { representing: 'DZ', located_in: 'ES', city: 'Madrid', address: 'Calle General Oraá 12', phone: '+34-91-562-9707' },
-      // Consulados ES en Auckland (más cercano que Wellington)
       { representing: 'ES', located_in: 'NZ', type: 'consulate', city: 'Auckland', notes: 'Consulado honorario' },
+      { representing: 'ES', located_in: 'AU', city: 'Canberra', address: '15 Arkana Street, Yarralumla', phone: '+61-2-6273-3555', email: 'emb.canberra@maec.es', url: 'https://www.exteriores.gob.es/embajadas/canberra' },
+      { representing: 'ES', located_in: 'AU', type: 'consulate', city: 'Sydney', email: 'cog.sidney@maec.es' },
+      { representing: 'ES', located_in: 'AU', type: 'consulate', city: 'Melbourne', email: 'cog.melbourne@maec.es' },
+
+      // ─── ES representing in DZ + Maghreb ──────────────────────────
+      { representing: 'ES', located_in: 'DZ', city: 'Argel', address: '46/46bis Boulevard Mohamed Khemisti', phone: '+213-21-92-12-22', url: 'https://www.exteriores.gob.es/embajadas/argel' },
+      { representing: 'ES', located_in: 'DZ', type: 'consulate', city: 'Orán', email: 'cog.oran@maec.es' },
+      { representing: 'ES', located_in: 'MA', city: 'Rabat', email: 'emb.rabat@maec.es', url: 'https://www.exteriores.gob.es/embajadas/rabat' },
+      { representing: 'ES', located_in: 'TN', city: 'Túnez', email: 'emb.tunez@maec.es', url: 'https://www.exteriores.gob.es/embajadas/tunez' },
+
+      // ─── ES representing in LatAm (DN routes) ─────────────────────
+      { representing: 'ES', located_in: 'MX', city: 'Ciudad de México', email: 'emb.mexico@maec.es', url: 'https://www.exteriores.gob.es/embajadas/mexico' },
+      { representing: 'ES', located_in: 'AR', city: 'Buenos Aires', email: 'emb.buenosaires@maec.es', url: 'https://www.exteriores.gob.es/embajadas/buenosaires' },
+      { representing: 'ES', located_in: 'CL', city: 'Santiago', email: 'emb.santiago@maec.es', url: 'https://www.exteriores.gob.es/embajadas/santiago' },
+      { representing: 'ES', located_in: 'CO', city: 'Bogotá', email: 'emb.bogota@maec.es', url: 'https://www.exteriores.gob.es/embajadas/bogota' },
+      { representing: 'ES', located_in: 'PE', city: 'Lima', email: 'emb.lima@maec.es', url: 'https://www.exteriores.gob.es/embajadas/lima' },
+      { representing: 'ES', located_in: 'BR', city: 'Brasília', email: 'emb.brasilia@maec.es', url: 'https://www.exteriores.gob.es/embajadas/brasilia' },
+
+      // ─── ES representing in Asia/Pacific DN destinations ─────────
+      { representing: 'ES', located_in: 'JP', city: 'Tokio', email: 'emb.tokio@maec.es', url: 'https://www.exteriores.gob.es/embajadas/tokio' },
+      { representing: 'ES', located_in: 'SG', city: 'Singapur', email: 'emb.singapur@maec.es', url: 'https://www.exteriores.gob.es/embajadas/singapur' },
+      { representing: 'ES', located_in: 'TH', city: 'Bangkok', email: 'emb.bangkok@maec.es', url: 'https://www.exteriores.gob.es/embajadas/bangkok' },
+      { representing: 'ES', located_in: 'VN', city: 'Hanoi', email: 'emb.hanoi@maec.es', url: 'https://www.exteriores.gob.es/embajadas/hanoi' },
+      { representing: 'ES', located_in: 'ID', city: 'Yakarta', email: 'emb.yakarta@maec.es', url: 'https://www.exteriores.gob.es/embajadas/yakarta' },
+      { representing: 'ES', located_in: 'PH', city: 'Manila', email: 'emb.manila@maec.es', url: 'https://www.exteriores.gob.es/embajadas/manila' },
+
+      // ─── ES representing in EU neighbors (frequent transit) ──────
+      { representing: 'ES', located_in: 'PT', city: 'Lisboa', email: 'emb.lisboa@maec.es', url: 'https://www.exteriores.gob.es/embajadas/lisboa' },
+      { representing: 'ES', located_in: 'FR', city: 'París', email: 'emb.paris@maec.es', url: 'https://www.exteriores.gob.es/embajadas/paris' },
+      { representing: 'ES', located_in: 'IT', city: 'Roma', email: 'emb.roma@maec.es', url: 'https://www.exteriores.gob.es/embajadas/roma' },
+      { representing: 'ES', located_in: 'DE', city: 'Berlín', email: 'emb.berlin@maec.es', url: 'https://www.exteriores.gob.es/embajadas/berlin' },
+      { representing: 'ES', located_in: 'GB', city: 'Londres', email: 'emb.londres@maec.es', url: 'https://www.exteriores.gob.es/embajadas/londres' },
+
+      // ─── DZ representing in primary destinations (segundo pasaporte) ─
+      { representing: 'DZ', located_in: 'ES', city: 'Madrid', address: 'Calle General Oraá 12', phone: '+34-91-562-9707' },
+      { representing: 'DZ', located_in: 'AU', city: 'Canberra', address: '9 Terrigal Crescent, O\'Malley', phone: '+61-2-6286-7355', url: 'http://www.algerianembassy.org.au' },
+      { representing: 'DZ', located_in: 'NZ', type: 'consulate', city: 'Wellington', notes: 'Cobertura consular vía Canberra (no embajada propia)' },
+      { representing: 'DZ', located_in: 'FR', city: 'París', notes: 'Mayor población DZ en Europa' },
+      { representing: 'DZ', located_in: 'GB', city: 'Londres' },
+      { representing: 'DZ', located_in: 'DE', city: 'Berlín' },
+      { representing: 'DZ', located_in: 'IT', city: 'Roma' },
+      { representing: 'DZ', located_in: 'BE', city: 'Bruselas' },
+      { representing: 'DZ', located_in: 'CH', city: 'Berna' },
+      { representing: 'DZ', located_in: 'TR', city: 'Ankara' },
+      { representing: 'DZ', located_in: 'AE', city: 'Abu Dabi' },
+      { representing: 'DZ', located_in: 'CA', city: 'Ottawa' },
+      { representing: 'DZ', located_in: 'US', city: 'Washington' },
+      { representing: 'DZ', located_in: 'BR', city: 'Brasília' },
+      { representing: 'DZ', located_in: 'MX', city: 'Ciudad de México' },
+      { representing: 'DZ', located_in: 'JP', city: 'Tokio' },
     ];
     let inserted = 0;
     for (const e of seed) {
@@ -737,6 +784,244 @@ router.post('/consular-registrations', async (req, res) => {
       [type, country.toUpperCase(), embassy_id, registered_at, expires_at, document_number, notes]
     );
     res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  R4 P4 Tier A — APOSTILLES (bur_apostilles)
+//  CRUD: doc_name, doc_type, country_origin (ISO-2), issued/expiry,
+//  apostille_number, paperless_id (link a doc OCR'd en P4), notes.
+//  Lectura ordena por expiry asc → próximas a caducar primero.
+// ═══════════════════════════════════════════════════════════
+router.get('/apostilles', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, document_name, document_type, country_origin, issued_date, expiry_date,
+              apostille_number, paperless_id, notes, is_active,
+              CASE WHEN expiry_date IS NULL THEN NULL
+                   ELSE (expiry_date - CURRENT_DATE) END AS days_until_expiry
+       FROM bur_apostilles
+       WHERE is_active = TRUE
+       ORDER BY expiry_date ASC NULLS LAST`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/apostilles', async (req, res) => {
+  try {
+    const { document_name, document_type, country_origin, issued_date, expiry_date,
+            apostille_number, paperless_id, notes } = req.body;
+    if (!document_name || !country_origin) {
+      return res.status(400).json({ ok: false, error: 'document_name + country_origin obligatorios' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO bur_apostilles
+         (document_name, document_type, country_origin, issued_date, expiry_date,
+          apostille_number, paperless_id, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [document_name.slice(0, 200), document_type || null, country_origin.toUpperCase().slice(0, 2),
+       issued_date || null, expiry_date || null, apostille_number || null,
+       paperless_id || null, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.patch('/apostilles/:id', async (req, res) => {
+  try {
+    const allowed = ['document_name','document_type','country_origin','issued_date','expiry_date',
+                     'apostille_number','paperless_id','notes','is_active'];
+    const sets = [], params = [];
+    for (const k of allowed) {
+      if (k in req.body) {
+        params.push(k === 'country_origin' && req.body[k] ? req.body[k].toUpperCase() : req.body[k]);
+        sets.push(`${k}=$${params.length}`);
+      }
+    }
+    if (!sets.length) return res.status(400).json({ ok: false, error: 'no fields to update' });
+    params.push(req.params.id);
+    const row = await db.queryOne(
+      `UPDATE bur_apostilles SET ${sets.join(', ')} WHERE id=$${params.length} RETURNING *`,
+      params
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'not found' });
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.delete('/apostilles/:id', async (req, res) => {
+  try {
+    // Soft delete (apostilles tienen valor histórico, no hard-delete)
+    const row = await db.queryOne(
+      `UPDATE bur_apostilles SET is_active=FALSE WHERE id=$1 RETURNING id`,
+      [req.params.id]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  R4 P4 Tier A — DRIVER LICENSES (bur_driver_licenses)
+//  Multi-país (NZ class 1, ES B, DZ, AU, etc). Tracking expiry +
+//  classes (text array, p.ej. ['B','C','D']). Cron alerta < 60d.
+// ═══════════════════════════════════════════════════════════
+router.get('/driver-licenses', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, country, license_number, issued_date, expiry_date, classes, notes, is_active,
+              (expiry_date - CURRENT_DATE) AS days_until_expiry
+       FROM bur_driver_licenses
+       WHERE is_active = TRUE
+       ORDER BY expiry_date ASC`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/driver-licenses', async (req, res) => {
+  try {
+    const { country, license_number, issued_date, expiry_date, classes, notes } = req.body;
+    if (!country || !expiry_date) {
+      return res.status(400).json({ ok: false, error: 'country + expiry_date obligatorios' });
+    }
+    // classes: acepta array o string CSV
+    let classesArr = null;
+    if (Array.isArray(classes)) classesArr = classes;
+    else if (typeof classes === 'string' && classes.trim()) classesArr = classes.split(',').map(s => s.trim());
+
+    const row = await db.queryOne(
+      `INSERT INTO bur_driver_licenses
+         (country, license_number, issued_date, expiry_date, classes, notes)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [country.toUpperCase().slice(0, 2), license_number || null, issued_date || null,
+       expiry_date, classesArr, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.patch('/driver-licenses/:id', async (req, res) => {
+  try {
+    const allowed = ['country','license_number','issued_date','expiry_date','classes','notes','is_active'];
+    const sets = [], params = [];
+    for (const k of allowed) {
+      if (k in req.body) {
+        let v = req.body[k];
+        if (k === 'country' && v) v = v.toUpperCase();
+        if (k === 'classes' && typeof v === 'string') v = v.split(',').map(s => s.trim());
+        params.push(v);
+        sets.push(`${k}=$${params.length}`);
+      }
+    }
+    if (!sets.length) return res.status(400).json({ ok: false, error: 'no fields' });
+    params.push(req.params.id);
+    const row = await db.queryOne(
+      `UPDATE bur_driver_licenses SET ${sets.join(', ')} WHERE id=$${params.length} RETURNING *`,
+      params
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'not found' });
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.delete('/driver-licenses/:id', async (req, res) => {
+  try {
+    const row = await db.queryOne(
+      `UPDATE bur_driver_licenses SET is_active=FALSE WHERE id=$1 RETURNING id`,
+      [req.params.id]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  R4 P4 Tier A — MILITARY OBLIGATIONS (bur_military_obligations)
+//  Caso uso primario: DZ obliga servicio militar a varones <30
+//  con dispensa por residencia/estudios/edad. Tracking del estado
+//  + documento de exención + expiry (algunas dispensas caducan).
+// ═══════════════════════════════════════════════════════════
+router.get('/military', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, country, obligation_type, status, document_number,
+              issue_date, expiry_date, notes,
+              CASE WHEN expiry_date IS NULL THEN NULL
+                   ELSE (expiry_date - CURRENT_DATE) END AS days_until_expiry
+       FROM bur_military_obligations
+       ORDER BY expiry_date ASC NULLS LAST`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/military', async (req, res) => {
+  try {
+    const { country, obligation_type, status, document_number, issue_date, expiry_date, notes } = req.body;
+    if (!country) return res.status(400).json({ ok: false, error: 'country obligatorio' });
+    const row = await db.queryOne(
+      `INSERT INTO bur_military_obligations
+         (country, obligation_type, status, document_number, issue_date, expiry_date, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [country.toUpperCase().slice(0, 2), obligation_type || null, status || null,
+       document_number || null, issue_date || null, expiry_date || null, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.patch('/military/:id', async (req, res) => {
+  try {
+    const allowed = ['country','obligation_type','status','document_number','issue_date','expiry_date','notes'];
+    const sets = [], params = [];
+    for (const k of allowed) {
+      if (k in req.body) {
+        params.push(k === 'country' && req.body[k] ? req.body[k].toUpperCase() : req.body[k]);
+        sets.push(`${k}=$${params.length}`);
+      }
+    }
+    if (!sets.length) return res.status(400).json({ ok: false, error: 'no fields' });
+    params.push(req.params.id);
+    const row = await db.queryOne(
+      `UPDATE bur_military_obligations SET ${sets.join(', ')} WHERE id=$${params.length} RETURNING *`,
+      params
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'not found' });
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.delete('/military/:id', async (req, res) => {
+  try {
+    const r = await db.query(`DELETE FROM bur_military_obligations WHERE id=$1`, [req.params.id]);
+    if (r.rowCount === 0) return res.status(404).json({ ok: false, error: 'not found' });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

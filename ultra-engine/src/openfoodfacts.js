@@ -99,4 +99,58 @@ async function logFood({ barcode, quantity_g, meal, notes }) {
   return { ok: true, log: row, consumed };
 }
 
-module.exports = { lookupBarcode, logFood };
+// ════════════════════════════════════════════════════════════
+//  R4 P7 Tier A — Open Food Facts NL search (free, no auth)
+//  Reemplaza CalorieNinjas (gated key). Devuelve top N matches con
+//  nutrition_per_100g. El front llama después /food/log con barcode.
+// ════════════════════════════════════════════════════════════
+async function searchFood(query, { pageSize = 10 } = {}) {
+  if (!query || query.length < 2) return { ok: false, error: 'query >= 2 chars required' };
+  // OFF rate-limits ferozmente UAs no-browser. Mozilla UA pasa el filtro de
+  // Cloudflare. Si recibimos 503, retry una vez tras 1.5s (back-off corto).
+  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=${pageSize}`;
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) UltraSystem/1.0',
+    'Accept': 'application/json',
+  };
+  let r;
+  try {
+    r = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+    if (r.status === 503 || r.status === 429) {
+      await new Promise(res => setTimeout(res, 1500));
+      r = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+    }
+    if (!r.ok) throw new Error(`OFF HTTP ${r.status}`);
+    // Defensive: si no es JSON (CF challenge HTML) report como rate-limited
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('json')) throw new Error('OFF returned non-JSON (CF rate-limit)');
+    const data = await r.json();
+    const products = (data.products || []).map(p => {
+      const n = p.nutriments || {};
+      return {
+        barcode: p.code || p._id,
+        name: p.product_name || p.product_name_en || p.product_name_es || p.generic_name || '?',
+        brand: p.brands || null,
+        quantity: p.quantity || null,
+        nutrition_per_100g: {
+          kcal: n['energy-kcal_100g'] || (n.energy_100g ? Math.round(n.energy_100g / 4.184) : null),
+          protein_g: n.proteins_100g || null,
+          carbs_g: n.carbohydrates_100g || null,
+          fat_g: n.fat_100g || null,
+          fiber_g: n.fiber_100g || null,
+          sugar_g: n.sugars_100g || null,
+          salt_g: n.salt_100g || null,
+        },
+        nutriscore: p.nutriscore_grade || null,
+        image: p.image_thumb_url || null,
+        url: p.code ? `https://world.openfoodfacts.org/product/${p.code}` : null,
+      };
+    });
+    return { ok: true, count: data.count || products.length, results: products };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+
+module.exports = { lookupBarcode, logFood, searchFood };

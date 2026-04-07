@@ -459,39 +459,13 @@ async function fetchCDCTravelNotices() {
 }
 
 // ════════════════════════════════════════════════════════════
-//  ProMED-mail — disease outbreak posts (RSS via promedmail.org)
+//  ProMED-mail — DEPRECATED (RSS discontinued July 2023, paid model)
+//  Coverage gap llenado por: WHO DONS + CDC Outbreaks + GDACS
+//  Si vuelve el feed, restaurar URL aquí. Stub mantenido para no
+//  romper imports/scheduler; siempre devuelve 0 sin red.
 // ════════════════════════════════════════════════════════════
 async function fetchProMED() {
-  try {
-    const r = await fetch('https://promedmail.org/promed-posts/feed/', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const text = await r.text();
-    const feed = await parser.parseString(text).catch(() => ({ items: [] }));
-    const items = feed.items || [];
-    let inserted = 0;
-    for (const it of items.slice(0, 30)) {
-      const title = it.title || '';
-      const country = extractCountryISO(`${title} ${it.contentSnippet || ''}`);
-      let severity = 'medium';
-      if (/fatal|outbreak|epidemic/i.test(title)) severity = 'high';
-      const result = await db.queryOne(
-        `INSERT INTO events_store
-         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
-         VALUES ('promed', $1, 'disease_outbreak', $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (source, external_id) DO NOTHING RETURNING id`,
-        [it.guid || it.link, severity, title.slice(0, 500),
-         (it.contentSnippet || '').slice(0, 1000), country,
-         it.isoDate || new Date(), it.link]
-      );
-      if (result) inserted++;
-    }
-    return { source: 'promed', fetched: items.length, inserted };
-  } catch (err) {
-    return { source: 'promed', fetched: 0, inserted: 0, error: err.message };
-  }
+  return { source: 'promed', fetched: 0, inserted: 0, skipped: 'rss_discontinued_2023' };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -499,37 +473,48 @@ async function fetchProMED() {
 //  Food security alerts Africa/Yemen/Afghanistan/Caribbean
 // ════════════════════════════════════════════════════════════
 async function fetchFEWSNET() {
-  try {
-    const r = await fetch('https://fews.net/rss.xml', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const text = await r.text();
-    const feed = await parser.parseString(text).catch(() => ({ items: [] }));
-    const items = feed.items || [];
-    let inserted = 0;
-    for (const it of items.slice(0, 30)) {
-      const title = it.title || '';
-      const country = extractCountryISO(`${title} ${it.contentSnippet || ''}`);
-      let severity = 'medium';
-      if (/famine|emergency|ipc 4|ipc 5/i.test(title + (it.contentSnippet || ''))) severity = 'critical';
-      else if (/crisis|ipc 3/i.test(title + (it.contentSnippet || ''))) severity = 'high';
-      const result = await db.queryOne(
-        `INSERT INTO events_store
-         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
-         VALUES ('fews_net', $1, 'food_security', $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (source, external_id) DO NOTHING RETURNING id`,
-        [it.guid || it.link, severity, title.slice(0, 500),
-         (it.contentSnippet || '').slice(0, 1000), country,
-         it.isoDate || new Date(), it.link]
-      );
-      if (result) inserted++;
+  // Fix 2026-04-07: /rss.xml → 404. URLs reales bajo /taxonomy/term/{id}/feed.
+  // 3 streams clave: Food Security Outlook (5) + Integrated analysis (44) + Weather Hazards (16)
+  const urls = [
+    'https://fews.net/taxonomy/term/5/feed',
+    'https://fews.net/taxonomy/term/44/feed',
+    'https://fews.net/taxonomy/term/16/feed',
+  ];
+  let totalFetched = 0, totalInserted = 0;
+  const errors = [];
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!r.ok) { errors.push(`${url}:HTTP${r.status}`); continue; }
+      const text = await r.text();
+      const feed = await parser.parseString(text).catch(() => ({ items: [] }));
+      const items = feed.items || [];
+      totalFetched += items.length;
+      for (const it of items.slice(0, 30)) {
+        const title = it.title || '';
+        const country = extractCountryISO(`${title} ${it.contentSnippet || ''}`);
+        let severity = 'medium';
+        if (/famine|emergency|ipc 4|ipc 5/i.test(title + (it.contentSnippet || ''))) severity = 'critical';
+        else if (/crisis|ipc 3/i.test(title + (it.contentSnippet || ''))) severity = 'high';
+        const result = await db.queryOne(
+          `INSERT INTO events_store
+           (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
+           VALUES ('fews_net', $1, 'food_security', $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (source, external_id) DO NOTHING RETURNING id`,
+          [it.guid || it.link, severity, title.slice(0, 500),
+           (it.contentSnippet || '').slice(0, 1000), country,
+           it.isoDate || new Date(), it.link]
+        );
+        if (result) totalInserted++;
+      }
+    } catch (err) {
+      errors.push(`${url}:${err.message}`);
     }
-    return { source: 'fews_net', fetched: items.length, inserted };
-  } catch (err) {
-    return { source: 'fews_net', fetched: 0, inserted: 0, error: err.message };
   }
+  return { source: 'fews_net', fetched: totalFetched, inserted: totalInserted, ...(errors.length && { errors }) };
 }
 
 // ════════════════════════════════════════════════════════════

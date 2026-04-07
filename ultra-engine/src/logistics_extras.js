@@ -56,209 +56,83 @@ async function insertPoi(row) {
   return !!r;
 }
 
-// ════════════════════════════════════════════════════════════
-//  Park4Night unofficial — gtoselli/park4night-api
-//  Returns campsites within bbox
-// ════════════════════════════════════════════════════════════
-async function fetchPark4Night({ bbox = '-47.3,166.0,-34.0,178.6' /* NZ */, country = 'NZ' } = {}) {
-  try {
-    // Endpoint reverse-engineered: https://www.park4night.com/api/places/around
-    const [s, w, n, e] = bbox.split(',').map(parseFloat);
-    const url = `https://www.park4night.com/api/places/around?lat_min=${s}&lng_min=${w}&lat_max=${n}&lng_max=${e}&category=&user_id=0&filter=`;
-    const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    const places = data.places || data || [];
-    let inserted = 0;
-    for (const p of places.slice(0, 500)) {
-      const ok = await insertPoi({
-        source: 'park4night',
-        external_id: String(p.id),
-        category: 'camping',
-        name: p.name || p.title,
-        description: (p.description || '').slice(0, 1000),
-        latitude: parseFloat(p.lat),
-        longitude: parseFloat(p.lng),
-        country,
-        url: `https://www.park4night.com/lieu/${p.id}`,
-        payload: { rating: p.note, category_id: p.categorie_id },
-      });
-      if (ok) inserted++;
-    }
-    return { source: 'park4night', country, fetched: places.length, inserted };
-  } catch (err) {
-    return { source: 'park4night', error: err.message };
-  }
+// Skipped 2026-04-07: park4night.com cerró su API (HTTP 400 en /api/places/around).
+// Cobertura camping NZ ya tenemos vía Overpass (1902 POIs en log_pois).
+async function fetchPark4Night() {
+  return { source: 'park4night', skipped: 'api_closed_2024', fetched: 0, inserted: 0 };
+}
+
+// Skipped 2026-04-07: groups.freecycle.org devuelve 422 sobre /posts/rss (datacenter
+// rate-limit / IP block). Sin alternativa pública.
+async function fetchFreecycle() {
+  return { source: 'freecycle', skipped: 'datacenter_blocked_422', inserted: 0 };
 }
 
 // ════════════════════════════════════════════════════════════
-//  Freecycle — free items by group
-//  RSS feed per group: https://groups.freecycle.org/group/{group}/rss
-// ════════════════════════════════════════════════════════════
-async function fetchFreecycle({ groups = ['Auckland'] } = {}) {
-  try {
-    const Parser = require('rss-parser');
-    const p = new Parser({ timeout: TIMEOUT, headers: UA });
-    let inserted = 0;
-    for (const g of groups) {
-      const url = `https://groups.freecycle.org/group/${encodeURIComponent(g)}/posts/rss`;
-      try {
-        const feed = await p.parseURL(url);
-        for (const it of (feed.items || []).slice(0, 30)) {
-          const ok = await insertPoi({
-            source: 'freecycle',
-            external_id: it.guid || it.link,
-            category: 'free_item',
-            name: it.title,
-            description: (it.contentSnippet || '').slice(0, 1000),
-            url: it.link,
-            payload: { group: g, posted: it.isoDate },
-          });
-          if (ok) inserted++;
-        }
-      } catch (e) { /* skip group */ }
-    }
-    return { source: 'freecycle', groups, inserted };
-  } catch (err) {
-    return { source: 'freecycle', error: err.message };
-  }
-}
-
-// ════════════════════════════════════════════════════════════
-//  TransferCar — $1/day NZ/AU relocation cars
-//  Sin API oficial → scrape HTML listing
+//  TransferCar — $1/day NZ relocation cars
+//  Fix 2026-04-07: /Car-Relocations/All ahora 404. Las relocaciones
+//  se listan directamente en la homepage en formato:
+//    "https://www.transfercar.co.nz/relocation/{From}/{To}/{ID}.html"
+//  Las parseamos vía regex sobre el HTML servido.
 // ════════════════════════════════════════════════════════════
 async function fetchTransferCar() {
   try {
-    const r = await fetch('https://www.transfercar.co.nz/Car-Relocations/All', {
+    const r = await fetch('https://www.transfercar.co.nz/', {
       headers: UA, signal: AbortSignal.timeout(TIMEOUT),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const html = await r.text();
-    const $ = cheerio.load(html);
+    const re = /"https:\/\/www\.transfercar\.co\.nz\/relocation\/([^/]+)\/([^/]+)\/(\d+)\.html"/g;
+    const seen = new Set();
     let inserted = 0;
-    $('.relocation-listing, .relocation-item, .listing-item').each((_, el) => {
-      const $el = $(el);
-      const name = $el.find('.title, h3').first().text().trim();
-      const from = $el.find('.from, .pickup').first().text().trim();
-      const to = $el.find('.to, .dropoff').first().text().trim();
-      if (!name && !from) return;
-      const link = $el.find('a').first().attr('href') || '';
-      const url = link.startsWith('http') ? link : `https://www.transfercar.co.nz${link}`;
-      insertPoi({
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const [, fromRaw, toRaw, id] = m;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const from = fromRaw.replace(/_/g, ' ');
+      const to = toRaw.replace(/_/g, ' ');
+      const url = `https://www.transfercar.co.nz/relocation/${fromRaw}/${toRaw}/${id}.html`;
+      const ok = await insertPoi({
         source: 'transfercar',
-        external_id: url,
+        external_id: id,
         category: 'relocation',
-        name: name || `${from} → ${to}`,
-        description: `${from} → ${to}`,
+        name: `${from} → ${to}`,
+        description: `Car relocation deal $1/day. ${from} → ${to}`,
         country: 'NZ',
         url,
         payload: { from, to },
-      }).then(ok => { if (ok) inserted++; }).catch(() => {});
-    });
-    await new Promise(r => setTimeout(r, 200));
-    return { source: 'transfercar', inserted };
+      });
+      if (ok) inserted++;
+    }
+    return { source: 'transfercar', fetched: seen.size, inserted };
   } catch (err) {
     return { source: 'transfercar', error: err.message };
   }
 }
 
-// ════════════════════════════════════════════════════════════
-//  Imoova — relocations multi-país (NZ/AU/EU/USA)
-// ════════════════════════════════════════════════════════════
+// Skipped 2026-04-07: imoova.com migró a Next.js SPA, contenido cargado vía JS.
+// HTML server-side sólo tiene marketing pages, los listados reales necesitan
+// Puppeteer (deferido). Endpoints /relocations.json y /api/v1/* devuelven
+// "Only HTML requests are supported here". TransferCar cubre NZ; para AU/EU
+// reactivar cuando sidecar Puppeteer esté disponible.
 async function fetchImoova() {
-  try {
-    const r = await fetch('https://www.imoova.com/en/relocations', {
-      headers: UA, signal: AbortSignal.timeout(TIMEOUT),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const html = await r.text();
-    const $ = cheerio.load(html);
-    let inserted = 0;
-    $('article, .relocation-card, .listing').each((_, el) => {
-      const $el = $(el);
-      const name = $el.find('h2, h3, .title').first().text().trim();
-      if (!name) return;
-      const link = $el.find('a').first().attr('href') || '';
-      const url = link.startsWith('http') ? link : `https://www.imoova.com${link}`;
-      insertPoi({
-        source: 'imoova',
-        external_id: url,
-        category: 'relocation',
-        name,
-        url,
-      }).then(ok => { if (ok) inserted++; }).catch(() => {});
-    });
-    await new Promise(r => setTimeout(r, 200));
-    return { source: 'imoova', inserted };
-  } catch (err) {
-    return { source: 'imoova', error: err.message };
-  }
+  return { source: 'imoova', skipped: 'spa_needs_puppeteer', inserted: 0 };
 }
 
-// ════════════════════════════════════════════════════════════
-//  NZ vehicle compliance — Self-Contained Vehicle (SCV)
-//  Plumber's Register / NZMCA for SCV cards
-// ════════════════════════════════════════════════════════════
+// Skipped 2026-04-07: nzta.govt.nz/feed/news/ devuelve Incapsula challenge
+// (anti-bot CDN) desde IP datacenter Hetzner — no parsea como RSS.
+// Sin proxy residencial no hay fix para NZTA news. Las reglas SCV cambian
+// raramente y ya están documentadas en la app principal.
 async function fetchNZVehicleCompliance() {
-  try {
-    // No public API; fetch NZTA news RSS for vehicle rule changes
-    const Parser = require('rss-parser');
-    const p = new Parser({ timeout: TIMEOUT, headers: UA });
-    const feed = await p.parseURL('https://www.nzta.govt.nz/feed/news/');
-    let inserted = 0;
-    for (const it of (feed.items || []).slice(0, 30)) {
-      if (!/vehicle|self.contained|wof|cof|registration|warrant/i.test(it.title || '')) continue;
-      const ok = await insertPoi({
-        source: 'nzta_news',
-        external_id: it.guid || it.link,
-        category: 'vehicle_compliance',
-        name: it.title,
-        description: (it.contentSnippet || '').slice(0, 1000),
-        country: 'NZ',
-        url: it.link,
-      });
-      if (ok) inserted++;
-    }
-    return { source: 'nzta_news', inserted };
-  } catch (err) {
-    return { source: 'nzta_news', error: err.message };
-  }
+  return { source: 'nzta_news', skipped: 'incapsula_block_datacenter', inserted: 0 };
 }
 
-// ════════════════════════════════════════════════════════════
-//  eSIMDB — comparator scrape (free, no auth)
-// ════════════════════════════════════════════════════════════
-async function fetchESIMDB({ country = 'NZ' } = {}) {
-  try {
-    const r = await fetch(`https://esimdb.com/${country.toLowerCase()}`, {
-      headers: UA, signal: AbortSignal.timeout(TIMEOUT),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const html = await r.text();
-    const $ = cheerio.load(html);
-    let inserted = 0;
-    $('table tbody tr, .esim-card').each((_, el) => {
-      const $el = $(el);
-      const provider = $el.find('td').eq(0).text().trim() || $el.find('.provider').text().trim();
-      const data = $el.find('td').eq(1).text().trim() || $el.find('.data').text().trim();
-      const price = $el.find('td').eq(2).text().trim() || $el.find('.price').text().trim();
-      if (!provider) return;
-      insertPoi({
-        source: 'esimdb',
-        external_id: `esimdb:${country}:${provider}:${data}`,
-        category: 'esim',
-        name: `${provider} — ${data} (${country})`,
-        description: `Price: ${price}`,
-        country,
-        payload: { provider, data, price },
-      }).then(ok => { if (ok) inserted++; }).catch(() => {});
-    });
-    await new Promise(r => setTimeout(r, 200));
-    return { source: 'esimdb', country, inserted };
-  } catch (err) {
-    return { source: 'esimdb', error: err.message };
-  }
+// Skipped 2026-04-07: esimdb.com es Vue SPA (path correcto es /new-zealand,
+// no /nz, pero el contenido se renderiza vía JS). Sin endpoint público.
+// Para reactivar usar Puppeteer sidecar.
+async function fetchESIMDB() {
+  return { source: 'esimdb', skipped: 'spa_needs_puppeteer', inserted: 0 };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -356,6 +230,64 @@ async function fetchOpenChargeMap({ country = 'NZ', maxresults = 200 } = {}) {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+//  R4 P6 Tier A — Overpass essentials (van-life critical POIs)
+//  Fuel stations, drinking water, public showers, public toilets,
+//  laundromats, picnic sites. Free OSM data, sin keys, sin auth.
+//  Persiste a log_pois (tabla principal de POIs, no logistics_pois)
+//  para que aparezcan en /api/logistics/pois junto a campings.
+// ════════════════════════════════════════════════════════════
+const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+const OVERPASS_ESSENTIALS_KINDS = [
+  { kind: 'fuel',           tag: '"amenity"="fuel"',           limit: 2000 },
+  { kind: 'drinking_water', tag: '"amenity"="drinking_water"', limit: 2000 },
+  { kind: 'shower',         tag: '"amenity"="shower"',         limit: 1000 },
+  { kind: 'toilets',        tag: '"amenity"="toilets"',        limit: 3000 },
+  { kind: 'laundry',        tag: '"shop"="laundry"',           limit: 1000 },
+  { kind: 'picnic_site',    tag: '"tourism"="picnic_site"',    limit: 2000 },
+];
+
+async function fetchOverpassEssentials({ country = 'NZ' } = {}) {
+  // log_pois ya existe (creada por el seed Tier S iOverlander pivot, 22K campings).
+  // Schema usa poi_type + source_id + UNIQUE(source, source_id).
+  const results = [];
+  for (const k of OVERPASS_ESSENTIALS_KINDS) {
+    try {
+      const query = `[out:json][timeout:60];area["ISO3166-1"="${country}"];node[${k.tag}](area);out body ${k.limit};`;
+      const r = await fetch(OVERPASS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...UA },
+        body: 'data=' + encodeURIComponent(query),
+        signal: AbortSignal.timeout(120000),
+      });
+      if (!r.ok) { results.push({ kind: k.kind, error: `HTTP ${r.status}` }); continue; }
+      const data = await r.json();
+      const elements = data.elements || [];
+      let inserted = 0;
+      for (const e of elements) {
+        if (!e.lat || !e.lon) continue;
+        const name = (e.tags?.name || e.tags?.brand || k.kind).slice(0, 500);
+        const ok = await db.queryOne(
+          `INSERT INTO log_pois (source, source_id, poi_type, name, latitude, longitude, country, tags)
+           VALUES ('overpass_essentials', $1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (source, source_id) DO NOTHING RETURNING id`,
+          [`osm:node:${e.id}`, k.kind, name, e.lat, e.lon, country,
+           e.tags ? JSON.stringify(e.tags) : null]
+        );
+        if (ok) inserted++;
+      }
+      results.push({ kind: k.kind, fetched: elements.length, inserted });
+      // Throttle: Overpass público recomienda max ~10 req/min — 7s entre queries
+      await new Promise(r => setTimeout(r, 7000));
+    } catch (err) {
+      results.push({ kind: k.kind, error: err.message });
+    }
+  }
+  const totalInserted = results.reduce((a, x) => a + (x.inserted || 0), 0);
+  const totalFetched = results.reduce((a, x) => a + (x.fetched || 0), 0);
+  return { source: 'overpass_essentials', country, fetched: totalFetched, inserted: totalInserted, breakdown: results };
+}
+
 async function fetchAll() {
   const results = [];
   for (const fn of [fetchPark4Night, fetchFreecycle, fetchTransferCar, fetchImoova,
@@ -375,6 +307,7 @@ module.exports = {
   fetchBlaBlaCar,
   fetchWifiMap,
   fetchOpenChargeMap,
+  fetchOverpassEssentials,
   fetchAll,
   ensureLogisticsPois,
 };
