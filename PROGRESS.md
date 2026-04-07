@@ -58,6 +58,42 @@
 **Pendiente (sesión siguiente, step 3 = Tier A R5):**
 - Wire resto de SPAs críticos via puppeteer: Immunefi (bug bounties), Park4Night (van-life campings), IssueHunt, Imoova, eSIMDB, Lablab.
 - Nuevos fetchers R5: Trustroots/BeWelcome/WarmShowers (hospitality), OSS-Fund/NumFOCUS (grants OSS), Greenhouse/Lever job boards masivos.
+
+## Tier A R5 — SPA sweep + nuevo fetcher (post-R4 step 3 + 4) ✅
+
+Acumulado de 5 commits el 2026-04-08 (139d006, fe801b8, 0b2e8a6, ffd3059, 2d49fcd):
+
+**SPAs reactivados vía Puppeteer sidecar (4 de 7 objetivos):**
+- [2026-04-08] | **Code4rena** — `a[href*="/audits/"]` en /audits, limpia prefijos "ENDS IN N DAYS/JUDGING/MITIGATION REVIEW", score vs "solidity audit web3". Live: **50 inserted**.
+- [2026-04-08] | **Immunefi** — `a[href*="/bug-bounty/"]` en /explore (no /bug-bounty-program/, que sí es virtual-scroll SPA). Reward parse $K/$M, limpia sufijo "View bounty". Live: **10 inserted**.
+- [2026-04-08] | **Lablab** — `a[href*="/ai-hackathons/"]` en /event. Chromium real bypassa el CF challenge que bloqueaba el RSS desde Hetzner datacenter. Score vs "AI hackathon LLM GPT". Live: **132 inserted** (14 high-score).
+- [2026-04-08] | **Imoova** — `a[href*="/en/relocations/deal/"]` en /en/relocations. external_id = RLC{######} parse desde slug. Route "From → To" parsed desde text. Table `logistics_pois`, category `vehicle_relocation`. Live: **50 inserted**.
+
+**SPAs descopeados (con BACKLOG entry + razón):**
+- [2026-04-08] | **Park4Night** — Prio alta. DOM es React map-app con lazy-load por viewport. Necesita click-in-markers, intercept network, o sitemap parse. BACKLOG con 3 approaches.
+- [2026-04-08] | **eSIMDB** — Prio media. DOM ruidoso (1888 `[class*=price]`, 2587 `[class*=provider]`, 0 anchors a detail). Necesita `evaluate` con selector custom o interceptar GraphQL interno. BACKLOG.
+- [2026-04-08] | **IssueHunt** — Prio baja. /explore devuelve 0 anchors, API necesita session token (account-bound). Movido a SIGNUPS.md step 4 territory.
+
+**Nuevo fetcher (no-auth, R5 step 4):**
+- [2026-04-08] | **OpenCollective** — GraphQL v2 `api.opencollective.com/graphql/v2`, query `accounts(tag:["open source"], orderBy:ACTIVITY)`, sin auth, 12K+ collectives disponibles, category `oss_fundraising`, external_id `oc:{slug}`. Live: **30 inserted**.
+
+**Hospitality networks → SIGNUPS.md (descope intencional, step 4):**
+- [2026-04-08] | **Trustroots / BeWelcome / WarmShowers** — los 3 son free pero requieren cuenta. Añadidos a "Prioridad media" en SIGNUPS.md con variables `.env` y notas (privacy-first, solo handles + lat/lon).
+
+**Sidecar bug fix (bonus):**
+- [2026-04-08] | **`evaluate` param en puppeteer-sidecar/server.js** — ejecutaba `new Function(...)()` en Node context (document undefined). Fix: `page.evaluate(`(() => (${expr}))()`)`. Validado con `{title: document.title}` vs example.com. Habilita inspección DOM ad-hoc sin selectors previos — útil para futuros unlocks de eSIMDB/Park4Night.
+
+**R5 BOTTOM LINE verificado en producción:**
+| Tabla | Source | Rows |
+|---|---|---|
+| opportunities | Code4rena | 50 |
+| opportunities | Immunefi | 10 |
+| opportunities | Lablab | 132 |
+| opportunities | OpenCollective | 30 |
+| logistics_pois | imoova | 50 |
+| **TOTAL R5** | — | **272 fresh rows** |
+
+RAM containers: 4.2GB/15GB tras añadir firefly + puppeteer (de 3.7GB pre-R5). Holgado.
 - Tax bridge: decidir si `tax_reporting` lee agregados de Firefly o sigue 100% custom.
 
 ## En progreso 🔄
