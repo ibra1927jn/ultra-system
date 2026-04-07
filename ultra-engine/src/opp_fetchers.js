@@ -330,6 +330,16 @@ const FETCHERS = [
   ['Galxe', fetchGalxe],
   ['Layer3', fetchLayer3],
   ['Zealy', fetchZealy],
+  ['SolanaColosseum', fetchSolanaColosseum],
+  ['Kaggle', fetchKaggle],
+  ['ETHGlobal', fetchETHGlobal],
+  ['Dework', fetchDework],
+  ['FLOSSFund', fetchFLOSSFund],
+  ['GitHubFund', fetchGitHubFund],
+  ['Clist', fetchClist],
+  ['GitHubTrending', fetchGitHubTrending],
+  ['Greenhouse', fetchGreenhouse],
+  ['GetOnBoardFull', fetchGetOnBoardFull],
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -810,43 +820,185 @@ async function fetchHuntr() {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  GREENHOUSE public Job Board API — boards-api.greenhouse.io
+//  No auth, free, 1 endpoint per empresa. Cubre Stripe, Twilio,
+//  Cloudflare, Anthropic, Datadog, MongoDB y +14 empresas top.
+// ═══════════════════════════════════════════════════════════
+const GREENHOUSE_COMPANIES = [
+  'stripe', 'twilio', 'cloudflare', 'anthropic', 'datadog', 'mongodb',
+  'okta', 'brex', 'airbnb', 'elastic', 'gitlab', 'coinbase', 'reddit',
+  'lyft', 'figma', 'instacart', 'pinterest', 'dropbox', 'vercel', 'mercury',
+];
+
+async function fetchGreenhouse() {
+  let totalFetched = 0, totalIns = 0, totalScore = 0;
+  const errors = [];
+  for (const company of GREENHOUSE_COMPANIES) {
+    try {
+      const r = await fetch(`https://boards-api.greenhouse.io/v1/boards/${company}/jobs`, {
+        headers: UA,
+        signal: AbortSignal.timeout(TIMEOUT),
+      });
+      if (!r.ok) { errors.push(`${company}:${r.status}`); continue; }
+      const data = await r.json();
+      const jobs = data.jobs || [];
+      totalFetched += jobs.length;
+      for (const j of jobs) {
+        if (!j.absolute_url || !j.title) continue;
+        const loc = j.location?.name || '';
+        const text = `${j.title} ${company} ${loc}`;
+        const score = await scoreText(text);
+        try {
+          const ok = await insertOpportunity({
+            title: `${j.title} @ ${company}`.slice(0, 500),
+            source: 'Greenhouse',
+            url: j.absolute_url,
+            category: /remote/i.test(loc) ? 'remote' : 'onsite',
+            description: `Company: ${company}. Location: ${loc}`.slice(0, 1500),
+            payout_type: 'salary',
+            currency: 'USD',
+            tags: [company, loc.toLowerCase().includes('remote') ? 'remote' : 'onsite'],
+            match_score: score,
+            external_id: `gh:${company}:${j.id}`,
+            posted_at: j.updated_at ? new Date(j.updated_at) : null,
+          });
+          if (ok) { totalIns++; if (score >= 8) totalScore++; }
+        } catch { /* skip row */ }
+      }
+      await new Promise(r => setTimeout(r, 300));
+    } catch (e) {
+      errors.push(`${company}:${e.message}`);
+    }
+  }
+  return {
+    source: 'Greenhouse',
+    total: totalFetched,
+    inserted: totalIns,
+    highScore: totalScore,
+    ...(errors.length ? { errors: errors.slice(0, 5) } : {}),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
 //  GetOnBoard LATAM — public API for remote jobs
 //  https://www.getonbrd.com/api/v0/jobs
 // ═══════════════════════════════════════════════════════════
-async function fetchGetOnBoard() {
-  try {
-    const r = await fetch('https://www.getonbrd.com/api/v0/jobs?expand=[%22tags%22,%22categories%22,%22company%22]&per_page=30', {
-      headers: { ...UA, Accept: 'application/json' },
-      signal: AbortSignal.timeout(TIMEOUT),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    const jobs = data.data || [];
-    let inserted = 0, highScore = 0;
-    for (const j of jobs) {
-      const a = j.attributes || {};
-      const title = a.title || '';
-      const company = a.company?.data?.attributes?.name || '';
-      const text = `${title} ${a.description || ''}`;
-      const score = await scoreText(text);
-      const ok = await insertOpportunity({
-        title: `${title} @ ${company}`,
-        source: 'GetOnBoard',
-        url: a.url,
-        category: 'remote',
-        description: (a.description || '').replace(/<[^>]*>/g, '').slice(0, 1500),
-        match_score: score,
-        external_id: `getonbrd:${j.id}`,
-        salary_min: a.min_salary, salary_max: a.max_salary, currency: 'USD',
-        tags: ['latam'],
-        posted_at: a.published_at ? new Date(a.published_at) : null,
-      });
-      if (ok) { inserted++; if (score >= 8) highScore++; }
-    }
-    return { source: 'GetOnBoard', total: jobs.length, inserted, highScore };
-  } catch (err) {
-    return { source: 'GetOnBoard', error: err.message, total: 0, inserted: 0, highScore: 0 };
+// ─── GetOnBoard /jobs FULL feed (OAuth2 client_credentials) ───
+// Cuando registres OAuth app en https://www.getonbrd.com/api/oauth/applications
+// añade GETONBRD_CLIENT_ID + GETONBRD_CLIENT_SECRET al .env y este fetcher
+// hace token bootstrap + paginación completa de TODOS los jobs (no sólo categorías).
+let _gobToken = null;
+let _gobExpires = 0;
+
+async function fetchGetOnBoardFull() {
+  const cid = process.env.GETONBRD_CLIENT_ID;
+  const sec = process.env.GETONBRD_CLIENT_SECRET;
+  if (!cid || !sec) {
+    return { source: 'GetOnBoardFull', total: 0, inserted: 0, highScore: 0, skipped: 'GETONBRD_CLIENT_ID + _SECRET no configurados' };
   }
+  try {
+    // Token bootstrap
+    if (!_gobToken || Date.now() > _gobExpires - 60000) {
+      const tr = await fetch('https://www.getonbrd.com/api/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=client_credentials&client_id=${cid}&client_secret=${sec}`,
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!tr.ok) throw new Error(`OAuth HTTP ${tr.status}`);
+      const tdata = await tr.json();
+      _gobToken = tdata.access_token;
+      _gobExpires = Date.now() + (tdata.expires_in || 7200) * 1000;
+    }
+    // Pagination loop
+    let totalIns = 0, totalScore = 0, totalFetched = 0;
+    let page = 1;
+    const maxPages = 5;
+    while (page <= maxPages) {
+      const r = await fetch(`https://www.getonbrd.com/api/v0/jobs?page=${page}&per_page=50`, {
+        headers: { Authorization: `Bearer ${_gobToken}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(TIMEOUT),
+      });
+      if (!r.ok) break;
+      const data = await r.json();
+      const jobs = data.data || [];
+      if (!jobs.length) break;
+      totalFetched += jobs.length;
+      for (const j of jobs) {
+        const a = j.attributes || {};
+        const title = a.title || '';
+        const company = a.company?.data?.attributes?.long_name || '';
+        const score = await scoreText(`${title} ${a.description_headline || ''}`);
+        try {
+          const ok = await insertOpportunity({
+            title: (`${title}${company ? ' @ ' + company : ''}`).slice(0, 500),
+            source: 'GetOnBoardFull',
+            url: `https://www.getonbrd.com/jobs/${j.id}`,
+            category: 'remote',
+            description: (a.description_headline || '').slice(0, 1500),
+            match_score: score,
+            external_id: `gob-full:${j.id}`,
+            salary_min: a.min_salary || null, salary_max: a.max_salary || null, currency: 'USD',
+            tags: ['latam', 'oauth-full'],
+            posted_at: a.published_at ? new Date(a.published_at * 1000) : null,
+          });
+          if (ok) { totalIns++; if (score >= 8) totalScore++; }
+        } catch { /* skip */ }
+      }
+      if (jobs.length < 50) break;
+      page++;
+      await new Promise(r => setTimeout(r, 800));
+    }
+    return { source: 'GetOnBoardFull', total: totalFetched, inserted: totalIns, highScore: totalScore };
+  } catch (err) {
+    return { source: 'GetOnBoardFull', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+// R5 fix: GetOnBoard endpoint correcto es /api/v0/categories/{cat}/jobs
+// (sin auth, public). El endpoint /jobs requería OAuth. Itera categorías relevantes.
+async function fetchGetOnBoard() {
+  const CATS = ['programming', 'design', 'mobile', 'devops-sysadmin', 'data-science-analytics'];
+  let totalIns = 0, totalScore = 0, totalFetched = 0;
+  for (const cat of CATS) {
+    try {
+      const r = await fetch(`https://www.getonbrd.com/api/v0/categories/${cat}/jobs?per_page=20`, {
+        headers: { ...UA, Accept: 'application/json' },
+        signal: AbortSignal.timeout(TIMEOUT),
+      });
+      if (!r.ok) continue;
+      const data = await r.json();
+      const jobs = data.data || [];
+      totalFetched += jobs.length;
+      for (const j of jobs) {
+        const a = j.attributes || {};
+        const title = a.title || '';
+        const company = a.company?.data?.attributes?.long_name || '';
+        // a.tags es {data: [...]} JSONAPI relationship, no array. Extraer names si existe.
+        const tagNames = Array.isArray(a.tags?.data) ? a.tags.data.map(t => t.attributes?.name || t.id).filter(Boolean) : [];
+        const text = `${title} ${a.description_headline || ''} ${tagNames.join(' ')}`;
+        const score = await scoreText(text);
+        const jobUrl = `https://www.getonbrd.com/jobs/${j.id}`;
+        try {
+          const ok = await insertOpportunity({
+            title: (`${title}${company ? ' @ ' + company : ''}`).slice(0, 500),
+            source: 'GetOnBoard',
+            url: jobUrl,
+            category: 'remote',
+            description: (a.description_headline || '').replace(/<[^>]*>/g, '').slice(0, 1500),
+            match_score: score,
+            external_id: `getonbrd:${j.id}`,
+            salary_min: a.min_salary || null, salary_max: a.max_salary || null, currency: 'USD',
+            tags: ['latam', cat].concat((a.countries || []).slice(0, 3)),
+            posted_at: a.published_at ? new Date(a.published_at * 1000) : null,
+          });
+          if (ok) { totalIns++; if (score >= 8) totalScore++; }
+        } catch (insErr) { /* skip row */ }
+      }
+      await new Promise(r => setTimeout(r, 500));
+    } catch (e) { /* skip cat */ }
+  }
+  return { source: 'GetOnBoard', total: totalFetched, inserted: totalIns, highScore: totalScore };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -950,36 +1102,42 @@ async function fetchLablab() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  Torre.ai — LATAM remote jobs API
+//  Torre.ai — global jobs aggregator (160K+ live opportunities)
+//  R5 fix: el body correcto es {and:[{and:[]}]} (POST), trailing slash en URL
+//  Endpoint público: search.torre.co/opportunities/_search/?size=N
 // ═══════════════════════════════════════════════════════════
-async function fetchTorreAI() {
+async function fetchTorreAI({ size = 30 } = {}) {
+  // Torre limita a max 30 per request por User-Agent. Para más usar paginación.
   try {
-    const r = await fetch('https://search.torre.co/opportunities/_search', {
+    const r = await fetch(`https://search.torre.co/opportunities/_search/?size=${size}`, {
       method: 'POST',
       headers: { ...UA, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        and: [{ 'remote': 'YES' }, { 'opportunity.compensation.data.minAmount[gte]': 0 }],
-        size: 30,
-      }),
+      body: JSON.stringify({ and: [{ and: [] }] }),
       signal: AbortSignal.timeout(TIMEOUT),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
-    const items = data.results || data.opportunities || [];
+    const items = data.results || [];
     let inserted = 0, highScore = 0;
     for (const j of items) {
       const title = j.objective || j.name || '';
-      const text = `${title} ${(j.skills || []).join(' ')}`;
+      const slug = j.slug || j.id;
+      const text = `${title} ${j.tagline || ''} ${(j.skills || []).map(s => s.name || s).join(' ')}`;
       const score = await scoreText(text);
+      const comp = j.compensation || {};
       const ok = await insertOpportunity({
-        title,
+        title: title.slice(0, 500),
         source: 'TorreAI',
-        url: `https://torre.ai/opportunity/${j.id}`,
-        category: 'remote',
-        description: (j.objective || '').slice(0, 1500),
+        url: `https://torre.ai/jobs/${slug || j.id}`,
+        category: j.type || 'remote',
+        description: (j.tagline || j.objective || '').slice(0, 1500),
+        payout_type: comp.periodicity || 'monthly',
+        salary_min: comp.minAmount || null,
+        salary_max: comp.maxAmount || null,
+        currency: (comp.currency || 'USD').slice(0, 3),
         match_score: score,
         external_id: `torre:${j.id}`,
-        tags: ['latam', 'remote'],
+        tags: ['torre', j.type, ...(j.locations || []).map(l => l.name).filter(Boolean)].filter(Boolean).slice(0, 5),
       });
       if (ok) { inserted++; if (score >= 8) highScore++; }
     }
@@ -1144,6 +1302,322 @@ async function fetchAll() {
   return { totalInserted, totalHighScore, bySource: results };
 }
 
+// ═══════════════════════════════════════════════════════════
+//  TIER A round 3 — additional opportunity sources
+// ═══════════════════════════════════════════════════════════
+
+// Superteam Earn — Solana ecosystem bounties + grants + projects (free, no auth)
+// Replaces broken Solana Colosseum (HTML wrapper). superteam.fun/api/listings devuelve JSON real.
+async function fetchSolanaColosseum() {
+  try {
+    const r = await fetch('https://earn.superteam.fun/api/listings?take=50', {
+      headers: UA, redirect: 'follow', signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`Superteam HTTP ${r.status}`);
+    const items = await r.json();
+    let inserted = 0, total = items.length, highScore = 0;
+    for (const it of items) {
+      const slug = it.slug || it.id;
+      const url = `https://earn.superteam.fun/listings/${it.type || 'bounty'}/${slug}`;
+      const score = await scoreText(`${it.title} ${it.description || ''}`);
+      // currency col is VARCHAR(3): map ERC tokens to closest fiat or 'CRY'
+      const tokenRaw = (it.token || 'USDC').toUpperCase();
+      const currency = tokenRaw.length <= 3 ? tokenRaw : (tokenRaw.startsWith('USD') ? 'USD' : 'CRY');
+      const ok = await insertOpportunity({
+        title: it.title,
+        source: 'superteam_earn',
+        url,
+        category: it.type || 'bounty',
+        description: (it.description || '').slice(0, 1000),
+        payout_type: it.compensationType || 'fixed',
+        salary_min: it.minRewardAsk || null,
+        salary_max: it.rewardAmount || it.maxRewardAsk || null,
+        currency,
+        match_score: score,
+        external_id: it.id,
+        posted_at: it.deadline ? new Date(it.deadline) : null,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'superteam_earn', total, inserted, highScore };
+  } catch (err) {
+    return { source: 'superteam_earn', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// Kaggle competitions — gated por KAGGLE_USERNAME + KAGGLE_KEY
+// Docs: https://www.kaggle.com/docs/api
+async function fetchKaggle() {
+  const user = process.env.KAGGLE_USERNAME;
+  const key = process.env.KAGGLE_KEY;
+  if (!user || !key) {
+    return { source: 'kaggle', total: 0, inserted: 0, highScore: 0, skipped: 'KAGGLE_USERNAME+KAGGLE_KEY no configurados' };
+  }
+  try {
+    const auth = Buffer.from(`${user}:${key}`).toString('base64');
+    const r = await fetch('https://www.kaggle.com/api/v1/competitions/list?category=all', {
+      headers: { Authorization: `Basic ${auth}`, ...UA },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`Kaggle HTTP ${r.status}`);
+    const comps = await r.json();
+    let inserted = 0, highScore = 0;
+    for (const c of (comps || []).slice(0, 50)) {
+      const score = await scoreText(`${c.title} ${c.description || ''}`);
+      const ok = await insertOpportunity({
+        title: c.title,
+        source: 'kaggle',
+        url: c.url || `https://www.kaggle.com/c/${c.ref}`,
+        category: 'competition',
+        description: c.description || '',
+        payout_type: 'prize',
+        salary_max: c.reward ? parseFloat(String(c.reward).replace(/[^\d.]/g, '')) || null : null,
+        currency: 'USD',
+        match_score: score,
+        external_id: String(c.id || c.ref),
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'kaggle', total: comps.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'kaggle', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// ETHGlobal hackathons — sin endpoint JSON público.
+// Pivot: scrape el HTML Next.js de /events y extrae <a href="/events/SLUG">.
+async function fetchETHGlobal() {
+  try {
+    const r = await fetch('https://ethglobal.com/events', {
+      headers: { ...UA, Accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`ETHGlobal HTTP ${r.status}`);
+    const html = await r.text();
+    // Match <a class="..." href="/events/SLUG"> repeated for each event card
+    const slugRe = /href="\/events\/([a-z0-9-]+)"/g;
+    const slugs = new Set();
+    let m;
+    while ((m = slugRe.exec(html)) !== null) {
+      if (!m[1].includes('/')) slugs.add(m[1]);
+    }
+    let inserted = 0, highScore = 0;
+    for (const slug of slugs) {
+      const url = `https://ethglobal.com/events/${slug}`;
+      // Title heurística desde slug
+      const title = `ETHGlobal ${slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`;
+      const score = await scoreText(`${title} ethereum hackathon web3 prize`);
+      const ok = await insertOpportunity({
+        title,
+        source: 'ethglobal',
+        url,
+        category: 'hackathon',
+        description: 'ETHGlobal hackathon — verifica detalles en página oficial',
+        payout_type: 'prize',
+        currency: 'USD',
+        match_score: score,
+        external_id: `ethglobal:${slug}`,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'ethglobal', total: slugs.size, inserted, highScore };
+  } catch (err) {
+    return { source: 'ethglobal', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// Dework DAO bounties — gated por DEWORK_API_KEY (GraphQL)
+// Docs: https://docs.dework.xyz/api
+async function fetchDework() {
+  const key = process.env.DEWORK_API_KEY;
+  if (!key) {
+    return { source: 'dework', total: 0, inserted: 0, highScore: 0, skipped: 'DEWORK_API_KEY no configurada' };
+  }
+  try {
+    const query = `query { tasks(filter: { statuses: [TODO] }, take: 50) { id name description reward { amount token { symbol } } permalink } }`;
+    const r = await fetch('https://api.deworkxyz.com/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, ...UA },
+      body: JSON.stringify({ query }),
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`Dework HTTP ${r.status}`);
+    const data = await r.json();
+    const tasks = data?.data?.tasks || [];
+    let inserted = 0, highScore = 0;
+    for (const t of tasks) {
+      const score = await scoreText(`${t.name} ${t.description || ''}`);
+      const ok = await insertOpportunity({
+        title: t.name,
+        source: 'dework',
+        url: t.permalink,
+        category: 'bounty',
+        description: t.description || '',
+        payout_type: 'fixed',
+        salary_max: t.reward?.amount || null,
+        currency: t.reward?.token?.symbol || null,
+        match_score: score,
+        external_id: t.id,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'dework', total: tasks.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'dework', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// FLOSS/Fund — open source funding announcements (RSS attempt)
+async function fetchFLOSSFund() {
+  try {
+    const Parser = require('rss-parser');
+    const p = new Parser({ timeout: TIMEOUT, headers: UA });
+    const feed = await p.parseURL('https://floss.fund/feed.xml');
+    let inserted = 0, highScore = 0;
+    for (const it of (feed.items || []).slice(0, 20)) {
+      const score = await scoreText(`${it.title} ${it.contentSnippet || ''}`);
+      const ok = await insertOpportunity({
+        title: it.title,
+        source: 'floss_fund',
+        url: it.link,
+        category: 'grant',
+        description: (it.contentSnippet || '').slice(0, 1000),
+        payout_type: 'grant',
+        currency: 'USD',
+        match_score: score,
+        posted_at: it.isoDate ? new Date(it.isoDate) : null,
+        external_id: it.guid || it.link,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'floss_fund', total: (feed.items || []).length, inserted, highScore };
+  } catch (err) {
+    return { source: 'floss_fund', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// GitHub Fund / Sponsorship announcements — blog RSS
+async function fetchGitHubFund() {
+  try {
+    const Parser = require('rss-parser');
+    const p = new Parser({ timeout: TIMEOUT, headers: UA });
+    const feed = await p.parseURL('https://github.blog/category/open-source/feed/');
+    let inserted = 0, highScore = 0;
+    for (const it of (feed.items || []).slice(0, 20)) {
+      // Filtrar a posts sobre funding/sponsors/grants
+      const text = `${it.title} ${it.contentSnippet || ''}`.toLowerCase();
+      if (!/(fund|sponsor|grant|accelerator|maintainer)/i.test(text)) continue;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: it.title,
+        source: 'github_fund',
+        url: it.link,
+        category: 'grant',
+        description: (it.contentSnippet || '').slice(0, 1000),
+        payout_type: 'grant',
+        currency: 'USD',
+        match_score: score,
+        posted_at: it.isoDate ? new Date(it.isoDate) : null,
+        external_id: it.guid || it.link,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'github_fund', total: (feed.items || []).length, inserted, highScore };
+  } catch (err) {
+    return { source: 'github_fund', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TIER A round 4 — clist.by + GitHub Trending
+// ═══════════════════════════════════════════════════════════
+
+// clist.by — programming contest aggregator (free tier with API key)
+// Docs: https://clist.by/api/v4/doc/
+async function fetchClist() {
+  const user = process.env.CLIST_USERNAME;
+  const key = process.env.CLIST_API_KEY;
+  if (!user || !key) {
+    return { source: 'clist', total: 0, inserted: 0, highScore: 0, skipped: 'CLIST_USERNAME+CLIST_API_KEY no configurados' };
+  }
+  try {
+    const url = `https://clist.by/api/v4/contest/?username=${encodeURIComponent(user)}&api_key=${key}&upcoming=true&limit=50&order_by=start`;
+    const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
+    if (!r.ok) throw new Error(`Clist HTTP ${r.status}`);
+    const data = await r.json();
+    const contests = data.objects || [];
+    let inserted = 0, highScore = 0;
+    for (const c of contests) {
+      const score = await scoreText(`${c.event} ${c.host || ''}`);
+      const ok = await insertOpportunity({
+        title: c.event,
+        source: 'clist',
+        url: c.href,
+        category: 'contest',
+        description: `Host: ${c.host} · Duration ${Math.round((c.duration || 0) / 60)}min`,
+        payout_type: 'prize',
+        match_score: score,
+        external_id: String(c.id),
+        posted_at: c.start ? new Date(c.start) : null,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'clist', total: contests.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'clist', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// GitHub Trending — scrape free no-auth de github.com/trending
+// Útil como source de OSS projects con momentum (potencial bounty/contribute)
+async function fetchGitHubTrending() {
+  try {
+    const cheerio = require('cheerio');
+    const langs = ['', 'javascript', 'typescript', 'python', 'rust', 'go'];
+    let inserted = 0, total = 0, highScore = 0;
+    for (const lang of langs) {
+      try {
+        const url = `https://github.com/trending/${lang}?since=daily`;
+        const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
+        if (!r.ok) continue;
+        const html = await r.text();
+        const $ = cheerio.load(html);
+        const repos = [];
+        $('article.Box-row').each((_, el) => {
+          const $el = $(el);
+          const a = $el.find('h2 a');
+          const href = a.attr('href') || '';
+          const repoName = href.replace(/^\//, '').trim();
+          if (!repoName) return;
+          const desc = $el.find('p').text().trim();
+          const stars = $el.find('a[href$="/stargazers"]').first().text().trim();
+          repos.push({ repoName, desc, stars, href });
+        });
+        for (const repo of repos) {
+          total++;
+          const text = `${repo.repoName} ${repo.desc}`;
+          const score = await scoreText(text);
+          const ok = await insertOpportunity({
+            title: `[Trending${lang ? `/${lang}` : ''}] ${repo.repoName}`,
+            source: 'github_trending',
+            url: `https://github.com${repo.href}`,
+            category: 'oss_project',
+            description: repo.desc,
+            payout_type: 'bounty',
+            match_score: score,
+            external_id: `gh-trending:${repo.repoName}`,
+            tags: lang ? [lang] : null,
+          });
+          if (ok) { inserted++; if (score >= 8) highScore++; }
+        }
+        await new Promise(r => setTimeout(r, 1000)); // throttle
+      } catch (e) { /* skip lang */ }
+    }
+    return { source: 'github_trending', total, inserted, highScore };
+  } catch (err) {
+    return { source: 'github_trending', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
 module.exports = {
   fetchAll,
   fetchRemoteOk,
@@ -1182,5 +1656,15 @@ module.exports = {
   fetchGalxe,
   fetchLayer3,
   fetchZealy,
+  fetchSolanaColosseum,
+  fetchKaggle,
+  fetchETHGlobal,
+  fetchDework,
+  fetchFLOSSFund,
+  fetchGitHubFund,
+  fetchClist,
+  fetchGitHubTrending,
+  fetchGetOnBoardFull,
+  fetchGreenhouse,
   scoreText,
 };

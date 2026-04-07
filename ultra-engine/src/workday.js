@@ -14,30 +14,22 @@ const crypto = require('crypto');
 const db = require('./db');
 const jobApis = require('./job_apis');
 
-// Tenants verificados — params: { tenant, site, subdomain, name, country?, sector? }
+// Tenants VERIFICADOS live — params: { tenant, site, subdomain, name, sector }
+// R5 cleanup: removidos 11 tenants R3 que devolvían 401/422/404 (Atlassian/Cisco/
+// Twilio/Stripe/McKinsey/Deloitte/KPMG/EY/JPMorgan/GS no usan Workday — están en
+// Greenhouse/SmartRecruiters/custom).
+// R6: Stripe + Twilio + 18 más cubiertos por fetchGreenhouse en opp_fetchers.js
 const TENANTS = [
   { tenant: 'salesforce', site: 'External_Career_Site', subdomain: 'wd12', name: 'Salesforce', sector: 'devtools' },
   { tenant: 'nvidia', site: 'nvidiaexternalcareersite', subdomain: 'wd5', name: 'NVIDIA', sector: 'ai' },
   { tenant: 'accenture', site: 'AccentureCareers', subdomain: 'wd103', name: 'Accenture', sector: 'consulting' },
-  // Fase 3c additions:
   { tenant: 'pwc', site: 'Global_Experienced_Careers', subdomain: 'wd3', name: 'PwC', sector: 'consulting' },
   { tenant: 'pfizer', site: 'PfizerCareers', subdomain: 'wd1', name: 'Pfizer', sector: 'pharma' },
-  // Tier S #1 additions (maritime sector):
   { tenant: 'wilhelmsen', site: 'Wilhelmsen', subdomain: 'wd3', name: 'Wilhelmsen', sector: 'maritime' },
-  // Tier A additions:
   { tenant: 'netflix', site: 'Netflix', subdomain: 'wd1', name: 'Netflix', sector: 'media' },
-  // Tier A round 2 — verified Workday tenants:
-  { tenant: 'atlassian', site: 'External', subdomain: 'wd5', name: 'Atlassian', sector: 'devtools' },
-  { tenant: 'cisco', site: 'External_Career_Site', subdomain: 'wd5', name: 'Cisco', sector: 'networking' },
+  // R5 verified live (HTTP 200):
   { tenant: 'adobe', site: 'external_experienced', subdomain: 'wd5', name: 'Adobe', sector: 'devtools' },
-  { tenant: 'twilio', site: 'External', subdomain: 'wd5', name: 'Twilio', sector: 'devtools' },
-  { tenant: 'stripe', site: 'External', subdomain: 'wd5', name: 'Stripe', sector: 'fintech' },
-  { tenant: 'mckinsey', site: 'External', subdomain: 'wd1', name: 'McKinsey', sector: 'consulting' },
-  { tenant: 'deloitte', site: 'External_Career_Site', subdomain: 'wd1', name: 'Deloitte', sector: 'consulting' },
-  { tenant: 'kpmg', site: 'External', subdomain: 'wd5', name: 'KPMG', sector: 'consulting' },
-  { tenant: 'ey', site: 'EYCareers', subdomain: 'wd1', name: 'EY (Ernst & Young)', sector: 'consulting' },
-  { tenant: 'jpmorgan', site: 'jpmc', subdomain: 'wd5', name: 'JPMorgan Chase', sector: 'finance' },
-  { tenant: 'gs', site: 'goldman', subdomain: 'wd5', name: 'Goldman Sachs', sector: 'finance' },
+  { tenant: 'adobe', site: 'external_university', subdomain: 'wd5', name: 'Adobe (University)', sector: 'devtools' },
 ];
 
 const TIMEOUT = 25000;
