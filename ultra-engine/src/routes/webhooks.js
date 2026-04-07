@@ -141,4 +141,73 @@ router.post('/gps', async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════
+//  P6 FASE 3d — Public read-only endpoints for map.html
+//  Mount como /api/public/* en server.js
+//  Sin JWT pero solo expone endpoints view-only seguros
+// ════════════════════════════════════════════════════════════
+
+router.get('/poi/campsites.geojson', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, name, poi_type, latitude, longitude, country, is_free, has_water, has_dump, has_shower, source
+       FROM log_pois
+       WHERE poi_type='campsite' AND latitude IS NOT NULL AND longitude IS NOT NULL
+       LIMIT 5000`
+    );
+    const features = rows.map(r => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [parseFloat(r.longitude), parseFloat(r.latitude)] },
+      properties: {
+        id: r.id, name: r.name, type: r.poi_type, free: r.is_free,
+        water: r.has_water, dump: r.has_dump, shower: r.has_shower, source: r.source,
+      },
+    }));
+    res.set('Content-Type', 'application/geo+json');
+    res.json({ type: 'FeatureCollection', count: features.length, features });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/gps/last', async (req, res) => {
+  try {
+    const row = await db.queryOne(
+      `SELECT device_id, lat, lon, speed_kmh, fix_time, altitude
+       FROM log_gps_positions ORDER BY fix_time DESC LIMIT 1`
+    );
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/route', async (req, res) => {
+  try {
+    const routing = require('../routing');
+    const { from, to } = req.body;
+    if (!from?.lat || !from?.lon || !to?.lat || !to?.lon) {
+      return res.status(400).json({ ok: false, error: 'from{lat,lon} y to{lat,lon} requeridos' });
+    }
+    const r = await routing.routeOSRM(from, to, 'driving');
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/trip', async (req, res) => {
+  try {
+    const routing = require('../routing');
+    const { waypoints } = req.body;
+    if (!Array.isArray(waypoints) || waypoints.length < 2) {
+      return res.status(400).json({ ok: false, error: 'waypoints array (≥2) requerido' });
+    }
+    const r = await routing.tripOSRM(waypoints, {});
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

@@ -192,6 +192,104 @@ async function fetchACLED({ days = 7, countries = ['DZ', 'TN', 'MA'] } = {}) {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+//  ReliefWeb — UN OCHA humanitarian disasters
+// ════════════════════════════════════════════════════════════
+async function fetchReliefWeb() {
+  try {
+    // rss-parser parseURL falla con esta feed; usar fetch + parseString
+    const r = await fetch('https://reliefweb.int/disasters/rss.xml', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    const feed = await parser.parseString(text);
+    const items = feed.items || [];
+    let inserted = 0;
+    for (const it of items.slice(0, 30)) {
+      const country = extractCountryISO(`${it.title} ${it.contentSnippet || ''}`);
+      // Severity inference from title keywords
+      const text = (it.title || '').toLowerCase();
+      let severity = 'medium';
+      if (/red|critical|disaster|emergency|catastroph/i.test(text)) severity = 'high';
+      if (/major|severe|earthquake|tsunami|cyclone/i.test(text)) severity = 'critical';
+
+      const result = await db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
+         VALUES ('reliefweb', $1, 'humanitarian', $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (source, external_id) DO NOTHING
+         RETURNING id`,
+        [
+          it.guid || it.link,
+          severity,
+          (it.title || '').slice(0, 500),
+          (it.contentSnippet || '').slice(0, 1000),
+          country,
+          it.isoDate || new Date(),
+          it.link,
+        ]
+      );
+      if (result) inserted++;
+    }
+    return { source: 'reliefweb', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'reliefweb', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  NOAA — US National Weather Service alerts (GeoJSON API)
+// ════════════════════════════════════════════════════════════
+async function fetchNOAA() {
+  try {
+    const r = await fetch('https://api.weather.gov/alerts/active?status=actual&message_type=alert', {
+      headers: { Accept: 'application/geo+json', 'User-Agent': 'UltraSystem/1.0' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`NOAA HTTP ${r.status}`);
+    const data = await r.json();
+    const features = data.features || [];
+    let inserted = 0;
+    for (const f of features.slice(0, 50)) {
+      const p = f.properties || {};
+      const text = (p.event || '').toLowerCase();
+      let severity = 'low';
+      if (/warning/i.test(text) || p.severity === 'Severe') severity = 'high';
+      if (/extreme|emergency|tornado|hurricane/i.test(text) || p.severity === 'Extreme') severity = 'critical';
+
+      // Extraer coords del primer point del polygon
+      let lat = null, lon = null;
+      const geom = f.geometry;
+      if (geom?.type === 'Polygon' && geom.coordinates?.[0]?.[0]) {
+        [lon, lat] = geom.coordinates[0][0];
+      }
+
+      const result = await db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, summary, country, latitude, longitude, occurred_at, url)
+         VALUES ('noaa', $1, 'weather_alert', $2, $3, $4, 'US', $5, $6, $7, $8)
+         ON CONFLICT (source, external_id) DO NOTHING
+         RETURNING id`,
+        [
+          p.id || f.id,
+          severity,
+          (p.headline || p.event || '').slice(0, 500),
+          (p.description || '').slice(0, 1000),
+          lat, lon,
+          p.sent || p.effective || new Date(),
+          `https://api.weather.gov/alerts/${p.id || f.id}`,
+        ]
+      );
+      if (result) inserted++;
+    }
+    return { source: 'noaa', fetched: features.length, inserted };
+  } catch (err) {
+    return { source: 'noaa', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
 async function fetchAll() {
   const results = [];
   try { results.push(await fetchUSGSEarthquakes()); }
@@ -203,6 +301,12 @@ async function fetchAll() {
   try { results.push(await fetchACLED()); }
   catch (e) { results.push({ source: 'acled', error: e.message }); }
 
+  try { results.push(await fetchReliefWeb()); }
+  catch (e) { results.push({ source: 'reliefweb', error: e.message }); }
+
+  try { results.push(await fetchNOAA()); }
+  catch (e) { results.push({ source: 'noaa', error: e.message }); }
+
   return results;
 }
 
@@ -210,6 +314,8 @@ module.exports = {
   fetchUSGSEarthquakes,
   fetchWHODons,
   fetchACLED,
+  fetchReliefWeb,
+  fetchNOAA,
   fetchAll,
   extractCountryISO,
 };

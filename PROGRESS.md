@@ -437,6 +437,54 @@ Engine: 31 cron jobs · 11 containers · 19 modules src/ · 50+ endpoints · 30+
 
 Engine: 32 cron jobs · 12 containers (db engine paperless+redis changedetection jobspy wger mealie grocy fasten traccar **osrm**) · 22 modules src/
 
+## Completado (Fase 3d — More medium work 6 tareas) ✅
+
+### #38 P4 Passport-index expansion
+- [2026-04-07] | DB: bur_visa_matrix de 2 → 13 passports. Añadidos 80 entries para FR/DE/IT/GB/US/CA/JP/MA/TN/BR/CN. Total 188 rows. Cubre cross-reference para usuario+amigos+familia.
+- [2026-04-07] | Highlights: GB post-Brexit a Schengen 90/180, US post-2024 reciprocity reset con CN, JP visa-free a CN 15d (2024+), MA/TN/DZ Maghreb cross-visa free, CN visa-free TH/MY/SG/CR (2024+).
+
+### #39 P1 ReliefWeb + NOAA early warning
+- [2026-04-07] | early_warning.js: 2 fetchers nuevos. fetchReliefWeb (UN OCHA disasters RSS — DEFER porque ELB de reliefweb.int bloquea Hetzner IP como bot). fetchNOAA (api.weather.gov GeoJSON 258 alertas activas, severity por keywords warning/extreme/tornado/hurricane).
+- [2026-04-07] | E2E: NOAA 257 fetched / 50 inserted con coordinates extracted from polygon geometries. ReliefWeb 406 "Blocked due to bot activity" — defer manual proxy.
+
+### #40 P5 Codeforces + Unstop
+- [2026-04-07] | opp_fetchers.js: 2 fetchers más. fetchCodeforces (JSON API codeforces.com/api/contest.list, filtra phase=BEFORE upcoming, 2105 contests disponibles). fetchUnstop (India hackathons JSON API, strip HTML de details, filter regn_open=1).
+- [2026-04-07] | NZ Callaghan + AU business.gov sin RSS público (defer)
+- [2026-04-07] | E2E: Codeforces 5 upcoming inserted, Unstop 10 inserted (hackathons + competitions India)
+
+### #41 P7 Healthcare systems comparison
+- [2026-04-07] | DB: tabla bio_healthcare_systems (country UNIQUE, system_name, type universal/mixed/private/social_insurance, eligibility, cost_resident, cost_visitor, languages, emergency_no, apply_url, notes). 10 países seed: NZ Te Whatu Ora, AU Medicare (CRÍTICO Ibrahim ES NO reciprocal), ES SNS, FR Sécu Sociale, GB NHS, US Medicare/private (PEOR), CA Provincial, DZ CNAS, MA AMO, JP NHI.
+- [2026-04-07] | routes/bio.js: GET /healthcare?country= o lista
+- [2026-04-07] | telegram.js: /sanidad XX con flag, type, eligibility, costes, emergency number, notes
+- [2026-04-07] | E2E: AU Medicare con warning explícito "Spain NO reciprocal — travel insurance OBLIGATORIO para Ibrahim"
+
+### #42 P3 Modelo 100 IRPF + day counter ES residency
+- [2026-04-07] | tax_reporting.js: 2 funciones nuevas. generateModelo100({year}) suma incomes desde finances filtrados por año + agrupa por sección IRPF (rendimientos_trabajo/actividades_económicas/capital_mobiliario/capital_inmobiliario/ganancias_patrimoniales/otros) usando regex categorización heurística. Conversión NZD→EUR via fin_exchange_rates.
+- [2026-04-07] | computeResidencyES({year}) — Spanish residency day counter. Lee bur_travel_log, computa días fuera de ES en año natural, deriva days_in_es = total_year - days_outside, threshold 183 días, flag is_resident, days_to_residency. Critical para el regimen fiscal del usuario.
+- [2026-04-07] | routes/finances.js: GET /tax/modelo-100?year= y /tax/residency-es?year=
+- [2026-04-07] | E2E: residency 2026 sin trips → 97/97 días en ES (al 7 abril), 87 días para is_resident=true. modelo-100 en 0 esperando data real.
+
+### #43 P6 Web map (pivot from PMTiles)
+- [2026-04-07] | DECISIÓN pivot: Protomaps API cerrada por Cloudflare bot block, planetiler genera tiles pero requiere ~1GB RAM + tiempo. **Pivot a web map Leaflet** con tiles OSM público + OSRM self-hosted + Service Worker para offline-after-first-view. Más útil que tileserver vacío.
+- [2026-04-07] | NEW ultra-engine/public/map.html — Leaflet 1.9.4 page con click-to-route (auto compute con OSRM), GPS marker auto-refresh 30s, POI campsites layer (FREE/water/dump badges), polyline decoder para geometry, Service Worker register. Mobile-friendly viewport.
+- [2026-04-07] | NEW endpoints públicos sin JWT (mapped a /api/public/* via webhooksRouter): GET /poi/campsites.geojson (364 NZ), GET /gps/last, POST /route (single), POST /trip (multi-stop). Read-only safe.
+- [2026-04-07] | E2E: /map.html serve OK 6722b, /api/public/poi → 364 campsites, /api/public/route Auckland-Wellington → 641.6km via osrm_self. Frontend ready para van-life trip planning visual.
+
+## Coverage actualizado post-Fase 3d
+
+| Pilar | Pre-Fase3d | + Fase 3d | Total | Δ |
+|---|---|---|---|---|
+| P1 News | 57% | +3% (NOAA) | **60%** | +3 |
+| P2 Empleo | 55% | 0 | 55% | 0 |
+| P3 Finanzas | 74% | +6% (IRPF + residency) | **80%** | +6 |
+| P4 Burocracia | 64% | +5% (passport+11) | **69%** | +5 |
+| P5 Oportunidades | 65% | +4% (Codeforces+Unstop) | **69%** | +4 |
+| P6 Logística | 62% | +6% (web map UI) | **68%** | +6 |
+| P7 Bio-check | 61% | +6% (healthcare) | **67%** | +6 |
+| **PROMEDIO** | **63%** | **+4%** | **67%** | +4 |
+
+Engine: 32 cron jobs · 12 containers · 24 modules src/ + map.html UI · 80+ endpoints
+
 ## DEFERIDO post-Fase 2 ⏳
 - **OSRM self-hosted** — usar router.project-osrm.org público por ahora; deploy propio cuando rate limits molesten (necesita ~500MB OSM extract NZ + ~1GB RAM)
 - **tileserver-gl + PMTiles offline** — protomaps NZ extract (~30-50MB) + tileserver container. Defer hasta tener más disco libre (estamos al 87%)

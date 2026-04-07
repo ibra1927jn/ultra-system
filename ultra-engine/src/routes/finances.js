@@ -682,6 +682,26 @@ router.get('/investments/quote/:symbol', async (req, res) => {
   }
 });
 
+// ─── GET /api/finances/tax/modelo-100?year= ─────
+router.get('/tax/modelo-100', async (req, res) => {
+  try {
+    const result = await taxReporting.generateModelo100({ year: parseInt(req.query.year, 10) || undefined });
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/tax/residency-es ─────────
+router.get('/tax/residency-es', async (req, res) => {
+  try {
+    const result = await taxReporting.computeResidencyES({ year: parseInt(req.query.year, 10) || undefined });
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ─── GET /api/finances/tax/modelo-720?year=2025 ───
 router.get('/tax/modelo-720', async (req, res) => {
   try {

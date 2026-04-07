@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Ultra Map — van-life</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    #map { height: 100vh; width: 100%; }
+    .control-panel {
+      position: absolute; top: 10px; right: 10px; z-index: 1000;
+      background: rgba(255,255,255,0.95); padding: 12px; border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 280px; font-size: 13px;
+    }
+    .control-panel h3 { margin: 0 0 8px 0; font-size: 14px; }
+    .control-panel button {
+      padding: 6px 12px; margin: 2px; border: none; border-radius: 4px;
+      background: #2563eb; color: white; cursor: pointer; font-size: 12px;
+    }
+    .control-panel button:hover { background: #1e40af; }
+    .control-panel button.secondary { background: #6b7280; }
+    #status { margin-top: 8px; font-size: 11px; color: #666; }
+    #route-info { margin-top: 8px; font-size: 12px; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-right: 4px; }
+    .badge-free { background: #10b981; color: white; }
+    .badge-water { background: #3b82f6; color: white; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="control-panel">
+    <h3>🗺️ Ultra Map</h3>
+    <button id="locate">📍 Mi ubicación</button>
+    <button id="load-pois">🏕️ POIs cerca</button>
+    <button id="clear-route" class="secondary">🗑️</button>
+    <div id="route-info"></div>
+    <div id="status">Inicializando…</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/@mapbox/polyline@1.2.0/src/polyline.js"></script>
+  <script>
+    // Service Worker (heredado de sw.js)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
+    // Mapa centrado en NZ por default
+    const map = L.map('map').setView([-40.9, 174.8], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors',
+    }).addTo(map);
+
+    const status = document.getElementById('status');
+    const routeInfo = document.getElementById('route-info');
+    let routeLayer = null;
+    let poisLayer = null;
+    let userMarker = null;
+    let waypoints = [];
+
+    // Auto-refresh GPS position cada 30s
+    async function loadGps() {
+      try {
+        const r = await fetch('/api/public/gps/last');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.data?.lat && d.data?.lon) {
+          const lat = parseFloat(d.data.lat);
+          const lon = parseFloat(d.data.lon);
+          if (userMarker) map.removeLayer(userMarker);
+          userMarker = L.marker([lat, lon], { title: 'Última posición GPS' })
+            .addTo(map)
+            .bindPopup(`<b>Tu ubicación</b><br>${lat.toFixed(5)}, ${lon.toFixed(5)}<br>Speed: ${d.data.speed_kmh || 0} km/h`);
+          status.textContent = `GPS: ${new Date(d.data.fix_time).toLocaleString()}`;
+        }
+      } catch (e) { status.textContent = 'GPS error: ' + e.message; }
+    }
+
+    // Click en mapa = añadir waypoint para route
+    map.on('click', async (e) => {
+      const wp = { lat: e.latlng.lat, lon: e.latlng.lng };
+      waypoints.push(wp);
+      L.marker([wp.lat, wp.lon]).addTo(map).bindPopup(`Waypoint ${waypoints.length}`);
+      if (waypoints.length >= 2) {
+        await computeRoute();
+      }
+    });
+
+    async function computeRoute() {
+      status.textContent = 'Computing route…';
+      try {
+        const body = waypoints.length === 2
+          ? { from: waypoints[0], to: waypoints[1] }
+          : { waypoints };
+        const endpoint = waypoints.length === 2 ? '/api/public/route' : '/api/public/trip';
+        const r = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        if (routeLayer) map.removeLayer(routeLayer);
+        const coords = polyline.decode(d.polyline);
+        routeLayer = L.polyline(coords, { color: '#2563eb', weight: 5 }).addTo(map);
+        map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+        routeInfo.innerHTML = `<b>📏 ${d.distance_km} km</b><br>⏱️ ${Math.floor(d.duration_min/60)}h ${d.duration_min%60}min<br>${d.provider}`;
+        status.textContent = 'Route computed';
+      } catch (e) {
+        status.textContent = 'Route error: ' + e.message;
+      }
+    }
+
+    document.getElementById('clear-route').onclick = () => {
+      if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+      waypoints = [];
+      routeInfo.innerHTML = '';
+      // Refresh map to clear waypoint markers
+      location.reload();
+    };
+
+    document.getElementById('locate').onclick = () => {
+      navigator.geolocation.getCurrentPosition(pos => {
+        map.setView([pos.coords.latitude, pos.coords.longitude], 13);
+      }, err => status.textContent = 'Geolocate denied');
+    };
+
+    document.getElementById('load-pois').onclick = async () => {
+      try {
+        const r = await fetch('/api/public/poi/campsites.geojson');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const geojson = await r.json();
+        if (poisLayer) map.removeLayer(poisLayer);
+        poisLayer = L.geoJSON(geojson, {
+          pointToLayer: (f, latlng) => L.circleMarker(latlng, {
+            radius: 4,
+            fillColor: f.properties.free ? '#10b981' : '#f59e0b',
+            color: '#fff', weight: 1, opacity: 1, fillOpacity: 0.85,
+          }),
+          onEachFeature: (f, layer) => {
+            const p = f.properties;
+            const badges = [
+              p.free ? '<span class="badge badge-free">FREE</span>' : '',
+              p.water ? '<span class="badge badge-water">💧 water</span>' : '',
+              p.dump ? '<span class="badge">🚽 dump</span>' : '',
+            ].filter(Boolean).join(' ');
+            layer.bindPopup(`<b>${p.name || 'unnamed'}</b><br>${badges}<br><small>${p.source}</small>`);
+          },
+        }).addTo(map);
+        status.textContent = `${geojson.count} campsites loaded`;
+      } catch (e) {
+        status.textContent = 'POI error: ' + e.message;
+      }
+    };
+
+    // Init
+    loadGps();
+    setInterval(loadGps, 30000);
+  </script>
+</body>
+</html>

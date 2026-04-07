@@ -66,6 +66,29 @@ router.post('/food/log', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+//  P7 FASE 3d — Healthcare systems comparison
+// ═══════════════════════════════════════════════════════════
+router.get('/healthcare', async (req, res) => {
+  try {
+    const { country } = req.query;
+    if (country) {
+      const row = await db.queryOne(
+        `SELECT * FROM bio_healthcare_systems WHERE country = $1`,
+        [country.toUpperCase()]
+      );
+      if (!row) return res.status(404).json({ ok: false, error: 'No data for that country' });
+      return res.json({ ok: true, data: row });
+    }
+    const rows = await db.queryAll(
+      `SELECT id, country, system_name, type, emergency_no FROM bio_healthcare_systems ORDER BY country`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
 //  P7 FASE 3c — Therapy directory
 // ═══════════════════════════════════════════════════════════
 router.get('/therapy', async (req, res) => {

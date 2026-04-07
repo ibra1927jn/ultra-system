@@ -306,7 +306,87 @@ const FETCHERS = [
   ['Code4rena', fetchCode4rena],
   ['Devpost', fetchDevpost],
   ['NLnet', fetchNLnet],
+  ['Codeforces', fetchCodeforces],
+  ['Unstop', fetchUnstop],
 ];
+
+// ═══════════════════════════════════════════════════════════
+//  CODEFORCES — algorithmic competitions (JSON API)
+// ═══════════════════════════════════════════════════════════
+async function fetchCodeforces() {
+  try {
+    const r = await fetch('https://codeforces.com/api/contest.list', {
+      headers: UA, signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    if (data.status !== 'OK') throw new Error('API status not OK');
+    // Solo procesa upcoming (phase=BEFORE)
+    const upcoming = (data.result || []).filter(c => c.phase === 'BEFORE').slice(0, 30);
+    let inserted = 0;
+    for (const c of upcoming) {
+      const startMs = c.startTimeSeconds * 1000;
+      const ok = await insertOpportunity({
+        title: c.name,
+        source: 'Codeforces',
+        url: `https://codeforces.com/contest/${c.id}`,
+        category: 'algo_contest',
+        description: `${c.type} contest, ${Math.round(c.durationSeconds / 60)} min duration. Starts ${new Date(startMs).toISOString()}`,
+        payout_type: 'rating',
+        currency: null,
+        tags: ['algorithm', 'competitive_programming', c.type?.toLowerCase()].filter(Boolean),
+        match_score: await scoreText(c.name),
+        external_id: `cf:${c.id}`,
+        posted_at: new Date(startMs),
+      });
+      if (ok) inserted++;
+    }
+    return { source: 'Codeforces', total: upcoming.length, inserted, highScore: 0 };
+  } catch (err) {
+    return { source: 'Codeforces', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  UNSTOP — India hackathons (JSON API)
+// ═══════════════════════════════════════════════════════════
+async function fetchUnstop() {
+  try {
+    const r = await fetch('https://unstop.com/api/public/opportunity/search-result', {
+      headers: UA, signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const items = data.data?.data || [];
+    let inserted = 0, highScore = 0;
+    for (const it of items) {
+      // Solo hackathons + opportunities con regn_open
+      if (!it.regn_open) continue;
+      // Strip HTML
+      const desc = (it.details || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 1500);
+      const text = `${it.title} ${desc}`;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: it.title,
+        source: 'Unstop',
+        url: `https://unstop.com/${it.public_url}`,
+        category: it.type === 'hackathons' ? 'hackathon' : 'competition',
+        description: desc,
+        payout_type: 'prize',
+        currency: 'INR',
+        tags: [it.type, it.subtype, it.region].filter(Boolean),
+        match_score: score,
+        external_id: `unstop:${it.id}`,
+        posted_at: it.updated_at ? new Date(it.updated_at) : null,
+      });
+      if (ok) inserted++;
+      if (score >= 8) highScore++;
+    }
+    return { source: 'Unstop', total: items.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'Unstop', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 //  IMMUNEFI — bug bounties Web3 (RSS público)
@@ -590,5 +670,7 @@ module.exports = {
   fetchCode4rena,
   fetchDevpost,
   fetchNLnet,
+  fetchCodeforces,
+  fetchUnstop,
   scoreText,
 };

@@ -171,4 +171,136 @@ async function generateModelo721({ year } = {}) {
   };
 }
 
-module.exports = { generateModelo720, generateModelo721, UMBRAL_720_EUR, UMBRAL_721_EUR };
+/**
+ * Modelo 100 — Declaración del IRPF (España)
+ *
+ * Solo aplica si user es residente fiscal ES (>183 días/año en ES).
+ * Computa ingresos anuales agrupados por tipo (rendimientos del trabajo,
+ * actividades económicas, capital, alquileres, ganancias patrimoniales).
+ *
+ * IMPORTANTE: solo prepara datos. Presentación en Renta WEB Hacienda.
+ */
+async function generateModelo100({ year } = {}) {
+  const targetYear = year || new Date().getFullYear() - 1;
+
+  // Suma ingresos por categoría (mapping heurístico desde category de finances)
+  const incomes = await db.queryAll(
+    `SELECT category, SUM(COALESCE(amount_nzd, amount)) AS total_nzd, COUNT(*) AS tx_count
+     FROM finances
+     WHERE type = 'income'
+       AND date >= make_date($1, 1, 1)
+       AND date <= make_date($1, 12, 31)
+     GROUP BY category
+     ORDER BY total_nzd DESC`,
+    [targetYear]
+  );
+
+  // Mapping category → IRPF section heuristics
+  const sections = {
+    rendimientos_trabajo: 0,        // Salaries, employment
+    actividades_economicas: 0,       // Self-employed
+    capital_mobiliario: 0,           // Dividends, interest
+    capital_inmobiliario: 0,         // Rentals
+    ganancias_patrimoniales: 0,      // Capital gains crypto/stocks
+    otros: 0,
+  };
+  const breakdown = [];
+
+  for (const inc of incomes) {
+    const cat = (inc.category || '').toLowerCase();
+    const totalNzd = parseFloat(inc.total_nzd);
+    const totalEur = await nzdToEur(totalNzd);
+    let section = 'otros';
+    if (/salary|salario|wage|sueldo|payroll|paye/.test(cat)) section = 'rendimientos_trabajo';
+    else if (/freelance|consulting|invoice|cliente|self.?employed|autonomo/.test(cat)) section = 'actividades_economicas';
+    else if (/dividend|interest|interés/.test(cat)) section = 'capital_mobiliario';
+    else if (/rental|alquiler|airbnb/.test(cat)) section = 'capital_inmobiliario';
+    else if (/crypto|stocks|trading|capital_gain/.test(cat)) section = 'ganancias_patrimoniales';
+    sections[section] += totalEur;
+    breakdown.push({
+      category: inc.category, section,
+      total_nzd: Number(totalNzd.toFixed(2)),
+      total_eur: Number(totalEur.toFixed(2)),
+      tx_count: parseInt(inc.tx_count, 10),
+    });
+  }
+
+  const totalEur = Object.values(sections).reduce((a, b) => a + b, 0);
+
+  return {
+    year: targetYear,
+    deadline: `${targetYear + 1}-06-30`,
+    sections: Object.fromEntries(
+      Object.entries(sections).map(([k, v]) => [k, Number(v.toFixed(2))])
+    ),
+    total_eur: Number(totalEur.toFixed(2)),
+    breakdown,
+    notes: [
+      'Solo aplica si eres residente fiscal ES (>183 días/año en territorio español).',
+      'Use /api/finances/tax/residency-es para verificar status de residencia.',
+      'Categorización heurística: revisar manualmente antes de presentar.',
+      'NO incluye deducciones, mínimo personal/familiar, ni bonificaciones autonómicas.',
+      'Presentación oficial via Renta WEB en sede.agenciatributaria.gob.es',
+    ],
+  };
+}
+
+/**
+ * Spanish residency day counter — más de 183 días en territorio ES en año natural
+ * = residente fiscal con obligación de tributar por renta mundial.
+ *
+ * Lee bur_travel_log: días en ES = días en país - días fuera.
+ * Si user no logging activo, devuelve null.
+ */
+async function computeResidencyES({ year } = {}) {
+  const targetYear = year || new Date().getFullYear();
+  const yearStart = `${targetYear}-01-01`;
+  const yearEnd = `${targetYear}-12-31`;
+  const today = new Date().toISOString().split('T')[0];
+  const effectiveEnd = new Date(yearEnd) > new Date(today) ? today : yearEnd;
+
+  // Sum días fuera de ES en el año
+  const outsideES = await db.queryAll(
+    `SELECT country, entry_date, COALESCE(exit_date, $1::date) AS exit_date,
+            (LEAST(COALESCE(exit_date, $1::date), $2::date) - GREATEST(entry_date, $3::date)) + 1 AS days_in_year
+     FROM bur_travel_log
+     WHERE country != 'ES'
+       AND entry_date <= $2::date
+       AND COALESCE(exit_date, $1::date) >= $3::date
+     ORDER BY entry_date`,
+    [today, effectiveEnd, yearStart]
+  );
+
+  const daysOutside = outsideES.reduce((sum, t) => sum + Math.max(0, parseInt(t.days_in_year, 10)), 0);
+  const totalDaysInYear = Math.round((new Date(effectiveEnd) - new Date(yearStart)) / 86400000) + 1;
+  const daysInES = Math.max(0, totalDaysInYear - daysOutside);
+
+  return {
+    year: targetYear,
+    period_start: yearStart,
+    period_end: effectiveEnd,
+    total_days: totalDaysInYear,
+    days_outside_es: daysOutside,
+    days_in_es: daysInES,
+    threshold_days: 183,
+    is_resident: daysInES > 183,
+    days_to_residency: Math.max(0, 184 - daysInES),
+    breakdown: outsideES.map(t => ({
+      country: t.country,
+      entry: t.entry_date,
+      exit: t.exit_date,
+      days_in_year: parseInt(t.days_in_year, 10),
+    })),
+    notes: [
+      'Computado desde bur_travel_log. Solo cuenta trips registrados.',
+      'Si is_resident=true: residente fiscal ES, debe presentar Modelo 100 (IRPF) + 720 si bienes >50K€ extranjero + 721 si crypto >50K€.',
+      'IMPORTANTE: regla 183 días es CRITERIO PRINCIPAL. Otros criterios: centro de intereses económicos en ES, presunción si cónyuge+menores residen ES.',
+      'Días fuera por causas excepcionales (estancia médica, etc.) pueden no contar — consultar asesor fiscal.',
+    ],
+  };
+}
+
+module.exports = {
+  generateModelo720, generateModelo721, generateModelo100, computeResidencyES,
+  UMBRAL_720_EUR, UMBRAL_721_EUR,
+};

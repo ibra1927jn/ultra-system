@@ -108,6 +108,7 @@ function init() {
       '/cbt — Prompt CBT/DBT random para reflexión',
       '/diario — Últimas entradas journal',
       '/terapia ES — Directory mental health por país',
+      '/sanidad ES — Sistema sanitario por país',
     ].join('\n');
     send(msg.chat.id, help, 'Markdown');
   });
@@ -455,6 +456,41 @@ function init() {
         `📅 ${entry}${exit ? ' → ' + exit : ' (ongoing)'}${days ? ` (${days}d)` : ''}\n\n` +
         `Usa /schengen para ver días disponibles`,
       );
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P7 Fase 3d: Healthcare system lookup ─────────
+  bot.onText(/\/sanidad\s+([a-zA-Z]{2})/, async (msg, match) => {
+    try {
+      const row = await db.queryOne(
+        `SELECT * FROM bio_healthcare_systems WHERE country = $1`,
+        [match[1].toUpperCase()]
+      );
+      if (!row) {
+        send(msg.chat.id, `❌ Sin datos para ${match[1].toUpperCase()}. Disponibles: NZ AU ES FR GB US CA DZ MA JP`);
+        return;
+      }
+      const flag = ({ NZ:'🇳🇿', AU:'🇦🇺', ES:'🇪🇸', FR:'🇫🇷', GB:'🇬🇧', US:'🇺🇸', CA:'🇨🇦', DZ:'🇩🇿', MA:'🇲🇦', JP:'🇯🇵' })[row.country] || '🌐';
+      const lines = [
+        `${flag} *${row.system_name}*`,
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `🏥 Tipo: _${row.type}_`,
+        `🚨 Emergency: *${row.emergency_no}*`,
+        '',
+        `*Eligibility:*`,
+        `${row.eligibility}`,
+        '',
+        `*Coste residente:*`,
+        `${row.cost_resident}`,
+        '',
+        `*Coste visitante:*`,
+        `${row.cost_visitor}`,
+      ];
+      if (row.notes) lines.push('', `📝 _${row.notes}_`);
+      lines.push('', `🔗 ${row.apply_url}`);
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
     } catch (err) {
       send(msg.chat.id, `❌ Error: ${err.message}`);
     }

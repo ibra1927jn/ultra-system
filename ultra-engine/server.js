@@ -67,6 +67,8 @@ app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
 
 // ─── Webhooks (públicos, validados por shared secret) ────
 app.use('/webhooks', webhooksRouter);
+// ─── Public read-only API for map.html (sin JWT) ─────────
+app.use('/api/public', webhooksRouter);
 
 // ─── Health endpoint (publico, sin auth para monitoreo) ───
 // Devuelve: estado DB, estado Telegram, pilares cargados, uptime
