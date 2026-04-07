@@ -49,6 +49,11 @@ function init() {
       '/docs — Documentos proximos a caducar',
       '/impuestos — Recordatorios fiscales (NZ/ES/AU)',
       '/vacunas — Vacunaciones registradas',
+      '/schengen — Días Schengen 90/180 disponibles',
+      '/visa ES NZ — Requisitos visado (passport→destino)',
+      '/viaje DZ 2026-05-01 FR — Log entrada Schengen',
+      '/govwatch — Páginas gov vigiladas + cambios recientes',
+      '/paperless — Status + últimos documentos OCR',
       '/alertas — Historial de alertas enviadas',
       '/ping — Verificar que el bot funciona',
       '',
@@ -57,12 +62,17 @@ function init() {
       '/gdelt — GDELT global recientes',
       '/bsky — Bluesky relevantes',
       '/noticias\\_config — Keywords de scoring RSS',
+      '/events — Early warning (USGS+WHO+ACLED)',
       '',
       '💰 _P3 Finanzas:_',
       '/finanzas — Resumen financiero mensual',
       '/presupuesto — Budget + runway + alertas',
       '/runway — Runway extendido + breakdown cuentas',
       '/fx — Tipos de cambio NZD→{EUR,USD,...}',
+      '/recurring — Gastos recurrentes detectados',
+      '/savings — Savings goals + progreso',
+      '/nw — Net worth timeline (90d)',
+      '/crypto — Holdings crypto + valuación NZD',
       '',
       '💼 _P2 Empleo:_',
       '/jobs\\_top — Top empleos presenciales (ATS)',
@@ -81,12 +91,17 @@ function init() {
       '/clima — Forecast 7d Open-Meteo',
       '/donde — Ver/fijar current location (📎 location o `/donde Ciudad`)',
       '/memberships — Workaway/WWOOF/HelpX renewals',
+      '/ruta lat1,lon1 lat2,lon2 — Compute route OSRM',
+      '/gps — Última posición GPS',
       '',
       '🧬 _P7 Bio-Check:_',
       '/bio — Resumen semanal de salud',
       '/biosemana — Resumen + correlaciones',
       '/health — Outbreak alerts WHO/CDC/ECDC',
       '/external — Status 4 containers self-hosted',
+      '/destino ID — Health check destino (outbreaks+vacunas)',
+      '/ejercicio q — Buscar ejercicio (wger 414+)',
+      '/comida BARCODE — Lookup nutrición (Open Food Facts)',
     ].join('\n');
     send(msg.chat.id, help, 'Markdown');
   });
@@ -290,6 +305,555 @@ function init() {
         lines.push('');
       }
       lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P4 Fase 2: Schengen 90/180 calculator ─────────
+  bot.onText(/\/schengen(?:\s+(\d{4}-\d{2}-\d{2}))?/, async (msg, match) => {
+    try {
+      const schengen = require('./schengen');
+      const targetDate = match[1] ? new Date(match[1]) : new Date();
+      const status = await schengen.getSchengenStatus(targetDate);
+
+      const lines = [
+        '🛂 *Schengen 90/180 calculator*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `📅 Fecha objetivo: ${status.target_date}`,
+        `🪟 Ventana 180d: ${status.window_start} → ${status.window_end}`,
+        '',
+        `📊 Días usados: *${status.days_used}* / 90`,
+        `✅ Días restantes: *${status.days_remaining}*`,
+      ];
+
+      if (status.overstay) {
+        lines.push('🚨 *OVERSTAY* — superas el límite de 90 días');
+      }
+
+      if (status.breakdown.length) {
+        lines.push('', '📋 _Estancias en ventana:_');
+        for (const b of status.breakdown) {
+          lines.push(`  ${b.country} ${b.entry}→${b.exit || 'ongoing'} (${b.days_in_window}d)`);
+        }
+      } else {
+        lines.push('', '📭 Sin estancias Schengen registradas en la ventana');
+      }
+
+      if (status.next_full_90_window) {
+        const nw = status.next_full_90_window;
+        lines.push('', `🎯 Próximo stay 90d completo: *${nw.earliest_date}* (en ${nw.days_until} días)`);
+      }
+
+      lines.push('', `_Total trips logged: ${status.total_trips_logged}_`);
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P4 Fase 2: Visa matrix lookup ─────────────────
+  // /visa ES NZ  → requirement ES → NZ
+  // /visa ES     → lista todos los destinos del pasaporte ES
+  bot.onText(/\/visa(?:\s+([a-zA-Z]{2}))?(?:\s+([a-zA-Z]{2}))?/, async (msg, match) => {
+    try {
+      const from = match[1];
+      const to = match[2];
+      if (!from) {
+        send(msg.chat.id, '❌ Uso: `/visa ES NZ` o `/visa ES` (lista completa)', 'Markdown');
+        return;
+      }
+      const reqEmoji = (r) => ({
+        'freedom of movement': '🟢🟢',
+        'visa free': '🟢',
+        'visa on arrival': '🟡',
+        'eta': '🟡',
+        'e-visa': '🟠',
+        'visa required': '🔴',
+        'no admission': '⛔',
+      }[r] || '⚪');
+
+      if (to) {
+        const row = await db.queryOne(
+          `SELECT * FROM bur_visa_matrix WHERE passport=$1 AND destination=$2`,
+          [from.toUpperCase(), to.toUpperCase()]
+        );
+        if (!row) {
+          send(msg.chat.id, `❌ Sin datos ${from.toUpperCase()}→${to.toUpperCase()}. Datos: ES, DZ`);
+          return;
+        }
+        const lines = [
+          `🛂 *${row.passport} → ${row.destination}*`,
+          '━━━━━━━━━━━━━━━━━━━━━━━━',
+          `${reqEmoji(row.requirement)} *${row.requirement}*`,
+        ];
+        if (row.days_allowed) lines.push(`📅 Días permitidos: *${row.days_allowed}*`);
+        if (row.notes) lines.push(`📝 ${row.notes}`);
+        send(msg.chat.id, lines.join('\n'), 'Markdown');
+        return;
+      }
+
+      // Lista completa
+      const rows = await db.queryAll(
+        `SELECT destination, requirement, days_allowed FROM bur_visa_matrix
+         WHERE passport=$1 ORDER BY requirement, destination`,
+        [from.toUpperCase()]
+      );
+      if (!rows.length) {
+        send(msg.chat.id, `❌ Sin datos para passport ${from.toUpperCase()}`);
+        return;
+      }
+      const groups = {};
+      for (const r of rows) {
+        if (!groups[r.requirement]) groups[r.requirement] = [];
+        groups[r.requirement].push(r.destination + (r.days_allowed ? `(${r.days_allowed}d)` : ''));
+      }
+      const lines = [`🛂 *Pasaporte ${from.toUpperCase()}* — ${rows.length} destinos`, '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const [req, dests] of Object.entries(groups)) {
+        lines.push(`${reqEmoji(req)} _${req}_ (${dests.length})`);
+        lines.push(`   ${dests.join(', ')}`);
+      }
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P4 Fase 2: Log de viajes ──────────────────────
+  // /viaje DZ 2026-05-01 FR  → entry DZ passport, fecha, país
+  // /viaje DZ 2026-05-01 FR 2026-05-15  → con exit
+  bot.onText(/\/viaje\s+([a-zA-Z]{2})\s+(\d{4}-\d{2}-\d{2})\s+([a-zA-Z]{2})(?:\s+(\d{4}-\d{2}-\d{2}))?/, async (msg, match) => {
+    try {
+      const passport = match[1].toUpperCase();
+      const entry = match[2];
+      const country = match[3].toUpperCase();
+      const exit = match[4] || null;
+
+      const schengen = require('./schengen');
+      const area = schengen.SCHENGEN_COUNTRIES.has(country) ? 'SCHENGEN' : null;
+
+      const row = await db.queryOne(
+        `INSERT INTO bur_travel_log (country, area, entry_date, exit_date, passport_used, source)
+         VALUES ($1,$2,$3,$4,$5,'telegram') RETURNING *`,
+        [country, area, entry, exit, passport]
+      );
+      const days = exit
+        ? Math.round((new Date(exit) - new Date(entry)) / 86400000) + 1
+        : null;
+      send(
+        msg.chat.id,
+        `✅ Viaje registrado #${row.id}\n` +
+        `${passport}→${country} ${area ? '🇪🇺 SCHENGEN' : ''}\n` +
+        `📅 ${entry}${exit ? ' → ' + exit : ' (ongoing)'}${days ? ` (${days}d)` : ''}\n\n` +
+        `Usa /schengen para ver días disponibles`,
+      );
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P7 Fase 3a: Wger exercise search ──────────────
+  bot.onText(/\/ejercicio\s+(.+)/, async (msg, match) => {
+    try {
+      const wger = require('./wger');
+      const results = await wger.searchExercises({ q: match[1].trim(), limit: 8 });
+      if (!results.length) {
+        send(msg.chat.id, `❌ Sin resultados para "${match[1]}"`);
+        return;
+      }
+      const lines = [`💪 *Ejercicios — "${match[1]}"*`, '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const e of results) {
+        lines.push(`• *${e.name}* _(${e.category || '?'})_`);
+      }
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P7 Fase 3a: OFF barcode lookup ────────────────
+  bot.onText(/\/comida\s+(\d{8,14})/, async (msg, match) => {
+    try {
+      const off = require('./openfoodfacts');
+      const r = await off.lookupBarcode(match[1]);
+      if (!r.ok) {
+        send(msg.chat.id, `❌ Producto no encontrado (${match[1]})`);
+        return;
+      }
+      const p = r.product;
+      const n = p.nutriments_per_100g;
+      const lines = [
+        `🍽️ *${p.name}*`,
+        `🏷️ ${p.brand || '?'}`,
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `*Nutrition per 100g:*`,
+        `🔥 ${n.kcal || '?'} kcal`,
+        `🥩 ${n.protein_g || '?'} g protein`,
+        `🍞 ${n.carbs_g || '?'} g carbs (sugar ${n.sugar_g || '?'} g)`,
+        `🧈 ${n.fat_g || '?'} g fat (sat ${n.sat_fat_g || '?'} g)`,
+        `🌾 ${n.fiber_g || '?'} g fiber`,
+        `🧂 ${n.salt_g || '?'} g salt`,
+      ];
+      if (p.nutriscore) lines.push(`📊 Nutri-Score: *${p.nutriscore.toUpperCase()}*`);
+      if (p.nova_group) lines.push(`🏭 NOVA group: ${p.nova_group}`);
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P6 Fase 2: Routing OSRM ───────────────────────
+  bot.onText(/\/ruta\s+(-?\d+\.?\d*),(-?\d+\.?\d*)\s+(-?\d+\.?\d*),(-?\d+\.?\d*)/, async (msg, match) => {
+    try {
+      const routing = require('./routing');
+      const from = { lat: parseFloat(match[1]), lon: parseFloat(match[2]) };
+      const to = { lat: parseFloat(match[3]), lon: parseFloat(match[4]) };
+      const r = await routing.routeOSRM(from, to, 'driving');
+      const lines = [
+        '🛣️ *Route computed*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `📍 ${from.lat.toFixed(4)},${from.lon.toFixed(4)}`,
+        `📍 ${to.lat.toFixed(4)},${to.lon.toFixed(4)}`,
+        '',
+        `📏 Distancia: *${r.distance_km} km*`,
+        `⏱️ Duración: *${Math.floor(r.duration_min / 60)}h ${r.duration_min % 60}min*`,
+        `⚙️ Provider: ${r.provider}`,
+      ];
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P6 Fase 2: GPS tracking ───────────────────────
+  bot.onText(/\/gps/, async (msg) => {
+    try {
+      const traccar = require('./traccar');
+      const reachable = await traccar.isReachable();
+      const last = await traccar.getLastPosition();
+      const lines = ['📍 *GPS Tracking*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      lines.push(`Traccar server: ${reachable ? '✅ reachable' : '❌ no reachable'}`);
+      if (last) {
+        const fixDate = new Date(last.fix_time).toISOString().replace('T', ' ').slice(0, 16);
+        lines.push('', `*Última posición:*`);
+        lines.push(`📍 ${parseFloat(last.lat).toFixed(5)}, ${parseFloat(last.lon).toFixed(5)}`);
+        lines.push(`📅 ${fixDate} UTC`);
+        if (last.speed_kmh) lines.push(`🚐 ${parseFloat(last.speed_kmh).toFixed(1)} km/h`);
+        if (last.altitude) lines.push(`⛰️ ${parseFloat(last.altitude).toFixed(0)}m alt`);
+        lines.push(`📱 device: ${last.device_id}`);
+        const mapUrl = `https://www.openstreetmap.org/?mlat=${last.lat}&mlon=${last.lon}#map=15/${last.lat}/${last.lon}`;
+        lines.push('', `🗺️ [Ver en mapa](${mapUrl})`);
+      } else {
+        lines.push('', '📭 Sin posiciones registradas todavía');
+        lines.push('', '_Setup: instalar Traccar Client iOS/Android, apuntar a `95.217.158.7:5055` (OsmAnd protocol). O usar webhook directo: `/webhooks/gps?id=phone&lat=X&lon=Y`_');
+      }
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P7 Fase 2: Health check destino (outbreaks + vacunas) ──
+  bot.onText(/\/destino\s+([a-zA-Z]{2})/, async (msg, match) => {
+    try {
+      const healthCheck = require('./health_destination_check');
+      const country = match[1].toUpperCase();
+      const r = await healthCheck.checkDestination(country);
+      if (!r) {
+        send(msg.chat.id, '❌ Sin datos para ese país');
+        return;
+      }
+      const riskEmoji = { low: '🟢', medium: '🟡', high: '🟠', critical: '🔴' }[r.risk_level] || '⚪';
+      const lines = [
+        `🌐 *Destination check — ${r.country}*`,
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `${riskEmoji} Risk level: *${r.risk_level.toUpperCase()}*`,
+        '',
+      ];
+      if (r.vaccinations_recommended.length > 0) {
+        lines.push(`💉 *Vacunas recomendadas (${r.vaccinations_recommended.length}):*`);
+        for (const v of r.vaccinations_recommended) {
+          const missing = r.vaccinations_missing.includes(v);
+          lines.push(`  ${missing ? '❌' : '✅'} ${v}`);
+        }
+      } else {
+        lines.push('💉 Sin vacunas especiales recomendadas');
+      }
+      lines.push('');
+      if (r.events.length > 0) {
+        lines.push(`🦠 *Outbreaks recientes (${r.events.length}):*`);
+        for (const e of r.events.slice(0, 5)) {
+          const dt = new Date(e.occurred_at).toISOString().slice(0, 10);
+          lines.push(`  [${e.severity}] ${dt} — ${(e.title || '').slice(0, 70)}`);
+        }
+      } else {
+        lines.push('✅ Sin outbreaks registrados (últimos 60d)');
+      }
+      lines.push('');
+      lines.push(`📰 Health alerts WHO/CDC/ECDC últimos 30d: ${r.health_alerts.length}`);
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P1 Fase 2: Early warning events ───────────────
+  bot.onText(/\/events(?:\s+([a-zA-Z]{2}))?/, async (msg, match) => {
+    try {
+      const country = match[1] ? match[1].toUpperCase() : null;
+      const params = [];
+      let where = 'WHERE occurred_at >= NOW() - INTERVAL \'7 days\'';
+      if (country) {
+        params.push(country);
+        where += ` AND country = $${params.length}`;
+      }
+      const rows = await db.queryAll(
+        `SELECT source, event_type, severity, title, country, magnitude, occurred_at
+         FROM events_store ${where}
+         ORDER BY severity = 'critical' DESC, severity = 'high' DESC, occurred_at DESC LIMIT 15`,
+        params
+      );
+      if (!rows.length) {
+        send(msg.chat.id, `🌐 Sin eventos en últimos 7d${country ? ' para ' + country : ''}.`);
+        return;
+      }
+      const sevEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
+      const srcEmoji = { usgs: '🌍', who_dons: '🦠', acled: '⚔️', gdelt_cast: '📰' };
+      const lines = [`🌐 *Early Warning Events${country ? ' — ' + country : ''}*`, '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const e of rows) {
+        const dt = new Date(e.occurred_at).toISOString().slice(0, 16).replace('T', ' ');
+        const mag = e.magnitude ? ` M${parseFloat(e.magnitude).toFixed(1)}` : '';
+        lines.push(`${sevEmoji[e.severity] || '⚪'} ${srcEmoji[e.source] || '?'} ${dt}${mag}`);
+        lines.push(`   ${(e.title || '').slice(0, 80)}`);
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P3 Fase 2: Crypto holdings ────────────────────
+  bot.onText(/\/crypto/, async (msg) => {
+    try {
+      const crypto = require('./crypto');
+      const result = await crypto.getHoldings();
+      if (!result.holdings.length) {
+        send(msg.chat.id, '🪙 No hay crypto holdings.\nAñade: POST /api/finances/crypto {symbol,amount,exchange}\nO sync Binance: POST /api/finances/crypto/sync-binance');
+        return;
+      }
+      const lines = ['🪙 *Crypto Holdings*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const h of result.holdings.slice(0, 12)) {
+        const pct = result.total_nzd ? (h.value_nzd / result.total_nzd * 100) : 0;
+        lines.push(`*${h.symbol}* — ${h.amount.toFixed(4)} @ $${h.price_nzd.toFixed(2)}`);
+        lines.push(`   💰 NZD ${h.value_nzd.toFixed(2)} (${pct.toFixed(1)}%) · _${h.exchange}_`);
+      }
+      lines.push('', `📊 *Total: NZD ${result.total_nzd.toFixed(2)}*`);
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P3 Fase 2: Recurring expenses detectados ─────
+  bot.onText(/\/recurring/, async (msg) => {
+    try {
+      const rows = await db.queryAll(
+        `SELECT payee_normalized, frequency, amount_avg, currency, next_expected,
+                confidence, sample_size,
+                (next_expected - CURRENT_DATE) AS days_until
+         FROM fin_recurring
+         WHERE confidence >= 0.5
+         ORDER BY confidence DESC, amount_avg DESC LIMIT 15`
+      );
+      if (!rows.length) {
+        send(msg.chat.id, '🔁 No hay gastos recurrentes detectados.\nUsa POST /api/finances/recurring/detect para escanear.');
+        return;
+      }
+      const lines = ['🔁 *Gastos recurrentes detectados*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const r of rows) {
+        const conf = Math.round(parseFloat(r.confidence) * 100);
+        const due = r.days_until >= 0 ? `en ${r.days_until}d` : `${-r.days_until}d atrasado`;
+        lines.push(`💳 *${r.payee_normalized}* (${r.frequency})`);
+        lines.push(`   ${r.currency} ${parseFloat(r.amount_avg).toFixed(2)} · conf ${conf}% · n=${r.sample_size}`);
+        lines.push(`   📅 next: ${r.next_expected} (${due})`);
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P3 Fase 2: Savings goals ──────────────────────
+  bot.onText(/\/savings/, async (msg) => {
+    try {
+      const rows = await db.queryAll(
+        `SELECT name, target_amount, current_amount, currency, target_date, category,
+                CASE WHEN target_amount > 0 THEN ROUND((current_amount/target_amount*100)::numeric,1)
+                     ELSE 0 END AS pct,
+                CASE WHEN target_date IS NULL THEN NULL
+                     ELSE (target_date - CURRENT_DATE) END AS days_remaining
+         FROM fin_savings_goals
+         WHERE is_active=TRUE
+         ORDER BY target_date NULLS LAST`
+      );
+      if (!rows.length) {
+        send(msg.chat.id, '🎯 No hay savings goals.\nCrea uno: POST /api/finances/savings-goals { name, target_amount }');
+        return;
+      }
+      const lines = ['🎯 *Savings Goals*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const g of rows) {
+        const pct = parseFloat(g.pct);
+        const filled = Math.min(10, Math.floor(pct / 10));
+        const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
+        lines.push(`*${g.name}* ${g.category ? '_(' + g.category + ')_' : ''}`);
+        lines.push(`  ${bar} ${pct}%`);
+        lines.push(`  ${g.currency} ${parseFloat(g.current_amount).toFixed(0)} / ${parseFloat(g.target_amount).toFixed(0)}`);
+        if (g.target_date) {
+          const dr = g.days_remaining;
+          const urg = dr < 0 ? '🔴 vencido' : dr < 30 ? '🟡' : '🟢';
+          lines.push(`  📅 ${g.target_date} ${urg} ${dr}d`);
+        }
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P3 Fase 2: Net worth timeline ─────────────────
+  bot.onText(/\/nw/, async (msg) => {
+    try {
+      const rows = await db.queryAll(
+        `SELECT date, total_nzd FROM fin_net_worth_snapshots
+         WHERE date >= CURRENT_DATE - INTERVAL '90 days'
+         ORDER BY date ASC`
+      );
+      if (!rows.length) {
+        send(msg.chat.id, '📈 Sin snapshots de net worth todavía.\nEl cron diario 23:55 los crea.');
+        return;
+      }
+      const first = parseFloat(rows[0].total_nzd);
+      const last = parseFloat(rows[rows.length - 1].total_nzd);
+      const delta = last - first;
+      const pct = first ? (delta / first * 100) : 0;
+      const arrow = delta > 0 ? '📈' : delta < 0 ? '📉' : '➡️';
+      const lines = [
+        '📊 *Net Worth Timeline (90d)*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `Snapshots: ${rows.length}`,
+        `${rows[0].date} → ${rows[rows.length - 1].date}`,
+        '',
+        `${arrow} NZD ${first.toFixed(0)} → *${last.toFixed(0)}*`,
+        `Δ ${delta >= 0 ? '+' : ''}${delta.toFixed(0)} NZD (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`,
+        '',
+      ];
+      // Sparkline rough: últimos 14 valores
+      const recent = rows.slice(-14);
+      if (recent.length >= 2) {
+        const vals = recent.map(r => parseFloat(r.total_nzd));
+        const min = Math.min(...vals), max = Math.max(...vals);
+        const range = max - min || 1;
+        const blocks = '▁▂▃▄▅▆▇█';
+        const spark = vals.map(v => blocks[Math.floor((v - min) / range * 7)]).join('');
+        lines.push(`14d: ${spark}`);
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P4 Fase 2: Paperless-ngx status + recientes ──
+  bot.onText(/\/paperless/, async (msg) => {
+    try {
+      const paperless = require('./paperless');
+      const reachable = await paperless.isReachable();
+      if (!reachable) {
+        send(msg.chat.id, '📂 Paperless-ngx: ❌ no reachable\nVerifica container ultra_paperless.');
+        return;
+      }
+      const stats = await paperless.getStats().catch(() => null);
+      const list = await paperless.listDocuments({ page: 1 }).catch(() => null);
+
+      const lines = ['📂 *Paperless-ngx*', '━━━━━━━━━━━━━━━━━━━━━━━━', '✅ reachable'];
+      if (stats) {
+        lines.push(`📄 Total docs: ${stats.documents_total ?? '?'}`);
+        if (stats.documents_inbox !== undefined) lines.push(`📥 Inbox: ${stats.documents_inbox}`);
+        if (stats.character_count !== undefined) lines.push(`🔤 Chars OCR: ${stats.character_count.toLocaleString()}`);
+      }
+
+      // Cuenta links activos en bur tablas
+      const linked = await db.queryOne(
+        `SELECT
+          (SELECT COUNT(*) FROM document_alerts WHERE paperless_id IS NOT NULL) AS docs,
+          (SELECT COUNT(*) FROM bur_vaccinations WHERE paperless_id IS NOT NULL) AS vacs,
+          (SELECT COUNT(*) FROM health_documents WHERE paperless_id IS NOT NULL) AS health`
+      );
+      lines.push('', `🔗 *Links activos:* docs=${linked.docs} vacunas=${linked.vacs} health=${linked.health}`);
+
+      if (list && list.results && list.results.length) {
+        lines.push('', '📋 _Últimos 5 documentos:_');
+        for (const d of list.results.slice(0, 5)) {
+          const date = (d.created || '').split('T')[0];
+          lines.push(`  📄 ${date} — ${(d.title || 'untitled').slice(0, 60)}`);
+        }
+      }
+      lines.push('', '━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error paperless: ${err.message}`);
+    }
+  });
+
+  // ─── P4 Fase 2: Gov watches (changedetection.io) ─────
+  bot.onText(/\/govwatch/, async (msg) => {
+    try {
+      const watches = await db.queryAll(
+        `SELECT id, label, country, category, cdio_uuid, last_changed_at,
+          (CURRENT_TIMESTAMP - last_changed_at) AS age
+         FROM bur_gov_watches WHERE is_active=TRUE
+         ORDER BY (last_changed_at IS NULL), last_changed_at DESC NULLS LAST, country`
+      );
+      const changes = await db.queryAll(
+        `SELECT c.detected_at, c.diff_summary, w.label, w.country
+         FROM bur_gov_changes c
+         LEFT JOIN bur_gov_watches w ON c.watch_id = w.id
+         ORDER BY c.detected_at DESC LIMIT 5`
+      );
+      const flag = (c) => ({ NZ: '🇳🇿', AU: '🇦🇺', ES: '🇪🇸', DZ: '🇩🇿' }[c]) || '🌐';
+      const cat = (c) => ({ visa: '🛂', tax: '💰', consular: '🏛️', other: '📄' }[c]) || '📄';
+      const synced = watches.filter(w => w.cdio_uuid).length;
+
+      const lines = [
+        '🛰️ *Gov watches (changedetection.io)*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        `Total: ${watches.length} (${synced} sincronizadas con cdio)`,
+        '',
+      ];
+      for (const w of watches.slice(0, 12)) {
+        const sync = w.cdio_uuid ? '✅' : '⏳';
+        const lastChange = w.last_changed_at
+          ? new Date(w.last_changed_at).toISOString().split('T')[0]
+          : 'never';
+        lines.push(`${sync} ${flag(w.country)} ${cat(w.category)} ${w.label} _(${lastChange})_`);
+      }
+      if (changes.length) {
+        lines.push('', '🚨 *Últimos cambios detectados:*');
+        for (const c of changes) {
+          const dt = new Date(c.detected_at).toISOString().slice(0, 16).replace('T', ' ');
+          lines.push(`  ${flag(c.country)} ${dt} — ${c.label || '?'}`);
+        }
+      } else {
+        lines.push('', '✅ Sin cambios detectados aún');
+      }
       send(msg.chat.id, lines.join('\n'), 'Markdown');
     } catch (err) {
       send(msg.chat.id, `❌ Error: ${err.message}`);
@@ -1351,4 +1915,27 @@ async function setCurrentLocation({ name, lat, lon, country, region }) {
   );
 }
 
-module.exports = { init, send, sendAlert, logNotification, formatDocumentAlert, isActive };
+/**
+ * P4 Fase 2 — Alerta de cambio detectado en página gov via changedetection.io
+ */
+async function alertGovChange(watch, summary) {
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!bot || !chatId) return;
+  const flag = ({ NZ: '🇳🇿', AU: '🇦🇺', ES: '🇪🇸', DZ: '🇩🇿' }[watch.country]) || '🌐';
+  const cat = { visa: '🛂', tax: '💰', consular: '🏛️', other: '📄' }[watch.category] || '📄';
+  const lines = [
+    `🚨 *Cambio detectado en página gov*`,
+    `${flag} ${cat} *${watch.label}*`,
+    `🔗 ${watch.url}`,
+  ];
+  if (summary && summary.length > 0) {
+    lines.push('', `📝 ${String(summary).slice(0, 300)}`);
+  }
+  try {
+    await bot.sendMessage(chatId, lines.join('\n'), { parse_mode: 'Markdown', disable_web_page_preview: true });
+  } catch (err) {
+    console.error('alertGovChange error:', err.message);
+  }
+}
+
+module.exports = { init, send, sendAlert, logNotification, formatDocumentAlert, isActive, alertGovChange };

@@ -300,7 +300,260 @@ const FETCHERS = [
   ['Jobicy', fetchJobicy],
   ['HackerNews', fetchHnWhoIsHiring],
   ['GitHub', fetchGithubBounties],
+  ['Algora', fetchAlgora],
+  ['JobSpyRemote', fetchJobSpyRemote],
+  ['Immunefi', fetchImmunefi],
+  ['Code4rena', fetchCode4rena],
+  ['Devpost', fetchDevpost],
+  ['NLnet', fetchNLnet],
 ];
+
+// ═══════════════════════════════════════════════════════════
+//  IMMUNEFI — bug bounties Web3 (RSS público)
+//  https://immunefi.com/explore/rss/
+// ═══════════════════════════════════════════════════════════
+const Parser = require('rss-parser');
+const _parser = new Parser({ timeout: 15000 });
+
+async function fetchImmunefi() {
+  try {
+    const feed = await _parser.parseURL('https://immunefi.com/explore/rss/');
+    const items = feed.items || [];
+    let inserted = 0, highScore = 0;
+    for (const it of items) {
+      const text = `${it.title} ${it.contentSnippet || ''}`;
+      const score = await scoreText(text);
+      // Try to extract reward from title (e.g. "$50,000 — Foo Protocol")
+      const rewardMatch = (it.title || '').match(/\$\s*([\d,]+(?:\.\d+)?)\s*(K|M)?/i);
+      let salary = null;
+      if (rewardMatch) {
+        salary = parseFloat(rewardMatch[1].replace(/,/g, ''));
+        if (rewardMatch[2]?.toUpperCase() === 'K') salary *= 1000;
+        if (rewardMatch[2]?.toUpperCase() === 'M') salary *= 1000000;
+      }
+      const ok = await insertOpportunity({
+        title: it.title || 'Immunefi bounty',
+        source: 'Immunefi',
+        url: it.link,
+        category: 'bounty',
+        description: (it.contentSnippet || '').slice(0, 1500),
+        payout_type: 'bounty',
+        salary_min: salary,
+        salary_max: salary,
+        currency: 'USD',
+        tags: ['web3', 'security'],
+        match_score: score,
+        external_id: `immunefi:${it.guid || it.link}`,
+        posted_at: it.isoDate ? new Date(it.isoDate) : null,
+      });
+      if (ok) inserted++;
+      if (score >= 8) highScore++;
+    }
+    return { source: 'Immunefi', total: items.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'Immunefi', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CODE4RENA — audit contests (RSS)
+//  https://code4rena.com/feed.xml
+// ═══════════════════════════════════════════════════════════
+async function fetchCode4rena() {
+  try {
+    const feed = await _parser.parseURL('https://code4rena.com/feed.xml');
+    const items = feed.items || [];
+    let inserted = 0, highScore = 0;
+    for (const it of items) {
+      const text = `${it.title} ${it.contentSnippet || ''}`;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: it.title || 'C4 audit contest',
+        source: 'Code4rena',
+        url: it.link,
+        category: 'audit_contest',
+        description: (it.contentSnippet || '').slice(0, 1500),
+        payout_type: 'contest',
+        currency: 'USD',
+        tags: ['solidity', 'audit', 'web3'],
+        match_score: score,
+        external_id: `c4:${it.guid || it.link}`,
+        posted_at: it.isoDate ? new Date(it.isoDate) : null,
+      });
+      if (ok) inserted++;
+      if (score >= 8) highScore++;
+    }
+    return { source: 'Code4rena', total: items.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'Code4rena', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DEVPOST — hackathons (JSON API)
+//  https://devpost.com/api/hackathons
+// ═══════════════════════════════════════════════════════════
+async function fetchDevpost() {
+  try {
+    const r = await fetch('https://devpost.com/api/hackathons', {
+      headers: { ...UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const hacks = data.hackathons || [];
+    let inserted = 0, highScore = 0;
+    for (const h of hacks) {
+      const text = `${h.title} ${(h.themes || []).map(t => t.name).join(' ')}`;
+      const score = await scoreText(text);
+      const prizeMatch = (h.prize_amount || '').match(/\$\s*([\d,]+)/);
+      const prize = prizeMatch ? parseFloat(prizeMatch[1].replace(/,/g, '')) : null;
+      const ok = await insertOpportunity({
+        title: h.title,
+        source: 'Devpost',
+        url: h.url,
+        category: 'hackathon',
+        description: `${h.organization_name || ''} · ${h.submission_period_dates || ''}`,
+        payout_type: 'prize',
+        salary_min: prize,
+        salary_max: prize,
+        currency: 'USD',
+        tags: (h.themes || []).map(t => t.name),
+        match_score: score,
+        external_id: `devpost:${h.id}`,
+        posted_at: null,
+      });
+      if (ok) inserted++;
+      if (score >= 8) highScore++;
+    }
+    return { source: 'Devpost', total: hacks.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'Devpost', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  NLNET — open-source grants (Atom feed)
+//  https://nlnet.nl/feed.atom
+// ═══════════════════════════════════════════════════════════
+async function fetchNLnet() {
+  try {
+    const feed = await _parser.parseURL('https://nlnet.nl/feed.atom');
+    const items = feed.items || [];
+    let inserted = 0, highScore = 0;
+    for (const it of items.slice(0, 30)) {  // limit since feed is huge
+      const text = `${it.title} ${it.contentSnippet || ''}`;
+      // Solo procesa items con keywords grant/funding/open-call
+      if (!/grant|fund|call|open call/i.test(text)) continue;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: it.title || 'NLnet grant',
+        source: 'NLnet',
+        url: it.link,
+        category: 'grant',
+        description: (it.contentSnippet || '').slice(0, 1500),
+        payout_type: 'grant',
+        currency: 'EUR',
+        tags: ['open-source', 'eu'],
+        match_score: score,
+        external_id: `nlnet:${it.guid || it.link}`,
+        posted_at: it.isoDate ? new Date(it.isoDate) : null,
+      });
+      if (ok) inserted++;
+      if (score >= 8) highScore++;
+    }
+    return { source: 'NLnet', total: items.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'NLnet', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ALGORA — bounties marketplace (P5 Fase 2)
+//  Public bounties endpoint en console.algora.io
+// ═══════════════════════════════════════════════════════════
+async function fetchAlgora() {
+  const url = 'https://console.algora.io/api/bounties?status=open&limit=50';
+  let res;
+  try {
+    res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
+  } catch (err) {
+    return { source: 'Algora', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+  if (!res.ok) return { source: 'Algora', total: 0, inserted: 0, highScore: 0, error: `HTTP ${res.status}` };
+  const data = await res.json().catch(() => null);
+  const bounties = (data?.bounties || data?.data || data || []);
+  let inserted = 0, highScore = 0;
+  for (const b of (Array.isArray(bounties) ? bounties : [])) {
+    if (!b.url && !b.html_url) continue;
+    const text = `${b.title || ''} ${b.description || ''} ${(b.tech || []).join(' ')}`;
+    const score = await scoreText(text);
+    const ok = await insertOpportunity({
+      title: `${b.title || 'Algora bounty'} ($${b.amount || b.reward || '?'})`,
+      source: 'Algora',
+      url: b.url || b.html_url,
+      category: 'bounty',
+      description: (b.description || '').slice(0, 1500),
+      payout_type: 'bounty',
+      salary_min: b.amount || b.reward || null,
+      salary_max: b.amount || b.reward || null,
+      currency: 'USD',
+      tags: b.tech || null,
+      match_score: score,
+      external_id: `algora:${b.id}`,
+      posted_at: b.created_at ? new Date(b.created_at) : null,
+    });
+    if (ok) inserted++;
+    if (score >= 8) highScore++;
+  }
+  return { source: 'Algora', total: bounties.length, inserted, highScore };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  JOBSPY (Python sidecar) — remote subset (P5 Fase 2)
+//  Llama al container ultra_jobspy:8000/api/v1/search_jobs
+// ═══════════════════════════════════════════════════════════
+async function fetchJobSpyRemote() {
+  const baseUrl = process.env.JOBSPY_BASE_URL || 'http://jobspy:8000';
+  // Multi-site: linkedin (sin country), indeed (con country=worldwide proxy)
+  const url = `${baseUrl}/api/v1/search_jobs?site_name=linkedin&search_term=remote+software+engineer&results_wanted=20&hours_old=72`;
+  let res;
+  try {
+    res = await fetch(url, { headers: { ...UA, Accept: 'application/json' }, signal: AbortSignal.timeout(60000) });
+  } catch (err) {
+    return { source: 'JobSpyRemote', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+  if (!res.ok) return { source: 'JobSpyRemote', total: 0, inserted: 0, highScore: 0, error: `HTTP ${res.status}` };
+  const data = await res.json().catch(() => ({}));
+  const jobs = data.jobs || data.results || [];
+  let inserted = 0, highScore = 0;
+  for (const j of jobs) {
+    const text = `${j.title || ''} ${j.company || ''} ${j.description || ''}`;
+    if (!j.job_url) continue;
+    // jobspy puede devolver onsite — solo aceptamos remote
+    const isRemote = /\bremote\b/i.test(`${j.title || ''} ${j.location || ''} ${j.is_remote || ''}`);
+    if (!isRemote) continue;
+    const score = await scoreText(text);
+    const ok = await insertOpportunity({
+      title: `${j.title} @ ${j.company || 'unknown'}`,
+      source: `JobSpy:${j.site || '?'}`,
+      url: j.job_url,
+      category: 'remote',
+      description: (j.description || '').slice(0, 1500),
+      payout_type: 'salary',
+      salary_min: j.min_amount || null,
+      salary_max: j.max_amount || null,
+      currency: j.currency || 'USD',
+      tags: null,
+      match_score: score,
+      external_id: `jobspy:${j.id || j.job_url}`,
+      posted_at: j.date_posted ? new Date(j.date_posted) : null,
+    });
+    if (ok) inserted++;
+    if (score >= 8) highScore++;
+  }
+  return { source: 'JobSpyRemote', total: jobs.length, inserted, highScore };
+}
 
 async function fetchAll() {
   const results = [];
@@ -331,5 +584,11 @@ module.exports = {
   fetchJobicy,
   fetchHnWhoIsHiring,
   fetchGithubBounties,
+  fetchAlgora,
+  fetchJobSpyRemote,
+  fetchImmunefi,
+  fetchCode4rena,
+  fetchDevpost,
+  fetchNLnet,
   scoreText,
 };

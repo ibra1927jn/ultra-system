@@ -5,8 +5,97 @@
 
 const express = require('express');
 const db = require('../db');
+const healthCheck = require('../health_destination_check');
+const wger = require('../wger');
+const off = require('../openfoodfacts');
 
 const router = express.Router();
+
+// ─── GET /api/bio/exercises ─ Search wger ────────────────
+router.get('/exercises', async (req, res) => {
+  try {
+    const { q, limit } = req.query;
+    if (q) {
+      const results = await wger.searchExercises({ q, limit: parseInt(limit || '20', 10) });
+      return res.json({ ok: true, count: results.length, data: results });
+    }
+    // List from local cache si exists
+    try {
+      const rows = await db.queryAll(
+        `SELECT id, name, category, muscles, equipment FROM bio_exercises ORDER BY id LIMIT $1`,
+        [parseInt(limit || '50', 10)]
+      );
+      return res.json({ ok: true, source: 'cache', count: rows.length, data: rows });
+    } catch {
+      const live = await wger.listExercises({ limit: parseInt(limit || '50', 10) });
+      return res.json({ ok: true, source: 'live', count: live.length, data: live });
+    }
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/exercises/sync', async (req, res) => {
+  try {
+    const result = await wger.syncExercises({ batchSize: 50, maxBatches: 10 });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/bio/food/barcode/:code ─ Lookup OFF ────────
+router.get('/food/barcode/:code', async (req, res) => {
+  try {
+    const result = await off.lookupBarcode(req.params.code);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/food/log', async (req, res) => {
+  try {
+    const { barcode, quantity_g, meal, notes } = req.body;
+    if (!barcode || !quantity_g) return res.status(400).json({ ok: false, error: 'barcode y quantity_g requeridos' });
+    const result = await off.logFood({ barcode, quantity_g, meal, notes });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/food/today', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, logged_at, product_name, brand, quantity_g, meal, kcal, protein_g, carbs_g, fat_g, nutriscore
+       FROM bio_food_log
+       WHERE logged_at >= CURRENT_DATE
+       ORDER BY logged_at DESC`
+    );
+    const totals = rows.reduce((a, r) => ({
+      kcal: a.kcal + parseFloat(r.kcal || 0),
+      protein_g: a.protein_g + parseFloat(r.protein_g || 0),
+      carbs_g: a.carbs_g + parseFloat(r.carbs_g || 0),
+      fat_g: a.fat_g + parseFloat(r.fat_g || 0),
+    }), { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 });
+    res.json({ ok: true, count: rows.length, totals, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/bio/destination-check?country=ID ───────────
+router.get('/destination-check', async (req, res) => {
+  try {
+    const { country } = req.query;
+    if (!country) return res.status(400).json({ ok: false, error: 'country requerido (ISO2)' });
+    const result = await healthCheck.checkDestination(country);
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 // ─── GET /api/bio ─ Listar registros ────────────────────
 router.get('/', async (req, res) => {

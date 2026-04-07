@@ -57,6 +57,12 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       JWT_SECRET: ${JWT_SECRET:-}
+      CDIO_API_KEY: ${CDIO_API_KEY:-}
+      CDIO_BASE_URL: http://changedetection:5000
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      PAPERLESS_BASE_URL: http://paperless:8000
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-admin}
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-changeme}
     volumes:
       - engine_uploads:/app/uploads
       - /root/ultra-system/agent_bus.json:/data/agent_bus.json
@@ -166,6 +172,100 @@ services:
     networks:
       - ultra_net
 
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P4 FASE 2 — changedetection.io
+  #  Watch páginas gov inmigración/visa críticas. Webhook
+  #  → engine /api/bureaucracy/changedetection/webhook → Telegram
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P4 FASE 2 — Paperless-ngx (document vault + OCR)
+  #  Bridge con bur_documents via paperless_id (ya existe FK col).
+  #  Redis broker minimal (alpine 30MB), sqlite por defecto.
+  #  paperless-ai DEFERIDO — requiere OPENAI_API_KEY o Ollama
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  paperless-redis:
+    image: redis:7-alpine
+    container_name: ultra_paperless_redis
+    restart: unless-stopped
+    networks:
+      - ultra_net
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: ultra_paperless
+    restart: unless-stopped
+    depends_on:
+      - paperless-redis
+    ports:
+      - "8007:8000"
+    environment:
+      PAPERLESS_REDIS: redis://paperless-redis:6379
+      PAPERLESS_DBENGINE: sqlite
+      PAPERLESS_URL: http://localhost:8007
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY:-change-me-please-change-me-please}
+      PAPERLESS_TIME_ZONE: ${TZ:-Pacific/Auckland}
+      PAPERLESS_OCR_LANGUAGES: spa eng fra ara
+      PAPERLESS_OCR_LANGUAGE: eng+spa+fra
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-admin}
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-changeme}
+      USERMAP_UID: "1000"
+      USERMAP_GID: "1000"
+    volumes:
+      - ./paperless/data:/usr/src/paperless/data
+      - ./paperless/media:/usr/src/paperless/media
+      - ./paperless/consume:/usr/src/paperless/consume
+      - paperless_export:/usr/src/paperless/export
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P6 FASE 2 — Traccar GPS server
+  #  Usa SQLite por defecto (h2 en versión legacy, sqlite en
+  #  recientes). Phone apps Traccar Client envían pings vía
+  #  protocolo osmand al puerto 5055.
+  #  Web UI en 8082, REST API también en 8082.
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  traccar:
+    image: traccar/traccar:latest
+    container_name: ultra_traccar
+    restart: unless-stopped
+    ports:
+      - "8082:8082"          # Web UI + REST API
+      - "5055:5055"          # OsmAnd protocol (Traccar Client app)
+    volumes:
+      - traccar_data:/opt/traccar/data
+      - traccar_logs:/opt/traccar/logs
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 600M
+
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:latest
+    container_name: ultra_changedetection
+    restart: unless-stopped
+    ports:
+      - "8006:5000"
+    environment:
+      BASE_URL: http://localhost:8006
+      PUID: "1000"
+      PGID: "1000"
+      TZ: ${TZ:-Pacific/Auckland}
+    volumes:
+      - changedetection_data:/datastore
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  VOLÚMENES PERSISTENTES
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -182,6 +282,10 @@ volumes:
   grocy_data:
   fasten_data:
   fasten_cache:
+  changedetection_data:
+  paperless_export:
+  traccar_data:
+  traccar_logs:
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  RED INTERNA

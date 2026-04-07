@@ -230,6 +230,32 @@ async function fetchBlueskySearch() {
 //  Activar añadiendo las keys correspondientes al .env
 // ═══════════════════════════════════════════════════════════
 
+// ─── Helper: ensure pseudo-feed exists for an API source ───
+async function ensurePseudoFeed(category, name) {
+  let row = await db.queryOne('SELECT id FROM rss_feeds WHERE category = $1 LIMIT 1', [category]);
+  if (!row) {
+    row = await db.queryOne(
+      `INSERT INTO rss_feeds (url, name, category, is_active)
+       VALUES ($1, $2, $3, TRUE)
+       ON CONFLICT (url) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [`pseudo://${category}`, name, category]
+    );
+  }
+  return row.id;
+}
+
+// Helper: scoring usando rss_keywords (mismo modelo que GDELT)
+async function scoreArticleText(text) {
+  const kws = await db.queryAll('SELECT keyword, weight FROM rss_keywords');
+  let score = 0;
+  const lower = String(text || '').toLowerCase();
+  for (const k of kws) {
+    if (lower.includes(k.keyword.toLowerCase())) score += k.weight;
+  }
+  return score;
+}
+
 /**
  * Currents API — 1,000 req/día free.
  * Activar: añadir CURRENTS_API_KEY al .env
@@ -240,15 +266,31 @@ async function fetchCurrents() {
   if (!key) {
     return { newCount: 0, highScoreArticles: [], skipped: 'CURRENTS_API_KEY no configurada' };
   }
-  // TODO cuando se añada la key:
-  // const url = `https://api.currentsapi.services/v1/latest-news?apiKey=${key}&language=en`;
-  // ... fetch + insert pattern como GDELT
-  return { newCount: 0, highScoreArticles: [], skipped: 'Stub no implementado todavía' };
+  try {
+    const url = `https://api.currentsapi.services/v1/latest-news?apiKey=${key}&language=en`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error(`Currents HTTP ${r.status}`);
+    const data = await r.json();
+    const news = data.news || [];
+    const feedId = await ensurePseudoFeed('currents', 'Currents API');
+    let newCount = 0;
+    const highScoreArticles = [];
+    for (const a of news) {
+      const score = await scoreArticleText(`${a.title} ${a.description}`);
+      const inserted = await insertArticle(feedId, a.title, a.url, a.description, a.published, score);
+      if (inserted) {
+        newCount++;
+        if (score >= 8) highScoreArticles.push({ title: a.title, score, url: a.url });
+      }
+    }
+    return { newCount, highScoreArticles, fetched: news.length };
+  } catch (err) {
+    return { newCount: 0, highScoreArticles: [], error: err.message };
+  }
 }
 
 /**
  * Newsdata.io — 200 credits/día free, 12h delay.
- * Activar: añadir NEWSDATA_API_KEY al .env
  * Docs: https://newsdata.io/documentation
  */
 async function fetchNewsdata() {
@@ -256,12 +298,32 @@ async function fetchNewsdata() {
   if (!key) {
     return { newCount: 0, highScoreArticles: [], skipped: 'NEWSDATA_API_KEY no configurada' };
   }
-  return { newCount: 0, highScoreArticles: [], skipped: 'Stub no implementado todavía' };
+  try {
+    // 206 países soportados; usamos los del usuario por relevancia
+    const url = `https://newsdata.io/api/1/news?apikey=${key}&country=nz,au,es,dz&language=en,es,fr`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error(`Newsdata HTTP ${r.status}`);
+    const data = await r.json();
+    const results = data.results || [];
+    const feedId = await ensurePseudoFeed('newsdata', 'Newsdata.io');
+    let newCount = 0;
+    const highScoreArticles = [];
+    for (const a of results) {
+      const score = await scoreArticleText(`${a.title} ${a.description}`);
+      const inserted = await insertArticle(feedId, a.title, a.link, a.description, a.pubDate, score);
+      if (inserted) {
+        newCount++;
+        if (score >= 8) highScoreArticles.push({ title: a.title, score, url: a.link });
+      }
+    }
+    return { newCount, highScoreArticles, fetched: results.length };
+  } catch (err) {
+    return { newCount: 0, highScoreArticles: [], error: err.message };
+  }
 }
 
 /**
  * Finlight — 10K req/mes free, foco financiero/geopolítico.
- * Activar: añadir FINLIGHT_API_KEY al .env
  * Docs: https://finlight.me/docs
  */
 async function fetchFinlight() {
@@ -269,7 +331,30 @@ async function fetchFinlight() {
   if (!key) {
     return { newCount: 0, highScoreArticles: [], skipped: 'FINLIGHT_API_KEY no configurada' };
   }
-  return { newCount: 0, highScoreArticles: [], skipped: 'Stub no implementado todavía' };
+  try {
+    const url = `https://api.finlight.me/v2/articles?language=en&pageSize=50`;
+    const r = await fetch(url, {
+      headers: { 'X-API-KEY': key, Accept: 'application/json' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`Finlight HTTP ${r.status}`);
+    const data = await r.json();
+    const articles = data.articles || data.data || [];
+    const feedId = await ensurePseudoFeed('finlight', 'Finlight (financial)');
+    let newCount = 0;
+    const highScoreArticles = [];
+    for (const a of articles) {
+      const score = await scoreArticleText(`${a.title} ${a.summary || a.description}`);
+      const inserted = await insertArticle(feedId, a.title, a.link || a.url, a.summary, a.publishDate, score);
+      if (inserted) {
+        newCount++;
+        if (score >= 8) highScoreArticles.push({ title: a.title, score, url: a.link || a.url });
+      }
+    }
+    return { newCount, highScoreArticles, fetched: articles.length };
+  } catch (err) {
+    return { newCount: 0, highScoreArticles: [], error: err.message };
+  }
 }
 
 module.exports = {

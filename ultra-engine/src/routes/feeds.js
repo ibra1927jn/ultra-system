@@ -5,6 +5,9 @@
 
 const express = require('express');
 const rss = require('../rss');
+const dedup = require('../dedup_runner');
+const earlyWarning = require('../early_warning');
+const db = require('../db');
 
 const router = express.Router();
 
@@ -44,6 +47,54 @@ router.get('/articles', async (req, res) => {
 });
 
 // ─── POST /api/feeds/:id/fetch ─ Forzar fetch ───────────
+// ─── POST /api/feeds/dedup ─ Cross-table MinHash dedup ───
+// (debe ir antes de :id/fetch para evitar matching parámetro greedy)
+router.post('/dedup', async (req, res) => {
+  try {
+    const lookbackDays = parseInt(req.body?.lookback_days || '30', 10);
+    const threshold = parseFloat(req.body?.threshold || '0.7');
+    const result = await dedup.runAll({ lookbackDays, threshold });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/feeds/early-warning/fetch ─ Trigger all ───
+router.post('/early-warning/fetch', async (req, res) => {
+  try {
+    const results = await earlyWarning.fetchAll();
+    res.json({ ok: true, results });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/feeds/events ─ List events_store ───────────
+router.get('/events', async (req, res) => {
+  try {
+    const { source, country, severity, limit } = req.query;
+    const where = [];
+    const params = [];
+    if (source) { params.push(source); where.push(`source=$${params.length}`); }
+    if (country) { params.push(country.toUpperCase()); where.push(`country=$${params.length}`); }
+    if (severity) { params.push(severity); where.push(`severity=$${params.length}`); }
+
+    params.push(parseInt(limit || '50', 10));
+    const rows = await db.queryAll(
+      `SELECT id, source, event_type, severity, title, country, magnitude, occurred_at, url
+       FROM events_store
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY occurred_at DESC
+       LIMIT $${params.length}`,
+      params
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.post('/:id/fetch', async (req, res) => {
   try {
     const { newCount, highScoreArticles } = await rss.fetchFeed(req.params.id);

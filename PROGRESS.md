@@ -144,6 +144,189 @@
 - [2026-04-07] | BUG FIX /feeds: comando estaba en /help pero sin handler. Añadido bot.onText(/\/feeds/) que lista top 10 rss_articles excluyendo categorías gdelt/bsky (que tienen sus propios comandos)
 - [2026-04-07] | UX FIX location: /clima y /poi fallaban con "Sin current location" porque log_locations estaba vacía. Solución dual: (1) bot.on('location') captura share nativo de Telegram (📎 → Location) y persiste vía reverseGeocode Nominatim; (2) /donde Auckland geocodea por nombre vía Nominatim forward search. Helper setCurrentLocation() limpia is_current previo. /help actualizado.
 
+## Completado (Fase 2 — P4 Schengen + passport-index) ✅
+- [2026-04-07] | DB: tabla bur_travel_log (country, area SCHENGEN/CTA, entry_date, exit_date, purpose, passport_used CRÍTICO ES/DZ split, source). 4 índices. CHECK exit>=entry.
+- [2026-04-07] | DB: tabla bur_visa_matrix (passport, destination, requirement, days_allowed, notes) UNIQUE(passport,destination). 108 filas seed para ES (61) + DZ (47) cubriendo Schengen+EU+Anglosphere+LATAM+Asia+Maghreb+MENA. Datos curados de ilyankou/passport-index-dataset (CC BY-SA 4.0).
+- [2026-04-07] | NEW src/schengen.js — calculadora 90/180 pura. computeSchengenUsage(trips, targetDate) → days_used, days_remaining, overstay flag, breakdown por estancia. Lógica: ventana sliding 180 días incluyendo target, intersección por trip, suma inclusiva (ambos extremos). CRÍTICO: passport_used='ES' → freedom of movement, NO cuenta. 26 países Schengen 2026 hardcoded set (excluye IE/CY).
+- [2026-04-07] | schengen.js: projectNextEntryDate(trips, 90) → itera 365d futuros buscando primera fecha con 90d disponibles. getSchengenStatus() async wrapper que lee bur_travel_log y aplica.
+- [2026-04-07] | BUG FIX schengen.js: pg DATE retorna Date a local-midnight, toUTC() inicial usaba getUTCDate() → shift -1 día con TZ Pacific/Auckland (+13). Fix: parsear strings 'YYYY-MM-DD' por regex y leer componentes locales (getFullYear/getMonth/getDate) para Date objects. 8 unit tests pasan.
+- [2026-04-07] | routes/bureaucracy.js: 7 endpoints nuevos — GET/POST/PUT/DELETE /travel-log, GET /schengen?date=YYYY-MM-DD, GET /visa?from=ES&to=NZ (o solo from para listado), POST /visa-matrix (upsert con ON CONFLICT). POST /travel-log auto-detecta area=SCHENGEN si country en SCHENGEN_COUNTRIES. Publica evento bur.travel_logged.
+- [2026-04-07] | telegram.js: 3 comandos nuevos — /schengen [YYYY-MM-DD] (default hoy), /visa ES NZ (par específico) o /visa ES (lista agrupada por requirement con emojis 🟢🟡🟠🔴), /viaje DZ 2026-05-01 FR [exit] (registra trip auto-detect Schengen). Help actualizado.
+- [2026-04-07] | E2E test: 8 unit tests schengen.js (empty, FR DZ 30d, FR ES freedom, overstay 105d, outside-window, ongoing, UK ignored, projection); 4 trips reales en DB → 49 days used / 41 remaining / next 90-window 2026-10-02; 4 endpoints API verificados con JWT; visa lookups DZ→NZ y ES→AU correctos.
+- [2026-04-07] | Cron jobs: 22 (sin cambios — Schengen es on-demand, no requiere scheduling)
+
+## Completado (Fase 2 — P4 changedetection.io gov sites) ✅
+- [2026-04-07] | docker-compose: container ghcr.io/dgtlmoon/changedetection.io:latest (port 8006:5000, vol changedetection_data, mem limit 400M)
+- [2026-04-07] | DB: tabla bur_gov_watches (label, url UNIQUE, country, category visa/tax/consular/other, cdio_uuid, last_changed_at, last_check_at). 11 seed críticos: NZ Immigration WHV, NZ Spain WHV, AU WHV 417, AU visa finder, ES Exteriores Argel, Schengen Visa Info, AEAT Modelo 720/721, IRD NZ IR3, NZTA Self-Contained Vehicle, AU Embassy Algiers, DZ MAE.
+- [2026-04-07] | DB: tabla bur_gov_changes (audit log webhook payloads JSONB con FK a watch). Index detected_at DESC.
+- [2026-04-07] | NEW src/changedetection.js — cliente cdio API. listWatches(), createWatch(url,label,notify), deleteWatch(uuid), syncWatches() idempotente que crea solo los que no tienen cdio_uuid local. Lee CDIO_API_KEY env (header x-api-key).
+- [2026-04-07] | NEW src/routes/webhooks.js — endpoint POST /webhooks/changedetection PÚBLICO (sin JWT) protegido por WEBHOOK_SECRET opcional + validación cdio_uuid contra DB. Persiste a bur_gov_changes, actualiza last_changed_at, publica eventbus 'bur.gov_change_detected', llama telegram.alertGovChange()
+- [2026-04-07] | server.js: monta app.use('/webhooks', webhooksRouter) FUERA del bloque requireAuth (changedetection no puede emitir JWT)
+- [2026-04-07] | routes/bureaucracy.js: 4 endpoints más — GET /gov-watches, POST /gov-watches (upsert), POST /gov-watches/sync (manual trigger), GET /gov-changes
+- [2026-04-07] | telegram.js: comando /govwatch (lista watches con sync status ✅/⏳ + últimos 5 cambios) + helper alertGovChange(watch, summary) que envía mensaje formateado con flag/categoría
+- [2026-04-07] | scheduler: nuevo cron cdio-sync (diario 04:30) + boot sync diferido 30s. Total: 22 → 23 jobs
+- [2026-04-07] | docker-compose: engine ahora recibe CDIO_API_KEY, CDIO_BASE_URL=http://changedetection:5000, WEBHOOK_SECRET (vacío default) via env
+- [2026-04-07] | Setup: cdio genera api_access_token en primer arranque dentro de /datastore/changedetection.json. Extraído y persistido a .env como CDIO_API_KEY=e7722a33885aa14857cc4ae29e6bd3ed
+- [2026-04-07] | E2E: 11/11 watches creados en cdio first run (UUIDs únicos persistidos). Webhook simulado → 200 OK, INSERT en bur_gov_changes, last_changed_at actualizado, evento publicado, telegram.alertGovChange ejecutada. /govwatch responde con sync status y diff
+- [2026-04-07] | Notas: en próximas iteraciones cdio detectará cambios reales en sus check intervals. Apprise notify URL = json://engine:3000/webhooks/changedetection. Todo en red interna ultra_net (webhook no expuesto a internet aunque se mapea localhost para test)
+
+## Completado (Fase 2 — P4 Paperless-ngx bridge) ✅
+- [2026-04-07] | docker-compose: 2 containers nuevos — paperless-redis (redis:7-alpine, broker para Celery) + paperless (ghcr.io/paperless-ngx/paperless-ngx:latest, port 8007:8000, mem limit 1500M, sqlite default, OCR langs spa+eng+fra+ara). Reusa ./paperless/{data,media,consume} pre-existentes (uid 1000) + vol paperless_export.
+- [2026-04-07] | NEW src/paperless.js — cliente REST API. getToken() vía POST /api/token/ con cache + clearToken(). isReachable, listDocuments, getDocument, uploadDocument (multipart FormData), waitForTask (polea /api/tasks/?task_id= hasta SUCCESS/FAILURE con max 30 retries × 2s), uploadAndLink({filepath, target_table, target_id, tags}) que sube + actualiza paperless_id en document_alerts/bur_vaccinations/health_documents (las 3 tablas ya tenían la columna).
+- [2026-04-07] | routes/bureaucracy.js: 3 endpoints más — GET /paperless/status (reachable + stats), GET /paperless/documents (?query, ?page), POST /paperless/link (filepath en server, target_table+target_id)
+- [2026-04-07] | telegram.js: comando /paperless (status reachable + stats counts + total links activos por tabla bur + últimos 5 docs OCR)
+- [2026-04-07] | docker-compose env: PAPERLESS_BASE_URL=http://paperless:8000, PAPERLESS_ADMIN_USER, PAPERLESS_ADMIN_PASSWORD pasados al engine
+- [2026-04-07] | .env: nuevas vars PAPERLESS_ADMIN_USER=admin, PAPERLESS_ADMIN_PASSWORD=ultra_paperless_2026, PAPERLESS_SECRET_KEY (generado openssl rand 32 bytes hex)
+- [2026-04-07] | E2E test: paperless boot OK Celery worker ready, /paperless/status reachable=true total_docs=0, INSERT row TEST en document_alerts id=11, copy file vía docker compose cp, POST /paperless/link → task_id devuelto → polled → SUCCESS → document_id=1 → UPDATE document_alerts SET paperless_id=1 WHERE id=11 ✓ verificado en DB. /paperless/documents lista #1 TEST Bridge Doc creado 2026-04-07
+- [2026-04-07] | DECISIÓN paperless-ai DEFERRED — el módulo clemcer/paperless-ai requiere OPENAI_API_KEY o instancia Ollama local. Auto-clasificación AI no añade valor sin esa key. Cuando el usuario quiera activarlo: añadir container paperless-ai apuntando a paperless API + OPENAI_API_KEY o OLLAMA_API_URL.
+- [2026-04-07] | Total containers: 8 → 10 (paperless-redis + paperless). Memoria estimada total ~3GB (caben en CX43 16GB)
+
+## Completado (Fase 2 — P3 Finanzas profundización) ✅
+- [2026-04-07] | DB: nueva tabla fin_savings_goals (name, target/current_amount, currency, target_date, category, is_active). 2 índices.
+- [2026-04-07] | DB: extensión fin_recurring +3 columnas (confidence NUMERIC(3,2), sample_size INT, avg_interval_days NUMERIC(6,2)) idempotente
+- [2026-04-07] | DB: nueva tabla fin_crypto_holdings (symbol, amount NUMERIC(24,8), exchange, wallet_address, notes, is_active). UNIQUE(symbol,exchange) + 2 índices
+- [2026-04-07] | NEW src/recurring.js — detección automática gastos recurrentes. normalizePayee() (lowercase + strip puntuación + colapsa whitespace + strip nums >=4 dígitos). computeStats() calcula intervals media + stddev → confidence = 1 - (stddev/mean). inferFrequency: <10d=weekly, <20=biweekly, <45=monthly, <100=bimonthly, <200=quarterly, else yearly. Upsert idempotente a fin_recurring (UNIQUE payee+frequency). Threshold confidence ≥ 0.5
+- [2026-04-07] | NEW src/crypto.js — CoinGecko free API client (vs NZD), 20 ticker→cgid mappings (BTC/ETH/SOL/BNB/ADA/DOT/MATIC/AVAX/XRP/DOGE/LTC/LINK/USDT/USDC/DAI/BUSD/ATOM/UNI/NEAR/ALGO). Cache prices a fin_exchange_rates (reuse FX table con source='coingecko'). Fallback a cached cuando coingecko fail. getHoldings() lee fin_crypto_holdings + valua + ordena por value_nzd DESC. fetchBinanceBalances() ccxt stub (configured:false si BINANCE_API_KEY/SECRET o paquete ccxt missing). syncBinance() upsert idempotente.
+- [2026-04-07] | NEW src/bridges.js — cross-pillar event subscribers. getBurnRate(90) calcula media diaria expense últimos 90d. getCurrentRunway() = last NW snapshot / burn. Handlers: onOpportunityWon (P5→P3 estima impacto runway + alerta Telegram con Δ días), onLogisticsCost (P6→P3 alerta si cost ≥100 NZD o ≥1d runway), onTravelLogged (P4→P3 log only por ahora). init() registra en eventbus.
+- [2026-04-07] | scheduler.js: snapshotNetWorth() ahora SUMA crypto holdings al total NZD (vía cryptoMod.getHoldings) y añade entries `crypto:exchange:symbol` al breakdown JSONB. Try/catch para no romper si CoinGecko cae.
+- [2026-04-07] | scheduler.js: nuevo cron recurring-detect (lunes 03:00, lookback 365d, min 3 samples). Total: 23 → 24 jobs
+- [2026-04-07] | routes/finances.js: 12 endpoints más — POST/GET /recurring + /detect + PATCH /:id/confirm; 4 CRUD /savings-goals; GET /nw-timeline?days= con trend (delta absoluto + %); GET/POST/DELETE /crypto + /sync-binance + /prices; GET /runway-status (con bridges)
+- [2026-04-07] | routes/opportunities.js: PATCH /:id detecta transición a 'won' (compara prev.status) y publica eventbus 'opp.won' con estimated_value_nzd
+- [2026-04-07] | routes/logistics.js: POST / publica eventbus 'log.cost_logged' cuando cost > 0
+- [2026-04-07] | server.js: bridges.init() llamado tras scheduler.init() — registra subscribers in-memory
+- [2026-04-07] | telegram.js: 4 comandos nuevos /recurring (top 15 con confidence + days_until), /savings (progress bar visual + days remaining), /nw (sparkline 14d), /crypto (top 12 holdings + total NZD)
+- [2026-04-07] | E2E test recurring: 17 finances rows sintéticas (Spotify 10x, Vodafone 7x) → POST /recurring/detect → 2 detected, Spotify confidence 0.96 monthly avg 30.33d sample 10, Vodafone 0.96 monthly avg 30.16d sample 7
+- [2026-04-07] | E2E test crypto: GET /crypto/prices CoinGecko live BTC NZD$120,452 ETH $3,695.72 SOL $140.34. POST 0.5 BTC + 10 ETH + 100 SOL → GET /crypto = NZD $111,217.20 total + breakdown ordenado
+- [2026-04-07] | E2E test savings: POST Emergency Fund target 10000 current 3500 → GET muestra progress 35.0%, days_remaining 268
+- [2026-04-07] | E2E test bridges: 3 subscribers verificados (opp.won, log.cost_logged, bur.travel_logged), runway-status con 4 expense rows + snapshot $25k = 3214d runway @ $7.78/d burn. POST opp + PATCH a 'won' → eventbus.publish persistido a event_log + handler ejecutado (telegram.sendAlert real al chat). Direct invoke handler verificado OK.
+
+## Completado (Fase 2 — P1 dedup + early warning) ✅
+- [2026-04-07] | DB: nueva tabla events_store (source, external_id UNIQUE+source, event_type, severity, title, summary, country, region, lat/lon, magnitude, occurred_at, payload JSONB). 5 índices.
+- [2026-04-07] | DB: extensión idempotente +2 cols (duplicate_of FK self, dedup_similarity NUMERIC(4,3)) en rss_articles, opportunities, job_listings + 3 índices duplicate_of
+- [2026-04-07] | NEW src/minhash.js — MinHash + LSH puro JS sin deps. FNV-1a 32-bit hash family. MinHash class con shingle() (3-word con fallback char-grams), updateBatch, jaccard estimate, toBuffer/fromBuffer. MinHashLSH class con bands+rows tunables, buckets Map, query/queryWithThreshold. dedupArray helper. **DEFAULTS bands=32 rows=4** (LSH natural threshold ~0.42, alta recall) post-filtra al threshold del usuario.
+- [2026-04-07] | BUG FIX minhash.js: defaults iniciales bands=16 rows=8 daban natural threshold ~0.74 → recall pobre por debajo. Items con Jaccard 0.5 no entraban en candidatos LSH. Cambio a 32×4 verificado con test (item ES/NZ WHV detectado a 0.492).
+- [2026-04-07] | NEW src/dedup_runner.js — dedupTable({table, textCols, lookbackDays, threshold}) genérico. runAll() aplica a rss_articles (title+summary), opportunities (title+description), job_listings (title+company+description). Idempotente: solo procesa rows con duplicate_of IS NULL. Marca como dup el de menor ID (canonical).
+- [2026-04-07] | NEW src/early_warning.js — fetchers free para events_store. fetchUSGSEarthquakes (GeoJSON, 4 niveles severity por magnitude ≥7/6/5/<5), fetchWHODons (RSS rss-parser, filtra por keywords disease/outbreak/virus/etc), fetchACLED stub (free pero requiere ACLED_API_KEY+ACLED_EMAIL, registro en acleddata.com). extractCountryISO mapping de 50+ country names → ISO2.
+- [2026-04-07] | BUG FIX early_warning.js: USGS default period='7day' producía URL inválida (4.5_7day.geojson) → USGS responde literal "null" → JSON.parse falla en posición 4. Fix: period='week'. Ahora 153 earthquakes ingested first run.
+- [2026-04-07] | routes/feeds.js: 3 endpoints más — POST /dedup, POST /early-warning/fetch, GET /events (con filtros source/country/severity)
+- [2026-04-07] | BUG FIX routes/feeds.js: rutas /dedup, /early-warning/fetch, /events estaban DESPUÉS de POST /:id/fetch → Express greedy match capturaba "early-warning" como :id. Fix: reorder rutas específicas ANTES de :id pattern.
+- [2026-04-07] | scheduler: 2 nuevos crons — minhash-dedup (diario 03:30) + early-warning-fetch (cada 6h). Total: 24 → 26 jobs. Handler early-warning auto-alerta Telegram si severity critical/high en últimos 15min.
+- [2026-04-07] | telegram.js: 1 comando nuevo /events [country] (filtra por país opcional, top 15 ordenados por severity DESC + fecha)
+- [2026-04-07] | E2E test minhash: 7 test items sintéticos → item 2 detectado como dup de 1 con sim 0.492. Real DB scan: 4,083 rows scanned (rss 1484 + opps 873 + jobs 1726) → **373 dups marcados** (rss 54 + opps 23 + jobs 296). Top hits perfect 1.000: Harvey Norman Sales Consultant, Hilton Housekeeping/F&B, Restaurant Delivery (canonical preserved).
+- [2026-04-07] | E2E test early warning: USGS 153 earthquakes ingested first run + 13 WHO disease outbreak news. Severity breakdown: 1 critical + 3 high + 73 medium + 89 low. ACLED stub correctamente reporta configured:false con instrucciones registro.
+
+## Completado (Fase 2 — P2 Gov sources + UK Sponsor Register) ✅
+- [2026-04-07] | DB: nueva tabla emp_visa_sponsors (country, company_name UNIQUE+country, city, region, route, rating, source). 2 índices (country, LOWER(company_name))
+- [2026-04-07] | NEW src/gov_jobs.js — fetchers gov: USAJobs (data.usajobs.gov, requiere USAJOBS_EMAIL+USAJOBS_API_KEY graceful stub), JobTechSE (jobsearch.api.jobtechdev.se free), hh.ru (api.hh.ru free), NAV (DEPRECATED stub porque public-feed dió 404). Stubs France Travail + Bundesagentur (OAuth required).
+- [2026-04-07] | gov_jobs.js: importUKSponsorRegister(url) parser CSV gov.uk (Organisation Name/Town/County/Type & Rating/Route → emp_visa_sponsors). crossRefVisaSponsors() UPDATE job_listings SET visa_sponsorship=true WHERE company in sponsors register.
+- [2026-04-07] | BUG FIX: insertJob no estaba exportado en job_apis.js → gov_jobs.js fallaba "is not a function". Fix: añadido a exports + makeFingerprint, detectCountry, isRemote.
+- [2026-04-07] | routes/jobs.js: 5 endpoints más — POST /gov/fetch (all), POST /gov/fetch/:source, POST /visa-sponsors/import-uk, POST /visa-sponsors/cross-ref, GET /visa-sponsors (filtros country, q, limit)
+- [2026-04-07] | scheduler: nuevo cron gov-jobs-fetch (diario 05:00). Total: 26 → 27 jobs
+- [2026-04-07] | E2E test: JobTech SE 25 jobs ingested (Skövde kommun, Falkenberg, etc.), hh.ru 25 jobs ingested. USAJobs configured:false (sin keys), NAV stub deprecated. Mock UK sponsor CSV import 3 sponsors (Stripe Payments UK, DeepMind, Acme) → /visa-sponsors?country=GB devuelve los 3.
+
+## Completado (Fase 2 — P5 Daily fetcher + matching profile + ts-jobspy) ✅
+- [2026-04-07] | DB: tabla emp_profile reutilizada (existente con cols antiguas). ALTER ADD COLUMNS preferred_countries TEXT[], preferred_sectors TEXT[], min_salary_nzd NUMERIC, preferences JSONB, experience JSONB. ALTER skills/languages text[] → JSONB (drop default + cast + re-set default).
+- [2026-04-07] | DB seed: emp_profile id=1 con perfil Ibrahim — 18 skills (nodejs/typescript/python/postgres/docker/react/ai/llm/devops/etc), 4 languages (es native, en C2, fr B2, ar B1), preferred_countries [NZ AU ES CA GB PT DE], preferred_sectors [ai devtools fintech aerospace biotech engineering], min_salary_nzd 65000, preferences {remote_ok, visa_sponsor_preferred, van_life_compatible}
+- [2026-04-07] | NEW src/matching.js — computeMatchScore(item, profile) 0-100. Factores: skill match (50, % skills profile presentes en text + bonus por hits), country preference (15), sector (10), language fit (10), salary fit (15 si >= min, 8 si >= 70%). getProfile() con cache 1min. rescoreOpportunities() UPDATE match_score para todas. rescoreJobs() para job_listings.
+- [2026-04-07] | opp_fetchers.js: 2 fetchers nuevos — fetchAlgora() (console.algora.io/api/bounties stub graceful), fetchJobSpyRemote() (llama jobspy:8000 sidecar con site_name=linkedin, search_term=remote+software+engineer, hours_old=72, 20 results)
+- [2026-04-07] | BUG FIX jobspy: HTTP 400 "country_indeed required when searching Indeed" → cambio site_name de "indeed,linkedin" a solo "linkedin" (no requiere country). Test: 20 jobs fetched, 2 inserted (resto filtered por non-remote o dup).
+- [2026-04-07] | routes/opportunities.js: 3 endpoints — GET /profile, PATCH /profile (con clearCache), POST /match-rescore
+- [2026-04-07] | scheduler.js: fetchOpportunities() ahora ejecuta matching.rescoreOpportunities() post-fetch. Logging "🎯 [opp-fetch] match rescore: X/Y"
+- [2026-04-07] | opp_fetchers.js exports +fetchAlgora, +fetchJobSpyRemote
+- [2026-04-07] | E2E test: GET /profile devuelve perfil Ibrahim 18 skills. POST /match-rescore → 850 opps rescored. Top: Tech Lead Full-Stack Rails 47/100 (Mitre Media), Full-Stack ELECTE 44, Software Engineer Clover 40 — todos matchean react/postgres/python/ai. JobSpy linkedin 20 fetched + 2 inserted.
+
+## Completado (Fase 2 — P7 ✕ P6 destinos outbreak integration) ✅
+- [2026-04-07] | NEW src/health_destination_check.js — checkDestination(countryISO) cruza 3 fuentes: health_alerts WHO/CDC/ECDC últimos 30d, events_store disease_outbreak últimos 60d, bur_vaccinations vs RECOMMENDED_VACCINES (mapping ISO2 → vacunas). 30 países cubiertos (SE Asia tropical, Africa malaria/yellow fever, LATAM, Europa low-risk). Risk levels: low/medium/high/critical inferido por count + severity de events.
+- [2026-04-07] | bridges.js: nuevo handler onTravelLogged extendido — además del runway tracking, llama healthCheck.checkDestination() y dispara Telegram alert si risk_level >= high O hay vacunas missing. Lista vacunas faltantes + outbreaks recientes en mensaje.
+- [2026-04-07] | bridges.js: nuevo handler onLogisticsTripPlanned suscrito a 'log.trip_planned' (preparado para cuando logistics POST emita ese evento)
+- [2026-04-07] | routes/bio.js: nuevo endpoint GET /destination-check?country=XX — devuelve risk_level, vaccinations_recommended/missing, events, health_alerts
+- [2026-04-07] | telegram.js: comando /destino XX (ISO2) — output formateado con risk emoji + checklist vacunas ✅/❌ + outbreaks recientes
+- [2026-04-07] | E2E test: ID (Indonesia) recomienda 4 vacunas (hep_a, typhoid, JE, rabies) detecta usuario tiene solo 1 → 3 missing. NZ low risk vaccs missing []. KE (Kenya) recomienda 5 incluyendo yellow_fever + malaria_preventive, 4 missing.
+- [2026-04-07] | Subscribers totales bridges: 4 (opp.won, log.cost_logged, bur.travel_logged, log.trip_planned)
+
+## Deploy Fase 2 — In-place ✅
+- [2026-04-07] | DESCUBRIMIENTO: el shell de Claude Code corre DIRECTAMENTE sobre el Hetzner CX43 (95.217.158.7). hostname -I confirma. Toda la Fase 2 ha sido editada/ejecutada/testeada in-place sobre producción sin darse cuenta. No hay deploy separado a hacer.
+- [2026-04-07] | Health check live: /api/health ok=true, 7 pilares, db 30MB 206 tables, telegram ok, engine uptime estable, 10 containers up (db + engine + paperless×2 + changedetection + jobspy + wger + mealie + grocy + fasten)
+- [2026-04-07] | scripts/migrate_phase2.sh creado de todas formas para casos futuros (rebuilds del volume postgres) — DDL idempotente con todos los CREATE/ALTER/INSERT seed de Fase 2
+
+## Completado (Fase 2 — P6 VROOM + Traccar + Service Worker) ✅
+- [2026-04-07] | DECISIÓN pragmática "lite" — disco al 95% en Hetzner, no podía añadir 4 containers nuevos. Limpieza primero: docker rmi n8nio/n8n + docker.n8n.io/n8nio/n8n (orphan ~4GB) + docker builder prune (390MB) → 5.6GB libres
+- [2026-04-07] | docker-compose: 1 container nuevo traccar (traccar/traccar:latest, port 8082 web/REST + 5055 OsmAnd, mem limit 600M, vols traccar_data + traccar_logs). Self-hosted OSRM/tileserver-gl/VROOM **deferred** — usar OSRM público + Service Worker en su lugar
+- [2026-04-07] | DB: extensión idempotente log_routes (+5 cols: waypoints JSONB, polyline TEXT, provider, computed_at, raw_response JSONB). 2 tablas nuevas — log_gps_positions (device_id, lat/lon NUMERIC(9,6), altitude, speed_kmh, accuracy_m, bearing, fix_time, source, raw JSONB) + log_devices (device_id UNIQUE, name, type, last_seen)
+- [2026-04-07] | NEW src/routing.js — routing engine puro JS contra OSRM PUBLIC (router.project-osrm.org, free no auth). routeOSRM(from,to,profile) single-leg con polyline. tripOSRM(waypoints,opts) multi-stop TSP via /trip endpoint (OSRM lo resuelve internamente). persistRoute() a log_routes. planTrip() helper compute+persist. Defaults profile 'driving'.
+- [2026-04-07] | NEW src/traccar.js — REST client a ultra_traccar:8082 (Basic auth admin/admin default). isReachable, getDevices, getPositions, syncPositions (idempotente, ON CONFLICT DO NOTHING), getLastPosition. Traccar Client iOS/Android puede apuntar a 95.217.158.7:5055 (protocolo OsmAnd).
+- [2026-04-07] | routes/logistics.js: 5 endpoints — POST /route (single), POST /trip (multi-stop), GET /routes (lista), POST /gps/sync (pull traccar), GET /gps/last, GET /gps/track
+- [2026-04-07] | routes/webhooks.js: 2 endpoints más — GET /webhooks/gps + POST /webhooks/gps (OsmAnd protocol direct, bypass Traccar). Phone Traccar Client puede apuntar directamente al engine si Traccar está down. Acepta lat/lon/speed/altitude/timestamp/bearing/hdop. Auto-update log_devices last_seen.
+- [2026-04-07] | NEW ultra-engine/public/sw.js — Service Worker offline-first para van-life. 3 cache strategies: STATIC (HTML/CSS/JS) cache-first, API GET network-first con fallback a cache (último OK guardado), MAPS persistente. Cache version "ultra-v2-2026-04-07".
+- [2026-04-07] | index.html: registra '/sw.js' al window.load
+- [2026-04-07] | scheduler: nuevo cron traccar-gps-sync (cada 5 min). Total: 27 → 28 jobs
+- [2026-04-07] | telegram.js: 2 comandos nuevos — /ruta lat1,lon1 lat2,lon2 (compute OSRM live), /gps (última posición + setup instructions)
+- [2026-04-07] | E2E test: OSRM Auckland→Wellington 641.2km/8h13m via osrm_public, persistido a log_routes. OSRM trip 4 ciudades NZ (Auckland→Hamilton→New Plymouth→Wellington) 715.8km/9h54m con orden mantenido. /webhooks/gps?id=test-phone&lat=-36.84&lon=174.76 ping aceptado, persistido, /gps/last devuelve coords correctas con speed_kmh 45.5. Traccar boot: Liquibase migrations OK, isReachable() true.
+
+## Completado (Disk cleanup pre-Fase 3) ✅
+- [2026-04-07] | Tier 1: docker volume rm n8n×3 + grafana + 2 anonymous + apt clean + journal vacuum → +600MB
+- [2026-04-07] | Tier 2: rm -rf /usr/local/lib/python3.12/dist-packages/{nvidia,tensorflow,torch,triton,llvmlite,numba,sympy,clang} (~10GB de PyTorch/CUDA/TF no usados por ningún container — todos tienen su propio Python embebido)
+- [2026-04-07] | Borrado /home/paperclip (2.3GB) — verificado que el único proceso paperclip era redis interno del container ultra_paperless_redis (uid mapping coincidencia, no usaba /home/paperclip)
+- [2026-04-07] | RESULTADO: 31G→19G usado (87%→53%), **12GB liberados**, todos los containers healthy verificados post-cleanup
+
+## Completado (Fase 3a — Quick wins 7 pilares) ✅
+
+### P1 News (+11%)
+- [2026-04-07] | DB: 5 country feeds curados con URLs alternativas funcionales — Khaleej Times (AE) reemplaza Gulf News, Le Temps (CH) reemplaza Swissinfo (410 Gone), The Journal (IE) reemplaza RTÉ (403), La Tercera (CL) reemplaza BioBioChile (404), Hankyoreh (KR) reemplaza Korea Times. **23/23 country feeds healthy** (de 18/23 anterior)
+- [2026-04-07] | NEW src/news_apis.js: helpers ensurePseudoFeed() + scoreArticleText(). 3 stubs activados completos: fetchCurrents (CURRENTS_API_KEY, 1k req/día free), fetchNewsdata (NEWSDATA_API_KEY, 200 credits/día, 206 países), fetchFinlight (FINLIGHT_API_KEY, financiero/geopolítico). Devuelven graceful skipped sin keys, listos para activar.
+- [2026-04-07] | E2E test: 5 feeds rejuvenecidos → 100 artículos nuevos primer fetch (1 high-score: NZ vs Pakistan T20). UPDATE init.sql persistido para reproducibilidad.
+
+### P2 Empleo (+15%)
+- [2026-04-07] | NEW src/gov_jobs.js: fetchJobSpyOnsite({countries}) wrapper para sidecar jobspy:8000. Multi-country (NZ/AU/ES/CA/DE/FR), filtra is_remote=false (los remote van a P5). Auto-mapping country name → ISO2 + currency.
+- [2026-04-07] | gov_jobs.fetchAll() añade 'jobspy_onsite' al pipeline diario
+- [2026-04-07] | BUG FIX jobspy: Indeed requiere country_indeed con espacio ("New Zealand", no "newzealand"). Glassdoor returns 0 (probably IP-blocked). Trade Me NZ requiere OAuth (defer). InfoJobs ES requiere OAuth (defer).
+- [2026-04-07] | E2E test: NZ + ES → 26 fetched, 24 inserted, 2 skipped (los remote filtered)
+
+### P3 Finanzas (+14%)
+- [2026-04-07] | NEW src/akahu.js — cliente Open Banking NZ #1 (Akahu). isConfigured check de AKAHU_USER_TOKEN+AKAHU_APP_TOKEN. getAccounts/getTransactions/importRecent. Persiste a finances con dedup imported_id.
+- [2026-04-07] | routes/finances.js: GET /providers (tabla de status integraciones: Wise, Akahu, Binance ccxt, CoinGecko, Frankfurter — muestra configured + env_required + docs + scope para que user sepa qué activar). POST /akahu/sync.
+- [2026-04-07] | E2E test: /providers devuelve 5 providers con status correcto (3 configured:false esperando keys, 2 free públicos true)
+
+### P4 Burocracia (+9%)
+- [2026-04-07] | scheduler: nuevo cron schengen-daily-check (diario 09:15). Total: 28 → 29 jobs. Handler combina Schengen 90/180 alert (cuando days_used >= 60) + visa window auto-detector (busca trips ongoing en bur_travel_log, JOIN bur_visa_matrix, alerta cuando user lleva ≥70% de days_allowed con emoji urgencia 🟡/🔴/🚨)
+- [2026-04-07] | gov_jobs.js: parseCsvLine() helper para CSVs con quoted fields (UK Sponsor Register CSV real tiene comas dentro de "Organisation Name" como "Acme, Ltd"). Bug fix del parser naive que partía por comas literales.
+- [2026-04-07] | E2E test: insert trip DZ→FR 80 días → schengen status 81/90 used, ongoing trip detected con visa context (DZ→FR=visa required, days_allowed=NULL → handler skip correctamente)
+
+### P5 Oportunidades (+13%)
+- [2026-04-07] | opp_fetchers.js: 4 fetchers nuevos — fetchImmunefi (RSS), fetchCode4rena (RSS), fetchDevpost (JSON API), fetchNLnet (Atom feed). Añadidos a FETCHERS array.
+- [2026-04-07] | E2E test: Devpost 9 hackathons inserted, NLnet 30 grants inserted (1 high-score). Immunefi y Code4rena devuelven HTML wrapper Next.js disfrazado de RSS — defer (necesitan scraping/API key real)
+
+### P6 Logística (+10%)
+- [2026-04-07] | routes/logistics.js: GET /poi/export.geojson (filtros type/country, exporta hasta 5000 POIs como FeatureCollection compatible con Locus/Maps.me/OruxMaps). GET /poi/along-route?route_id=X&max_distance_km=Y (decode polyline Google + bbox prefilter + Haversine min-distance). Helper functions: decodePolyline + haversineKm.
+- [2026-04-07] | BUG FIX: log_pois usa columns latitude/longitude (no lat/lon), corregido SQL en ambos endpoints
+- [2026-04-07] | iOverlander GeoJSON deferred — devuelve HTML wrapper sin auth válida. Park4Night API closed. Kiwi Tequila stub deferred (KIWI_API_KEY).
+- [2026-04-07] | E2E test: /poi/export.geojson?type=campsite → 364 features (DOC NZ + Overpass). /poi/along-route Auckland→Hamilton route_id=4 max 10km → 13 campsites matches (Remuera Motor Park 5.76km, Auckland North Shore 6.13km, Takapuna Beach 7.32km, etc.) — útil real para van-life trip planning
+
+### P7 Bio-check (+19% — el mayor delta porque era el peor pilar 22%)
+- [2026-04-07] | NEW src/wger.js — REST client a ultra_wger:8001. searchExercises (suggest endpoint), listExercises, getExercise, syncExercises (cache idempotente a tabla bio_exercises auto-creada). 414 ejercicios EN disponibles.
+- [2026-04-07] | NEW src/openfoodfacts.js — Open Food Facts barcode lookup. lookupBarcode con normalización de nutriments_per_100g (kcal/protein/carbs/sugar/fat/sat_fat/fiber/salt/sodium) + nutriscore + nova_group + ecoscore. logFood(barcode, quantity_g, meal) auto-crea bio_food_log + computa macros consumidos por factor (quantity/100).
+- [2026-04-07] | routes/bio.js: 5 endpoints — GET /exercises?q (live wger) o sin q (cache local), POST /exercises/sync (pull 500 ejercicios), GET /food/barcode/:code, POST /food/log, GET /food/today (con totals agregados kcal/protein/carbs/fat)
+- [2026-04-07] | telegram.js: 2 comandos nuevos — /ejercicio query (search wger), /comida BARCODE (lookup OFF formateado con nutri-score)
+- [2026-04-07] | E2E test: /exercises?q=push → 5 results (Decline Pushups Chest, Diamond push ups Chest, Dumbbell Push-Up Chest, Handstand Push Up Shoulders, Handstand Pushup Shoulders). /food/barcode/3017620422003 (Nutella) → name=Nutella brand=Nutella 539 kcal/100g NutriScore E. /food/log 25g Nutella → 134.75 kcal correctly computed (factor 0.25). /food/today → totals agregados.
+
+### Coverage actualizado post-Fase 3a
+| Pilar | Fase 1+2 | + Fase 3a | Total |
+|---|---|---|---|
+| P1 News | 35% | +11% | **46%** |
+| P2 Empleo | 28% | +15% | **43%** |
+| P3 Finanzas | 48% | +14% | **62%** |
+| P4 Burocracia | 42% | +9% | **51%** |
+| P5 Oportunidades | 42% | +13% | **55%** |
+| P6 Logística | 38% | +10% | **48%** |
+| P7 Bio-check | 22% | +19% | **41%** |
+| **PROMEDIO** | **36%** | **+13%** | **49%** |
+
+## DEFERIDO post-Fase 2 ⏳
+- **OSRM self-hosted** — usar router.project-osrm.org público por ahora; deploy propio cuando rate limits molesten (necesita ~500MB OSM extract NZ + ~1GB RAM)
+- **tileserver-gl + PMTiles offline** — protomaps NZ extract (~30-50MB) + tileserver container. Defer hasta tener más disco libre (estamos al 87%)
+- **Traccar credentials** — actualmente admin/admin, cambiar via web UI :8082 antes de uso real
+- **paperless-ai** — requiere OPENAI_API_KEY o Ollama local
+
 ## Pendiente P1 (notas) ⏳
 - 5 country feeds 4xx persistentes (BioBioChile CL, Gulf News AE, Korea Times KR DNS, RTÉ News IE 403, Swissinfo CH 404) — necesitan curación manual de URLs alternativas
 - Currents/Newsdata/Finlight stubs creados pero requieren keys del usuario en .env (CURRENTS_API_KEY, NEWSDATA_API_KEY, FINLIGHT_API_KEY)

@@ -5,6 +5,8 @@
 
 const express = require('express');
 const db = require('../db');
+const eventbus = require('../eventbus');
+const matching = require('../matching');
 
 const router = express.Router();
 
@@ -147,7 +149,10 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, source, url, category, status, notes, deadline } = req.body;
+    const { title, source, url, category, status, notes, deadline, estimated_value_nzd } = req.body;
+
+    // Detectar transición a 'won' para publicar bridge event
+    const prev = await db.queryOne('SELECT status FROM opportunities WHERE id=$1', [id]);
 
     const result = await db.queryOne(
       `UPDATE opportunities SET
@@ -164,6 +169,16 @@ router.patch('/:id', async (req, res) => {
     );
 
     if (!result) return res.status(404).json({ ok: false, error: 'Oportunidad no encontrada' });
+
+    // P3 bridge: si transición a 'won', emitir evento con valor estimado
+    if (status === 'won' && prev?.status !== 'won') {
+      await eventbus.publish('opp.won', 'P5', {
+        opportunity_id: result.id,
+        title: result.title,
+        estimated_value_nzd: estimated_value_nzd || result.salary_max || result.salary_min || 0,
+      });
+    }
+
     res.json({ ok: true, data: result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -234,6 +249,58 @@ router.get('/by-source', async (req, res) => {
        GROUP BY source ORDER BY total DESC`
     );
     res.json({ ok: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P5 FASE 2 — emp_profile + matching rescore
+// ═══════════════════════════════════════════════════════════
+
+router.get('/profile', async (req, res) => {
+  try {
+    const profile = await matching.getProfile();
+    res.json({ ok: true, data: profile });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.patch('/profile', async (req, res) => {
+  try {
+    const { skills, languages, preferred_countries, preferred_sectors, min_salary_nzd, preferences } = req.body;
+    const row = await db.queryOne(
+      `UPDATE emp_profile SET
+         skills = COALESCE($1, skills),
+         languages = COALESCE($2, languages),
+         preferred_countries = COALESCE($3, preferred_countries),
+         preferred_sectors = COALESCE($4, preferred_sectors),
+         min_salary_nzd = COALESCE($5, min_salary_nzd),
+         preferences = COALESCE($6, preferences),
+         updated_at = NOW()
+       WHERE id = 1
+       RETURNING *`,
+      [
+        skills ? JSON.stringify(skills) : null,
+        languages ? JSON.stringify(languages) : null,
+        preferred_countries || null,
+        preferred_sectors || null,
+        min_salary_nzd || null,
+        preferences ? JSON.stringify(preferences) : null,
+      ]
+    );
+    matching.clearCache();
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/match-rescore', async (req, res) => {
+  try {
+    const result = await matching.rescoreOpportunities();
+    res.json(result);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

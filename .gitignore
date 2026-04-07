@@ -2,3 +2,12 @@
 node_modules/
 *.log
 db/seed_data.sql
+
+# Paperless-ngx runtime data (P4 Fase 2)
+paperless/data/
+paperless/media/
+paperless/consume/
+
+# Backups
+backups/
+*.bak

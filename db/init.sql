@@ -423,17 +423,17 @@ DELETE FROM rss_feeds WHERE url IN (
 INSERT INTO rss_feeds (url, name, category) VALUES
     ('https://www.ansa.it/sito/ansait_rss.xml', 'ANSA English (IT)', 'country-it'),
     ('https://www.tsa-algerie.com/feed/', 'TSA Algérie (DZ)', 'country-dz'),
-    ('https://www.biobiochile.cl/lista/categorias/nacional.rss', 'BioBioChile (CL)', 'country-cl'),
+    ('https://www.latercera.com/arc/outboundfeeds/rss/?outputType=xml', 'La Tercera (CL)', 'country-cl'),
     ('https://www.eltiempo.com/rss/mundo.xml', 'El Tiempo Internacional (CO)', 'country-co'),
-    ('https://gulfnews.com/rss', 'Gulf News (AE)', 'country-ae'),
-    ('https://www.koreatimes.co.kr/www/rss/world.xml', 'Korea Times (KR)', 'country-kr'),
-    ('https://www.swissinfo.ch/service/rss/all/45926522', 'Swissinfo (CH)', 'country-ch'),
+    ('https://feeds.feedburner.com/khaleejtimes/uae', 'Khaleej Times (AE)', 'country-ae'),
+    ('https://english.hani.co.kr/rss/', 'Hankyoreh (KR)', 'country-kr'),
+    ('https://www.letemps.ch/articles.rss', 'Le Temps (CH)', 'country-ch'),
     ('https://english.aawsat.com/feed', 'Asharq Al-Awsat (SA)', 'country-sa'),
     ('https://thethaiger.com/feed', 'The Thaiger (TH)', 'country-th'),
     ('https://www.greekreporter.com/feed/', 'Greek Reporter (GR)', 'country-gr'),
     ('https://www.jpost.com/rss/rssfeedsfrontpage.aspx', 'Jerusalem Post (IL)', 'country-il'),
     ('https://www.inquirer.net/fullfeed', 'Inquirer.net (PH)', 'country-ph'),
-    ('https://www.rte.ie/feeds/rss/?index=/news/', 'RTÉ News (IE)', 'country-ie')
+    ('https://www.thejournal.ie/feed/', 'The Journal (IE)', 'country-ie')
 ON CONFLICT (url) DO NOTHING;
 
 -- Limpia cualquier duplicado category= que haya quedado del run buggy anterior:
@@ -858,3 +858,420 @@ CREATE INDEX IF NOT EXISTS idx_rss_keywords_keyword ON rss_keywords(keyword);
 CREATE INDEX IF NOT EXISTS idx_rss_articles_score ON rss_articles(relevance_score);
 CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category);
 CREATE INDEX IF NOT EXISTS idx_logistics_cost ON logistics(cost);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P4 FASE 2 — Schengen 90/180 calculator + passport-index
+--  matrix multi-país. Crítico para usuario dual ES/DZ nómada.
+--  Aplicado 2026-04-07
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- ─── bur_travel_log: historial de entradas/salidas por país ─
+-- Source 'manual' por defecto; futuras importaciones de stamps OCR.
+CREATE TABLE IF NOT EXISTS bur_travel_log (
+    id              SERIAL PRIMARY KEY,
+    country         VARCHAR(2) NOT NULL,
+    area            VARCHAR(20),     -- 'SCHENGEN' | 'CTA' (UK+IE) | NULL
+    entry_date      DATE NOT NULL,
+    exit_date       DATE,            -- NULL = ongoing stay
+    purpose         VARCHAR(50),     -- 'tourism'|'work'|'transit'|'whv'|'residency'
+    passport_used   VARCHAR(2),      -- 'ES'|'DZ' (cuál pasaporte sellaste)
+    notes           TEXT,
+    source          VARCHAR(20) DEFAULT 'manual',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (exit_date IS NULL OR exit_date >= entry_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_travel_country ON bur_travel_log(country);
+CREATE INDEX IF NOT EXISTS idx_travel_area ON bur_travel_log(area);
+CREATE INDEX IF NOT EXISTS idx_travel_entry ON bur_travel_log(entry_date);
+CREATE INDEX IF NOT EXISTS idx_travel_exit ON bur_travel_log(exit_date);
+
+-- ─── bur_visa_matrix: passport × destination requirements ───
+-- Datos derivados de ilyankou/passport-index-dataset (CC BY-SA 4.0).
+-- Subset curado para ES + DZ + destinos clave del usuario nómada.
+CREATE TABLE IF NOT EXISTS bur_visa_matrix (
+    id              SERIAL PRIMARY KEY,
+    passport        VARCHAR(2) NOT NULL,
+    destination     VARCHAR(2) NOT NULL,
+    requirement     VARCHAR(30) NOT NULL,   -- 'visa free'|'visa on arrival'|'eta'|'e-visa'|'visa required'|'no admission'
+    days_allowed    INTEGER,                 -- NULL = unlimited or n/a
+    notes           TEXT,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (passport, destination)
+);
+
+CREATE INDEX IF NOT EXISTS idx_visa_passport ON bur_visa_matrix(passport);
+CREATE INDEX IF NOT EXISTS idx_visa_destination ON bur_visa_matrix(destination);
+
+-- ─── Seed: Schengen Area países (26 estados a 2026-04) ──────
+-- Croacia añadida 2023-01-01. Bulgaria + Rumanía: aire/mar 2024-03-31, tierra 2025-01-01.
+-- Irlanda y Chipre NO Schengen. CH/IS/NO/LI sí (4 EFTA).
+INSERT INTO bur_visa_matrix (passport, destination, requirement, days_allowed, notes) VALUES
+    -- ════════ ES PASSPORT (EU citizen — uno de los más fuertes del mundo) ════════
+    ('ES', 'AT', 'freedom of movement', NULL, 'EU/EEA/Schengen — residencia ilimitada'),
+    ('ES', 'BE', 'freedom of movement', NULL, 'EU/EEA/Schengen'),
+    ('ES', 'BG', 'freedom of movement', NULL, 'EU'),
+    ('ES', 'HR', 'freedom of movement', NULL, 'EU — Schengen 2023-01-01'),
+    ('ES', 'CY', 'freedom of movement', NULL, 'EU (no Schengen)'),
+    ('ES', 'CZ', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'DK', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'EE', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'FI', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'FR', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'DE', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'GR', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'HU', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'IE', 'freedom of movement', NULL, 'EU (CTA, no Schengen)'),
+    ('ES', 'IT', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'LV', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'LT', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'LU', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'MT', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'NL', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'PL', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'PT', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'RO', 'freedom of movement', NULL, 'EU'),
+    ('ES', 'SK', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'SI', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'SE', 'freedom of movement', NULL, 'EU/Schengen'),
+    ('ES', 'CH', 'visa free', 90, 'EFTA Schengen — 90/180. ES residence permit allows longer'),
+    ('ES', 'IS', 'visa free', 90, 'EFTA Schengen — 90/180'),
+    ('ES', 'NO', 'visa free', 90, 'EFTA Schengen — 90/180'),
+    ('ES', 'LI', 'visa free', 90, 'EFTA Schengen — 90/180'),
+    -- Anglosphere
+    ('ES', 'GB', 'visa free', 180, 'UK 6 months tourism since Brexit'),
+    ('ES', 'IM', 'visa free', 180, 'Isle of Man (UK CTA)'),
+    ('ES', 'US', 'eta', 90, 'ESTA $21 — Visa Waiver Program. Renew every 2y'),
+    ('ES', 'CA', 'eta', 180, 'eTA CAD$7 — válida 5 años'),
+    ('ES', 'NZ', 'eta', 90, 'NZeTA NZD$23 + IVL $100 — válida 2 años. Visa-free 90 días'),
+    ('ES', 'AU', 'e-visa', 90, 'eVisitor (subclass 651) FREE — válido 12 meses'),
+    -- LATAM (sin visa para ES)
+    ('ES', 'MX', 'visa free', 180, 'FMM tourist card on arrival'),
+    ('ES', 'AR', 'visa free', 90, NULL),
+    ('ES', 'BR', 'visa free', 90, 'eVisa reintroduced for some — verificar'),
+    ('ES', 'CL', 'visa free', 90, NULL),
+    ('ES', 'CO', 'visa free', 90, NULL),
+    ('ES', 'PE', 'visa free', 183, NULL),
+    ('ES', 'UY', 'visa free', 90, NULL),
+    ('ES', 'EC', 'visa free', 90, NULL),
+    ('ES', 'CR', 'visa free', 90, NULL),
+    -- Asia
+    ('ES', 'JP', 'visa free', 90, NULL),
+    ('ES', 'KR', 'visa free', 90, 'K-ETA required'),
+    ('ES', 'TH', 'visa free', 60, 'Updated 2024-07: 60 días visa-free'),
+    ('ES', 'MY', 'visa free', 90, NULL),
+    ('ES', 'SG', 'visa free', 90, NULL),
+    ('ES', 'ID', 'visa on arrival', 30, 'IDR 500K, extendible 30d'),
+    ('ES', 'PH', 'visa free', 30, NULL),
+    ('ES', 'VN', 'visa free', 45, '2023 update'),
+    ('ES', 'IN', 'e-visa', 60, 'eVisa $25-80'),
+    ('ES', 'AE', 'visa free', 90, '90/180 GCC'),
+    ('ES', 'IL', 'visa free', 90, NULL),
+    ('ES', 'TR', 'visa free', 90, '90/180'),
+    -- Maghreb (relevante para usuario)
+    ('ES', 'MA', 'visa free', 90, NULL),
+    ('ES', 'TN', 'visa free', 90, NULL),
+    ('ES', 'DZ', 'visa required', NULL, 'Argelia requiere visado a españoles. Excepción: usuario tiene pasaporte DZ propio'),
+    ('ES', 'EG', 'visa on arrival', 30, '$25 a la llegada'),
+
+    -- ════════ DZ PASSPORT (Algerian — bastante restrictivo) ════════
+    -- Sin visa o visa on arrival
+    ('DZ', 'TN', 'visa free', 90, 'Maghreb — visa free'),
+    ('DZ', 'MA', 'visa free', 90, 'Maghreb — visa free'),
+    ('DZ', 'MR', 'visa free', NULL, 'Mauritania'),
+    ('DZ', 'TR', 'visa free', 90, '90/180'),
+    ('DZ', 'MY', 'visa free', 30, NULL),
+    ('DZ', 'ID', 'visa on arrival', 30, NULL),
+    ('DZ', 'JO', 'visa on arrival', 30, NULL),
+    ('DZ', 'LB', 'visa on arrival', 30, NULL),
+    ('DZ', 'EG', 'visa on arrival', 30, NULL),
+    ('DZ', 'IR', 'visa on arrival', 30, NULL),
+    ('DZ', 'KE', 'e-visa', 90, NULL),
+    ('DZ', 'TZ', 'e-visa', 90, NULL),
+    ('DZ', 'RW', 'visa on arrival', 30, NULL),
+    ('DZ', 'PH', 'visa free', 30, NULL),
+    ('DZ', 'GE', 'visa free', 90, '1 year actually'),
+    ('DZ', 'BO', 'visa on arrival', 90, NULL),
+    -- Schengen + EU + Anglosphere → todo visa required
+    ('DZ', 'AT', 'visa required', NULL, 'Schengen visa needed'),
+    ('DZ', 'BE', 'visa required', NULL, 'Schengen'),
+    ('DZ', 'FR', 'visa required', NULL, 'Schengen — más solicitada históricamente'),
+    ('DZ', 'DE', 'visa required', NULL, 'Schengen'),
+    ('DZ', 'IT', 'visa required', NULL, 'Schengen'),
+    ('DZ', 'ES', 'visa required', NULL, 'Schengen — usuario tiene pasaporte ES propio, irrelevante'),
+    ('DZ', 'NL', 'visa required', NULL, 'Schengen'),
+    ('DZ', 'CH', 'visa required', NULL, 'Schengen EFTA'),
+    ('DZ', 'GB', 'visa required', NULL, 'UK Standard Visitor Visa £127'),
+    ('DZ', 'IE', 'visa required', NULL, NULL),
+    ('DZ', 'US', 'visa required', NULL, 'B1/B2 — interview required'),
+    ('DZ', 'CA', 'visa required', NULL, 'TRV — paper application'),
+    ('DZ', 'NZ', 'visa required', NULL, 'Visitor visa NZD$211'),
+    ('DZ', 'AU', 'visa required', NULL, 'Subclass 600 visitor visa'),
+    -- LATAM (mayoría visa free para DZ — más permisivos)
+    ('DZ', 'BR', 'visa free', 90, NULL),
+    ('DZ', 'AR', 'visa required', NULL, NULL),
+    ('DZ', 'CL', 'visa required', NULL, NULL),
+    ('DZ', 'PE', 'visa required', NULL, NULL),
+    ('DZ', 'EC', 'visa free', 90, NULL),
+    ('DZ', 'VE', 'visa required', NULL, NULL),
+    ('DZ', 'MX', 'visa required', NULL, 'Visa o tarjeta SAE electrónica'),
+    -- Asia restante
+    ('DZ', 'JP', 'visa required', NULL, NULL),
+    ('DZ', 'KR', 'visa required', NULL, NULL),
+    ('DZ', 'CN', 'visa required', NULL, NULL),
+    ('DZ', 'IN', 'e-visa', 60, NULL),
+    ('DZ', 'TH', 'visa on arrival', 15, NULL),
+    ('DZ', 'VN', 'e-visa', 30, NULL),
+    ('DZ', 'SG', 'visa required', NULL, NULL),
+    ('DZ', 'AE', 'visa required', NULL, 'eVisa AED 350'),
+    ('DZ', 'SA', 'e-visa', 90, 'Umrah/tourism eVisa'),
+    ('DZ', 'IL', 'no admission', NULL, 'Sin relaciones diplomáticas')
+ON CONFLICT (passport, destination) DO NOTHING;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P3 FASE 2 — Savings goals + recurring confidence + intel
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS fin_savings_goals (
+    id              SERIAL PRIMARY KEY,
+    name            VARCHAR(200) NOT NULL,
+    target_amount   NUMERIC(14, 2) NOT NULL,
+    current_amount  NUMERIC(14, 2) DEFAULT 0,
+    currency        VARCHAR(3) DEFAULT 'NZD',
+    target_date     DATE,
+    category        VARCHAR(50),     -- 'emergency'|'travel'|'gear'|'tax'|'investment'|'other'
+    is_active       BOOLEAN DEFAULT TRUE,
+    notes           TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_savings_active ON fin_savings_goals(is_active);
+CREATE INDEX IF NOT EXISTS idx_savings_target ON fin_savings_goals(target_date);
+
+-- Extiende fin_recurring con confidence + sample_size
+DO $$ BEGIN
+  ALTER TABLE fin_recurring ADD COLUMN confidence NUMERIC(3,2);
+EXCEPTION WHEN duplicate_column THEN null;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE fin_recurring ADD COLUMN sample_size INTEGER DEFAULT 0;
+EXCEPTION WHEN duplicate_column THEN null;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE fin_recurring ADD COLUMN avg_interval_days NUMERIC(6,2);
+EXCEPTION WHEN duplicate_column THEN null;
+END $$;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P5 FASE 2 — Employment profile (matching score base)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS emp_profile (
+    id              SERIAL PRIMARY KEY,
+    skills          JSONB DEFAULT '[]'::jsonb,        -- ['nodejs','postgres','python',...]
+    languages       JSONB DEFAULT '[]'::jsonb,        -- [{lang:'es',level:'native'},{lang:'en',level:'C2'}]
+    experience      JSONB DEFAULT '[]'::jsonb,        -- [{role,years,sector,...}]
+    preferred_countries TEXT[],
+    preferred_sectors   TEXT[],
+    min_salary_nzd  NUMERIC(10, 2),
+    preferences     JSONB DEFAULT '{}'::jsonb,        -- remote_only, visa_sponsor_required, etc
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Seed: profile inicial usuario (puede actualizar via PATCH /api/jobs/profile)
+INSERT INTO emp_profile (id, skills, languages, preferred_countries, preferred_sectors, min_salary_nzd, preferences)
+VALUES (
+    1,
+    '["nodejs","javascript","typescript","python","postgres","docker","linux","react","express","ai","llm","devops","bash","sql","git","ai_agents","claude","openai"]'::jsonb,
+    '[{"lang":"es","level":"native"},{"lang":"en","level":"C2"},{"lang":"fr","level":"B2"},{"lang":"ar","level":"B1"}]'::jsonb,
+    ARRAY['NZ','AU','ES','CA','GB','PT','DE'],
+    ARRAY['ai','devtools','fintech','aerospace','biotech','dev','engineering'],
+    65000,
+    '{"remote_ok":true,"visa_sponsor_preferred":true,"van_life_compatible":true}'::jsonb
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P2 FASE 2 — Visa sponsors register (UK + CA LMIA)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS emp_visa_sponsors (
+    id              SERIAL PRIMARY KEY,
+    country         VARCHAR(2) NOT NULL,
+    company_name    VARCHAR(200) NOT NULL,
+    city            VARCHAR(100),
+    region          VARCHAR(100),
+    route           VARCHAR(100),         -- "Skilled Worker", "Global Talent", etc.
+    rating          VARCHAR(100),
+    source          VARCHAR(40) NOT NULL, -- 'uk_sponsor_register'|'ca_lmia'|'us_h1b'
+    imported_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (country, company_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_visa_sponsors_country ON emp_visa_sponsors(country);
+CREATE INDEX IF NOT EXISTS idx_visa_sponsors_name_lower ON emp_visa_sponsors(LOWER(company_name));
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FASE 2 — Early warning events store (ACLED/USGS/WHO)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS events_store (
+    id              SERIAL PRIMARY KEY,
+    source          VARCHAR(30) NOT NULL,    -- 'usgs'|'acled'|'who_dons'|'gdelt_cast'
+    external_id     VARCHAR(200),             -- source-specific id
+    event_type      VARCHAR(50),              -- 'earthquake'|'conflict'|'disease_outbreak'|'protest'
+    severity        VARCHAR(20),              -- 'low'|'medium'|'high'|'critical'
+    title           VARCHAR(500),
+    summary         TEXT,
+    country         VARCHAR(2),
+    region          VARCHAR(100),
+    latitude        NUMERIC(8, 5),
+    longitude       NUMERIC(9, 5),
+    magnitude       NUMERIC(6, 2),            -- earthquake magnitude o casualty count
+    occurred_at     TIMESTAMP,
+    url             TEXT,
+    payload         JSONB,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (source, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_country ON events_store(country);
+CREATE INDEX IF NOT EXISTS idx_events_source ON events_store(source);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events_store(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_occurred ON events_store(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_severity ON events_store(severity);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FASE 2 — Dedup MinHash+LSH cross-table
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DO $$ BEGIN
+  ALTER TABLE rss_articles ADD COLUMN duplicate_of INTEGER REFERENCES rss_articles(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_column THEN null; END $$;
+DO $$ BEGIN
+  ALTER TABLE rss_articles ADD COLUMN dedup_similarity NUMERIC(4,3);
+EXCEPTION WHEN duplicate_column THEN null; END $$;
+CREATE INDEX IF NOT EXISTS idx_rss_dup ON rss_articles(duplicate_of);
+
+DO $$ BEGIN
+  ALTER TABLE opportunities ADD COLUMN duplicate_of INTEGER REFERENCES opportunities(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_column THEN null; END $$;
+DO $$ BEGIN
+  ALTER TABLE opportunities ADD COLUMN dedup_similarity NUMERIC(4,3);
+EXCEPTION WHEN duplicate_column THEN null; END $$;
+CREATE INDEX IF NOT EXISTS idx_opps_dup ON opportunities(duplicate_of);
+
+DO $$ BEGIN
+  ALTER TABLE job_listings ADD COLUMN duplicate_of INTEGER REFERENCES job_listings(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_column THEN null; END $$;
+DO $$ BEGIN
+  ALTER TABLE job_listings ADD COLUMN dedup_similarity NUMERIC(4,3);
+EXCEPTION WHEN duplicate_column THEN null; END $$;
+CREATE INDEX IF NOT EXISTS idx_jobs_dup ON job_listings(duplicate_of);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P6 FASE 2 — VROOM stub + Traccar GPS + PMTiles
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DO $$ BEGIN ALTER TABLE log_routes ADD COLUMN waypoints JSONB; EXCEPTION WHEN duplicate_column THEN null; END $$;
+DO $$ BEGIN ALTER TABLE log_routes ADD COLUMN polyline TEXT; EXCEPTION WHEN duplicate_column THEN null; END $$;
+DO $$ BEGIN ALTER TABLE log_routes ADD COLUMN provider VARCHAR(30); EXCEPTION WHEN duplicate_column THEN null; END $$;
+DO $$ BEGIN ALTER TABLE log_routes ADD COLUMN computed_at TIMESTAMP DEFAULT NOW(); EXCEPTION WHEN duplicate_column THEN null; END $$;
+DO $$ BEGIN ALTER TABLE log_routes ADD COLUMN raw_response JSONB; EXCEPTION WHEN duplicate_column THEN null; END $$;
+
+-- log_gps_positions: pings GPS (Traccar OsmAnd protocol o manual)
+CREATE TABLE IF NOT EXISTS log_gps_positions (
+    id              SERIAL PRIMARY KEY,
+    device_id       VARCHAR(50),
+    lat             NUMERIC(9, 6) NOT NULL,
+    lon             NUMERIC(9, 6) NOT NULL,
+    altitude        NUMERIC(7, 2),
+    speed_kmh       NUMERIC(6, 2),
+    accuracy_m      NUMERIC(6, 2),
+    bearing         NUMERIC(5, 2),
+    fix_time        TIMESTAMP NOT NULL,
+    source          VARCHAR(30) DEFAULT 'traccar',
+    raw             JSONB,
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_gps_fix_time ON log_gps_positions(fix_time DESC);
+CREATE INDEX IF NOT EXISTS idx_gps_device ON log_gps_positions(device_id);
+
+CREATE TABLE IF NOT EXISTS log_devices (
+    id              SERIAL PRIMARY KEY,
+    device_id       VARCHAR(50) UNIQUE NOT NULL,
+    name            VARCHAR(100),
+    type            VARCHAR(30),
+    last_seen       TIMESTAMP,
+    is_active       BOOLEAN DEFAULT TRUE,
+    notes           TEXT
+);
+
+-- ─── fin_crypto_holdings: positions crypto multi-exchange ───
+CREATE TABLE IF NOT EXISTS fin_crypto_holdings (
+    id              SERIAL PRIMARY KEY,
+    symbol          VARCHAR(20) NOT NULL,
+    amount          NUMERIC(24, 8) NOT NULL,
+    exchange        VARCHAR(50) NOT NULL,   -- 'binance'|'kraken'|'wallet_metamask'|'cold'
+    wallet_address  VARCHAR(200),
+    notes           TEXT,
+    is_active       BOOLEAN DEFAULT TRUE,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (symbol, exchange)
+);
+
+CREATE INDEX IF NOT EXISTS idx_crypto_active ON fin_crypto_holdings(is_active);
+CREATE INDEX IF NOT EXISTS idx_crypto_exchange ON fin_crypto_holdings(exchange);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P4 FASE 2 — changedetection.io watches gov sites
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS bur_gov_watches (
+    id              SERIAL PRIMARY KEY,
+    label           VARCHAR(200) NOT NULL,
+    url             TEXT NOT NULL,
+    country         VARCHAR(2),
+    category        VARCHAR(50),    -- 'visa'|'tax'|'consular'|'other'
+    cdio_uuid       VARCHAR(80),    -- UUID que devuelve changedetection.io API
+    is_active       BOOLEAN DEFAULT TRUE,
+    last_changed_at TIMESTAMP,
+    last_check_at   TIMESTAMP,
+    notes           TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gov_watches_country ON bur_gov_watches(country);
+CREATE INDEX IF NOT EXISTS idx_gov_watches_active ON bur_gov_watches(is_active);
+
+-- Seed: páginas gov críticas para usuario nómada ES/DZ
+INSERT INTO bur_gov_watches (label, url, country, category, notes) VALUES
+    ('NZ Immigration — Working Holiday', 'https://www.immigration.govt.nz/new-zealand-visas/options/work/thinking-about-coming-to-new-zealand-to-work/working-holiday-visa', 'NZ', 'visa', 'Cambios en condiciones WHV'),
+    ('NZ Immigration — Spain WHV', 'https://www.immigration.govt.nz/new-zealand-visas/apply-for-a-visa/about-visa/spain-working-holiday-visa', 'NZ', 'visa', 'WHV específico ES'),
+    ('AU Immigration — Working Holiday', 'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/work-holiday-417', 'AU', 'visa', 'Subclass 417 WHV'),
+    ('AU Immigration — visa finder', 'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing', 'AU', 'visa', 'Lista visados'),
+    ('ES Exteriores — consulados', 'https://www.exteriores.gob.es/Consulados/argel/es/Comunicacion/Noticias/Paginas/index.aspx', 'ES', 'consular', 'Consulado España en Argel'),
+    ('Schengen Visa Info', 'https://www.schengenvisainfo.com/news/', NULL, 'visa', 'Cambios reglas Schengen'),
+    ('AEAT — Modelo 720/721', 'https://sede.agenciatributaria.gob.es/Sede/declaraciones-informativas/declaracion-bienes-derechos-extranjero-modelo-720.html', 'ES', 'tax', 'Modelo 720 deadline'),
+    ('IRD NZ — IR3', 'https://www.ird.govt.nz/income-tax/income-tax-for-individuals/file-my-individual-tax-return-ir3', 'NZ', 'tax', 'IR3 NZ tax return'),
+    ('NZTA Self-Contained Vehicle', 'https://www.nzta.govt.nz/vehicles/vehicle-types/light-vehicles/self-contained-vehicles/', 'NZ', 'visa', 'Green warrant van rules'),
+    ('AU Embassy Algiers', 'https://algeria.embassy.gov.au/', 'DZ', 'consular', 'Embajada AU Argelia'),
+    ('DZ MAE — visa policy', 'https://www.mae.gov.dz/', 'DZ', 'visa', 'Cancillería Argelia')
+ON CONFLICT (url) DO NOTHING;
+
+-- Webhook payloads recibidos de changedetection.io (audit log)
+CREATE TABLE IF NOT EXISTS bur_gov_changes (
+    id              SERIAL PRIMARY KEY,
+    watch_id        INTEGER REFERENCES bur_gov_watches(id) ON DELETE SET NULL,
+    cdio_uuid       VARCHAR(80),
+    detected_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    diff_summary    TEXT,
+    payload         JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_gov_changes_detected ON bur_gov_changes(detected_at DESC);

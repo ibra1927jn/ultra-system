@@ -145,6 +145,235 @@ router.get('/costs', async (req, res) => {
 });
 
 // ─── POST /api/logistics ─ Crear item ───────────────────
+// ═══════════════════════════════════════════════════════════
+//  P6 FASE 2 — Routing (OSRM) + Traccar GPS
+// ═══════════════════════════════════════════════════════════
+const routing = require('../routing');
+const traccar = require('../traccar');
+
+// ─── POST /api/logistics/route ─ Compute single-leg route ──
+router.post('/route', async (req, res) => {
+  try {
+    const { from, to, profile, persist } = req.body;
+    if (!from?.lat || !from?.lon || !to?.lat || !to?.lon) {
+      return res.status(400).json({ ok: false, error: 'from{lat,lon} y to{lat,lon} requeridos' });
+    }
+    const r = await routing.routeOSRM(from, to, profile || 'driving');
+    if (persist) {
+      const row = await routing.persistRoute({
+        transport_mode: profile || 'driving',
+        route: r,
+        waypoints: [from, to],
+      });
+      r.route_id = row.id;
+    }
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/logistics/trip ─ Multi-stop TSP optimization ──
+router.post('/trip', async (req, res) => {
+  try {
+    const { waypoints, profile, roundtrip, source, destination } = req.body;
+    if (!Array.isArray(waypoints) || waypoints.length < 2) {
+      return res.status(400).json({ ok: false, error: 'waypoints array (≥2) requerido' });
+    }
+    const result = await routing.planTrip(waypoints, { profile, roundtrip, source, destination });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/logistics/routes ─ Listar routes computadas ──
+router.get('/routes', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, transport_mode, distance_km, duration_min, provider,
+              cost, currency, computed_at
+       FROM log_routes ORDER BY computed_at DESC NULLS LAST LIMIT 30`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/logistics/gps/sync ─ Pull from Traccar ──
+router.post('/gps/sync', async (req, res) => {
+  try {
+    const result = await traccar.syncPositions();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/logistics/gps/last ─ Última posición conocida ──
+router.get('/gps/last', async (req, res) => {
+  try {
+    const { device_id } = req.query;
+    const pos = await traccar.getLastPosition(device_id);
+    res.json({ ok: true, data: pos });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/logistics/poi/export.geojson ─ Offline export ──
+// Para van-life: exporta los log_pois locales como GeoJSON listo
+// para importar en apps offline (Locus Map, Maps.me, OruxMaps, etc.)
+router.get('/poi/export.geojson', async (req, res) => {
+  try {
+    const { type, country } = req.query;
+    const where = ['latitude IS NOT NULL', 'longitude IS NOT NULL'];
+    const params = [];
+    if (type) {
+      params.push(type);
+      where.push(`poi_type = $${params.length}`);
+    }
+    if (country) {
+      params.push(country.toUpperCase());
+      where.push(`country = $${params.length}`);
+    }
+    const rows = await db.queryAll(
+      `SELECT id, name, poi_type, latitude, longitude, country, is_free, has_water, has_dump, has_shower, source
+       FROM log_pois
+       WHERE ${where.join(' AND ')}
+       LIMIT 5000`,
+      params
+    );
+    const features = rows.map(r => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [parseFloat(r.longitude), parseFloat(r.latitude)] },
+      properties: {
+        id: r.id,
+        name: r.name,
+        type: r.poi_type,
+        free: r.is_free,
+        water: r.has_water,
+        dump: r.has_dump,
+        shower: r.has_shower,
+        source: r.source,
+      },
+    }));
+    res.set('Content-Type', 'application/geo+json');
+    res.set('Content-Disposition', 'attachment; filename="ultra_pois.geojson"');
+    res.json({
+      type: 'FeatureCollection',
+      generated_at: new Date().toISOString(),
+      count: features.length,
+      features,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/logistics/poi/along-route ─ POIs cerca de polyline ──
+// Query params: route_id (de log_routes), max_distance_km (default 5)
+// Devuelve POIs dentro de N km de cualquier punto del polyline
+router.get('/poi/along-route', async (req, res) => {
+  try {
+    const { route_id, max_distance_km = 5, type } = req.query;
+    if (!route_id) return res.status(400).json({ ok: false, error: 'route_id requerido' });
+    const route = await db.queryOne(
+      'SELECT id, polyline, raw_response FROM log_routes WHERE id = $1',
+      [route_id]
+    );
+    if (!route?.polyline) return res.status(404).json({ ok: false, error: 'route sin polyline' });
+
+    // Decode Google polyline → coords
+    const coords = decodePolyline(route.polyline);
+    if (!coords.length) return res.status(400).json({ ok: false, error: 'polyline inválido' });
+
+    // Bounding box para pre-filter
+    const lats = coords.map(c => c[0]);
+    const lons = coords.map(c => c[1]);
+    const bbox = {
+      minLat: Math.min(...lats), maxLat: Math.max(...lats),
+      minLon: Math.min(...lons), maxLon: Math.max(...lons),
+    };
+    const padding = 0.5; // ~50km en degrees
+    const where = [
+      `latitude BETWEEN ${bbox.minLat - padding} AND ${bbox.maxLat + padding}`,
+      `longitude BETWEEN ${bbox.minLon - padding} AND ${bbox.maxLon + padding}`,
+    ];
+    const params = [];
+    if (type) {
+      params.push(type);
+      where.push(`poi_type = $${params.length}`);
+    }
+    const candidates = await db.queryAll(
+      `SELECT id, name, poi_type, latitude, longitude, is_free FROM log_pois WHERE ${where.join(' AND ')} LIMIT 2000`,
+      params
+    );
+
+    // Haversine + min distance to polyline
+    const maxKm = parseFloat(max_distance_km);
+    const matches = [];
+    for (const p of candidates) {
+      let minDist = Infinity;
+      const pLat = parseFloat(p.latitude), pLon = parseFloat(p.longitude);
+      for (const c of coords) {
+        const d = haversineKm(pLat, pLon, c[0], c[1]);
+        if (d < minDist) minDist = d;
+        if (minDist <= maxKm) break;
+      }
+      if (minDist <= maxKm) matches.push({ ...p, distance_km: Number(minDist.toFixed(2)) });
+    }
+    matches.sort((a, b) => a.distance_km - b.distance_km);
+    res.json({ ok: true, route_id, max_distance_km: maxKm, count: matches.length, data: matches });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) ** 2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Google polyline algo decoder
+function decodePolyline(str) {
+  const coords = [];
+  let lat = 0, lng = 0, idx = 0;
+  while (idx < str.length) {
+    let shift = 0, result = 0, byte;
+    do { byte = str.charCodeAt(idx++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0; result = 0;
+    do { byte = str.charCodeAt(idx++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+    coords.push([lat / 1e5, lng / 1e5]);
+  }
+  return coords;
+}
+
+// ─── GET /api/logistics/gps/track ─ Track históricas ──
+router.get('/gps/track', async (req, res) => {
+  try {
+    const { device_id, limit } = req.query;
+    const where = device_id ? 'WHERE device_id = $1' : '';
+    const params = device_id ? [device_id] : [];
+    params.push(parseInt(limit || '100', 10));
+    const rows = await db.queryAll(
+      `SELECT device_id, lat, lon, speed_kmh, altitude, fix_time
+       FROM log_gps_positions ${where}
+       ORDER BY fix_time DESC LIMIT $${params.length}`,
+      params
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.post('/', async (req, res) => {
   try {
     const { type, title, date, location, notes, status, cost } = req.body;
@@ -167,6 +396,19 @@ router.post('/', async (req, res) => {
        RETURNING *`,
       [type, title, date, location || null, notes || null, finalStatus, parseFloat(cost) || 0]
     );
+
+    // P3 bridge: si tiene cost > 0, publicar evento para impacto runway
+    const numericCost = parseFloat(cost) || 0;
+    if (numericCost > 0) {
+      const eventbus = require('../eventbus');
+      await eventbus.publish('log.cost_logged', 'P6', {
+        logistics_id: result.id,
+        type: result.type,
+        cost_nzd: numericCost,
+        location: result.location,
+        title: result.title,
+      });
+    }
 
     res.status(201).json({ ok: true, data: result });
   } catch (err) {

@@ -17,6 +17,13 @@ const healthScrapers = require('./health_scrapers');
 const externalHealth = require('./external_health');
 const oppFetchers = require('./opp_fetchers');
 const jobApis = require('./job_apis');
+const cdio = require('./changedetection');
+const recurring = require('./recurring');
+const cryptoMod = require('./crypto');
+const dedupRunner = require('./dedup_runner');
+const earlyWarning = require('./early_warning');
+const govJobs = require('./gov_jobs');
+const traccar = require('./traccar');
 
 const jobs = [];
 
@@ -49,6 +56,64 @@ function init() {
     '0 10 * * 1',
     checkVaccinationExpiry,
     'Lunes 10:00 — Vacunaciones próximas a expirar (<60 días)'
+  );
+
+  // ─── P4 Fase 2: changedetection.io sync (boot + diario 04:30) ───
+  register(
+    'cdio-sync',
+    '30 4 * * *',
+    syncCdioWatches,
+    'Diario 04:30 — Sync bur_gov_watches → changedetection.io'
+  );
+  // Boot sync diferido 30s para que cdio container esté listo
+  setTimeout(() => syncCdioWatches().catch(() => {}), 30_000);
+
+  // ─── P3 Fase 2: Recurring detection — semanal lunes 03:00 ───
+  register(
+    'recurring-detect',
+    '0 3 * * 1',
+    detectRecurringExpenses,
+    'Lunes 03:00 — Detección gastos recurrentes (lookback 365d)'
+  );
+
+  // ─── P1 Fase 2: MinHash+LSH dedup — diario 03:30 ───
+  register(
+    'minhash-dedup',
+    '30 3 * * *',
+    runMinhashDedup,
+    'Diario 03:30 — Dedup cross-table (rss + opps + jobs) MinHash threshold 0.7'
+  );
+
+  // ─── P1 Fase 2: Early warning fetch — cada 6h ───
+  register(
+    'early-warning-fetch',
+    '0 */6 * * *',
+    fetchEarlyWarning,
+    'Cada 6h — USGS earthquakes + WHO DONS + ACLED → events_store'
+  );
+
+  // ─── P2 Fase 2: Gov jobs fetch — diario 05:00 ───
+  register(
+    'gov-jobs-fetch',
+    '0 5 * * *',
+    fetchGovJobs,
+    'Diario 05:00 — USAJobs + JobTechSE + hh.ru + NAV + visa cross-ref'
+  );
+
+  // ─── P6 Fase 2: Traccar GPS sync — cada 5 min ───
+  register(
+    'traccar-gps-sync',
+    '*/5 * * * *',
+    syncTraccarGps,
+    'Cada 5 min — Pull positions desde Traccar → log_gps_positions'
+  );
+
+  // ─── P4 Fase 3a: Schengen daily check + visa window detector ───
+  register(
+    'schengen-daily-check',
+    '15 9 * * *',
+    checkSchengenAndVisaWindows,
+    'Diario 09:15 — Schengen 90/180 + alerta visa window por país'
   );
 
   // ─── P1: Noticias — Fetch RSS cada 30 min con scoring ───
@@ -562,14 +627,33 @@ async function snapshotNetWorth() {
        SUM(CASE WHEN type='expense' THEN COALESCE(amount_nzd, amount) ELSE 0 END) AS nw
      FROM finances GROUP BY account`
   );
+
+  // P3 Fase 2: añadir crypto holdings al NW total
+  let cryptoTotal = 0;
+  let cryptoBreakdown = [];
+  try {
+    const cr = await cryptoMod.getHoldings();
+    cryptoTotal = cr.total_nzd || 0;
+    cryptoBreakdown = cr.holdings.map(h => ({
+      account: `crypto:${h.exchange}:${h.symbol}`,
+      nw: h.value_nzd,
+    }));
+  } catch (err) {
+    console.warn('nw-snapshot: crypto fetch failed:', err.message);
+  }
+
+  const fiatNw = parseFloat(total.nw);
+  const grandTotal = fiatNw + cryptoTotal;
+  const fullBreakdown = [...breakdown.map(b => ({ account: b.account, nw: parseFloat(b.nw) })), ...cryptoBreakdown];
+
   const today = new Date().toISOString().split('T')[0];
   await db.query(
     `INSERT INTO fin_net_worth_snapshots (date, total_nzd, breakdown)
      VALUES ($1, $2, $3)
      ON CONFLICT (date) DO UPDATE SET total_nzd = EXCLUDED.total_nzd, breakdown = EXCLUDED.breakdown`,
-    [today, total.nw, JSON.stringify(breakdown)]
+    [today, grandTotal, JSON.stringify(fullBreakdown)]
   );
-  console.log(`📊 NW snapshot ${today}: $${parseFloat(total.nw).toFixed(2)} NZD`);
+  console.log(`📊 NW snapshot ${today}: fiat $${fiatNw.toFixed(2)} + crypto $${cryptoTotal.toFixed(2)} = $${grandTotal.toFixed(2)} NZD`);
 }
 
 /**
@@ -669,6 +753,15 @@ async function fetchAtsJobs() {
 async function fetchOpportunities() {
   const r = await oppFetchers.fetchAll();
   console.log(`🎯 [opp-fetch] ${r.totalInserted} new total · ${r.totalHighScore} high-score`);
+
+  // P5 Fase 2: post-fetch rescore matching score vs emp_profile
+  try {
+    const matching = require('./matching');
+    const ms = await matching.rescoreOpportunities();
+    if (ms.ok) console.log(`🎯 [opp-fetch] match rescore: ${ms.updated}/${ms.scanned}`);
+  } catch (err) {
+    console.warn('match rescore failed:', err.message);
+  }
 
   if (r.totalHighScore > 0) {
     // Pull top high-score nuevos para alertar
@@ -966,6 +1059,176 @@ function listJobs() {
     schedule: j.schedule,
     description: j.description,
   }));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P4 FASE 3a — Schengen + visa window auto-detect
+// ═══════════════════════════════════════════════════════════
+async function checkSchengenAndVisaWindows() {
+  try {
+    const schengenMod = require('./schengen');
+    // 1. Schengen status hoy
+    const status = await schengenMod.getSchengenStatus(new Date());
+    if (status.days_used >= 60) {
+      const lines = [
+        `🛂 *Schengen alert*`,
+        `📊 Días usados: *${status.days_used}/90* (quedan ${status.days_remaining})`,
+        `🪟 Ventana: ${status.window_start} → ${status.window_end}`,
+      ];
+      if (status.overstay) lines.push('🚨 *OVERSTAY ACTIVO*');
+      if (status.next_full_90_window) {
+        lines.push(`🎯 Próximo stay 90d completo: ${status.next_full_90_window.earliest_date}`);
+      }
+      await telegram.sendAlert(lines.join('\n'));
+    }
+
+    // 2. Visa window detector — busca trips ongoing (sin exit_date) y alerta si days_in_country
+    //    se acerca al límite del visa requirement
+    const ongoing = await db.queryAll(
+      `SELECT t.id, t.country, t.entry_date, t.passport_used,
+              (CURRENT_DATE - t.entry_date) + 1 AS days_in_country,
+              v.requirement, v.days_allowed
+       FROM bur_travel_log t
+       LEFT JOIN bur_visa_matrix v
+         ON v.passport = t.passport_used AND v.destination = t.country
+       WHERE t.exit_date IS NULL`
+    );
+    for (const trip of ongoing) {
+      const allowed = trip.days_allowed;
+      const used = parseInt(trip.days_in_country, 10);
+      if (allowed && allowed > 0) {
+        const ratio = used / allowed;
+        if (ratio >= 0.7) {
+          // Alerta cuando llevas >70% de días permitidos
+          const remaining = allowed - used;
+          const urgEmoji = ratio >= 0.95 ? '🚨' : ratio >= 0.85 ? '🔴' : '🟡';
+          await telegram.sendAlert(
+            `${urgEmoji} *Visa window alert — ${trip.country}*\n` +
+            `🛂 Pasaporte: ${trip.passport_used}\n` +
+            `📅 Entrada: ${trip.entry_date}\n` +
+            `⏱️ Días en país: *${used}/${allowed}* (${remaining} restantes)\n` +
+            `📋 Requirement: ${trip.requirement}`
+          );
+        }
+      }
+    }
+    console.log(`🛂 schengen-daily-check: used=${status.days_used}/90, ongoing trips=${ongoing.length}`);
+  } catch (err) {
+    console.error('❌ schengen-daily-check error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P6 FASE 2 — Traccar GPS sync
+// ═══════════════════════════════════════════════════════════
+async function syncTraccarGps() {
+  try {
+    const r = await traccar.syncPositions();
+    if (r.ok && r.positions_inserted > 0) {
+      console.log(`📍 traccar-sync: ${r.devices} devices, ${r.positions_inserted} positions new`);
+    }
+  } catch (err) {
+    // Silent fail si Traccar no está reachable (no es crítico)
+    if (!err.message?.includes('not reachable')) {
+      console.warn('traccar sync warn:', err.message);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P2 FASE 2 — Gov job sources fetch
+// ═══════════════════════════════════════════════════════════
+async function fetchGovJobs() {
+  try {
+    const results = await govJobs.fetchAll();
+    const summary = results
+      .map(r => `${r.source}=${r.inserted ?? r.updated ?? r.error?.slice(0, 30) ?? r.reason ?? '?'}`)
+      .join(' ');
+    console.log(`🏛️ gov-jobs: ${summary}`);
+  } catch (err) {
+    console.error('❌ gov-jobs error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P1 FASE 2 — Early warning feeds (USGS + WHO + ACLED)
+// ═══════════════════════════════════════════════════════════
+async function fetchEarlyWarning() {
+  try {
+    const results = await earlyWarning.fetchAll();
+    const summary = results.map(r => `${r.source}=${r.inserted ?? r.error ?? r.reason ?? '?'}`).join(' ');
+    console.log(`🌐 early-warning: ${summary}`);
+
+    // Alerta inmediata si hay event critical en países del usuario o ruta planificada
+    const critical = await db.queryAll(
+      `SELECT source, event_type, severity, title, country, occurred_at
+       FROM events_store
+       WHERE severity IN ('critical', 'high')
+         AND created_at >= NOW() - INTERVAL '15 minutes'
+       ORDER BY occurred_at DESC LIMIT 10`
+    );
+    if (critical.length > 0) {
+      const lines = ['🚨 *Early warning* — eventos críticos nuevos:'];
+      for (const e of critical) {
+        const flag = e.country || '🌐';
+        lines.push(`${flag} [${e.severity}] ${e.title}`);
+      }
+      await telegram.sendAlert(lines.join('\n'));
+    }
+  } catch (err) {
+    console.error('❌ early-warning error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P1 FASE 2 — MinHash dedup runner
+// ═══════════════════════════════════════════════════════════
+async function runMinhashDedup() {
+  try {
+    const r = await dedupRunner.runAll({ lookbackDays: 30, threshold: 0.7 });
+    const total = (r.rss?.marked || 0) + (r.opportunities?.marked || 0) + (r.job_listings?.marked || 0);
+    console.log(
+      `🧬 minhash-dedup: rss=${r.rss?.marked || 0}/${r.rss?.scanned || 0} ` +
+      `opps=${r.opportunities?.marked || 0}/${r.opportunities?.scanned || 0} ` +
+      `jobs=${r.job_listings?.marked || 0}/${r.job_listings?.scanned || 0} ` +
+      `(total marked: ${total})`
+    );
+  } catch (err) {
+    console.error('❌ minhash-dedup error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P3 FASE 2 — Recurring expenses detection
+// ═══════════════════════════════════════════════════════════
+async function detectRecurringExpenses() {
+  try {
+    const result = await recurring.detectRecurring({ lookbackDays: 365, minSamples: 3 });
+    console.log(`🔁 recurring-detect: scanned=${result.scanned_rows} detected=${result.detected} (+${result.inserted}/~${result.updated})`);
+  } catch (err) {
+    console.error('❌ recurring-detect error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P4 FASE 2 — changedetection.io sync handler
+// ═══════════════════════════════════════════════════════════
+async function syncCdioWatches() {
+  try {
+    const result = await cdio.syncWatches();
+    if (result.ok === false) {
+      console.warn('⏭️  cdio-sync skipped:', result.error);
+      return;
+    }
+    if (result.created > 0) {
+      console.log(`✅ cdio-sync: ${result.created} watches creados, ${result.skipped} ya existían`);
+    }
+    if (result.errors && result.errors.length) {
+      console.warn(`⚠️  cdio-sync: ${result.errors.length} errores`, result.errors);
+    }
+  } catch (err) {
+    console.error('❌ cdio-sync error:', err.message);
+  }
 }
 
 module.exports = { init, listJobs };

@@ -9,6 +9,10 @@ const db = require('../db');
 const fx = require('../fx');
 const bankCsv = require('../bank_csv');
 const wise = require('../wise');
+const akahu = require('../akahu');
+const recurring = require('../recurring');
+const crypto = require('../crypto');
+const bridges = require('../bridges');
 
 const router = express.Router();
 const upload = multer({
@@ -409,6 +413,317 @@ router.get('/runway', async (req, res) => {
         wise_configured: wise.isConfigured(),
       },
     });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P3 FASE 2 — RECURRING DETECTION
+// ═══════════════════════════════════════════════════════════
+
+// ─── POST /api/finances/recurring/detect ─────────────────
+router.post('/recurring/detect', async (req, res) => {
+  try {
+    const lookbackDays = parseInt(req.body?.lookback_days || '365', 10);
+    const minSamples = parseInt(req.body?.min_samples || '3', 10);
+    const result = await recurring.detectRecurring({ lookbackDays, minSamples });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/recurring ─────────────────────────
+router.get('/recurring', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, payee_normalized, frequency, amount_avg, currency,
+              next_expected, last_seen, confidence, sample_size, avg_interval_days,
+              confirmed,
+              (next_expected - CURRENT_DATE) AS days_until
+       FROM fin_recurring
+       WHERE confidence >= 0.5
+       ORDER BY confidence DESC, amount_avg DESC`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── PATCH /api/finances/recurring/:id/confirm ───────────
+router.patch('/recurring/:id/confirm', async (req, res) => {
+  try {
+    const row = await db.queryOne(
+      `UPDATE fin_recurring SET confirmed=$1 WHERE id=$2 RETURNING *`,
+      [req.body?.confirmed !== false, req.params.id]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P3 FASE 2 — SAVINGS GOALS
+// ═══════════════════════════════════════════════════════════
+
+router.get('/savings-goals', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, name, target_amount, current_amount, currency, target_date,
+              category, is_active, notes,
+              CASE WHEN target_amount > 0
+                   THEN ROUND((current_amount / target_amount * 100)::numeric, 1)
+                   ELSE 0 END AS progress_pct,
+              CASE WHEN target_date IS NULL THEN NULL
+                   ELSE (target_date - CURRENT_DATE) END AS days_remaining
+       FROM fin_savings_goals
+       WHERE is_active = TRUE
+       ORDER BY target_date ASC NULLS LAST`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/savings-goals', async (req, res) => {
+  try {
+    const { name, target_amount, current_amount, currency, target_date, category, notes } = req.body;
+    if (!name || !target_amount) {
+      return res.status(400).json({ ok: false, error: 'name y target_amount obligatorios' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO fin_savings_goals
+       (name, target_amount, current_amount, currency, target_date, category, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [name, target_amount, current_amount || 0, currency || 'NZD', target_date || null, category || null, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.patch('/savings-goals/:id', async (req, res) => {
+  try {
+    const { current_amount, target_amount, target_date, is_active, notes } = req.body;
+    const row = await db.queryOne(
+      `UPDATE fin_savings_goals SET
+         current_amount = COALESCE($1, current_amount),
+         target_amount  = COALESCE($2, target_amount),
+         target_date    = COALESCE($3, target_date),
+         is_active      = COALESCE($4, is_active),
+         notes          = COALESCE($5, notes),
+         updated_at     = NOW()
+       WHERE id=$6 RETURNING *`,
+      [current_amount, target_amount, target_date, is_active, notes, req.params.id]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.delete('/savings-goals/:id', async (req, res) => {
+  try {
+    const row = await db.queryOne(
+      'DELETE FROM fin_savings_goals WHERE id=$1 RETURNING id',
+      [req.params.id]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, deleted: row.id });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P3 FASE 2 — NET WORTH TIMELINE
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/finances/nw-timeline?days=90 ───────────────
+router.get('/nw-timeline', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days || '90', 10);
+    const rows = await db.queryAll(
+      `SELECT date, total_nzd, breakdown
+       FROM fin_net_worth_snapshots
+       WHERE date >= CURRENT_DATE - INTERVAL '${days} days'
+       ORDER BY date ASC`
+    );
+
+    let trend = null;
+    if (rows.length >= 2) {
+      const first = parseFloat(rows[0].total_nzd);
+      const last = parseFloat(rows[rows.length - 1].total_nzd);
+      const delta = last - first;
+      const pct = first !== 0 ? (delta / first * 100) : 0;
+      const periodDays = (new Date(rows[rows.length - 1].date) - new Date(rows[0].date)) / 86400000;
+      const dailyChange = periodDays > 0 ? delta / periodDays : 0;
+      trend = {
+        first_date: rows[0].date,
+        last_date: rows[rows.length - 1].date,
+        first_nzd: first,
+        last_nzd: last,
+        delta_nzd: Number(delta.toFixed(2)),
+        delta_pct: Number(pct.toFixed(2)),
+        avg_daily_change_nzd: Number(dailyChange.toFixed(2)),
+        period_days: Math.round(periodDays),
+      };
+    }
+
+    res.json({ ok: true, count: rows.length, trend, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P3 FASE 2 — CRYPTO HOLDINGS
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/finances/crypto ────────────────────────────
+router.get('/crypto', async (req, res) => {
+  try {
+    const result = await crypto.getHoldings();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/finances/crypto ───────────────────────────
+router.post('/crypto', async (req, res) => {
+  try {
+    const { symbol, amount, exchange, wallet_address, notes } = req.body;
+    if (!symbol || amount === undefined || !exchange) {
+      return res.status(400).json({ ok: false, error: 'symbol, amount, exchange obligatorios' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO fin_crypto_holdings (symbol, amount, exchange, wallet_address, notes)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (symbol, exchange) DO UPDATE SET
+         amount=EXCLUDED.amount, wallet_address=EXCLUDED.wallet_address,
+         notes=EXCLUDED.notes, updated_at=NOW()
+       RETURNING *`,
+      [symbol.toUpperCase(), amount, exchange, wallet_address || null, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── DELETE /api/finances/crypto/:id ─────────────────────
+router.delete('/crypto/:id', async (req, res) => {
+  try {
+    const row = await db.queryOne(
+      'DELETE FROM fin_crypto_holdings WHERE id=$1 RETURNING id',
+      [req.params.id]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, deleted: row.id });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/finances/crypto/sync-binance ──────────────
+router.post('/crypto/sync-binance', async (req, res) => {
+  try {
+    const result = await crypto.syncBinance();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/providers ─ Status de integraciones ─
+router.get('/providers', async (req, res) => {
+  try {
+    const providers = [
+      {
+        id: 'wise',
+        name: 'Wise (TransferWise)',
+        configured: wise.isConfigured(),
+        env_required: ['WISE_API_TOKEN'],
+        docs: 'https://docs.wise.com/api-docs',
+        scope: 'multi-currency balances + transactions read-only',
+      },
+      {
+        id: 'akahu',
+        name: 'Akahu (NZ Open Banking)',
+        configured: akahu.isConfigured(),
+        env_required: ['AKAHU_USER_TOKEN', 'AKAHU_APP_TOKEN'],
+        docs: 'https://developers.akahu.nz/docs',
+        scope: 'NZ banks (ANZ/ASB/BNZ/Kiwibank/Westpac) read-only',
+      },
+      {
+        id: 'binance_ccxt',
+        name: 'Binance via ccxt',
+        configured: !!(process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET),
+        env_required: ['BINANCE_API_KEY', 'BINANCE_API_SECRET'],
+        docs: 'https://docs.ccxt.com',
+        scope: 'spot balances read-only (use API key sin withdraw permission)',
+      },
+      {
+        id: 'coingecko',
+        name: 'CoinGecko prices',
+        configured: true,
+        env_required: [],
+        docs: 'https://www.coingecko.com/en/api',
+        scope: 'crypto prices vs NZD (free public)',
+      },
+      {
+        id: 'frankfurter_fx',
+        name: 'Frankfurter FX',
+        configured: true,
+        env_required: [],
+        docs: 'https://www.frankfurter.app',
+        scope: 'ECB FX rates (free public)',
+      },
+    ];
+    res.json({ ok: true, providers });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/finances/akahu/sync ───────────────────────
+router.post('/akahu/sync', async (req, res) => {
+  try {
+    const result = await akahu.importRecent({ daysBack: req.body?.days_back || 7 });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/runway-status (con bridges) ───────
+router.get('/runway-status', async (req, res) => {
+  try {
+    const status = await bridges.getCurrentRunway();
+    if (!status) {
+      return res.json({ ok: true, status: null, message: 'Sin snapshots NW o burn rate=0' });
+    }
+    res.json({ ok: true, status });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/finances/crypto/prices?symbols=BTC,ETH ─────
+router.get('/crypto/prices', async (req, res) => {
+  try {
+    const symbols = (req.query.symbols || 'BTC,ETH,SOL').split(',');
+    const vs = (req.query.vs || 'NZD').toUpperCase();
+    const prices = await crypto.fetchPrices(symbols, vs);
+    res.json({ ok: true, vs, prices });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

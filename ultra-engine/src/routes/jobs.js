@@ -6,6 +6,7 @@ const express = require('express');
 const scraper = require('../scraper');
 const db = require('../db');
 const jobApis = require('../job_apis');
+const govJobs = require('../gov_jobs');
 
 const router = express.Router();
 
@@ -162,6 +163,75 @@ router.get('/high-score', async (req, res) => {
        ORDER BY total_score DESC, posted_at DESC NULLS LAST
        LIMIT $2`,
       [minScore, limit]
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P2 FASE 2 — Gov sources + visa sponsors register
+// ═══════════════════════════════════════════════════════════
+
+router.post('/gov/fetch', async (req, res) => {
+  try {
+    const results = await govJobs.fetchAll();
+    res.json({ ok: true, results });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/gov/fetch/:source', async (req, res) => {
+  try {
+    const fnMap = {
+      usajobs: govJobs.fetchUSAJobs,
+      jobtech_se: govJobs.fetchJobTechSE,
+      hh_ru: govJobs.fetchHHru,
+      nav_no: govJobs.fetchNAV,
+    };
+    const fn = fnMap[req.params.source];
+    if (!fn) return res.status(404).json({ ok: false, error: 'Unknown source' });
+    const result = await fn();
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/visa-sponsors/import-uk', async (req, res) => {
+  try {
+    const result = await govJobs.importUKSponsorRegister({ url: req.body?.url });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/visa-sponsors/cross-ref', async (req, res) => {
+  try {
+    const result = await govJobs.crossRefVisaSponsors();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/visa-sponsors', async (req, res) => {
+  try {
+    const { country, q, limit } = req.query;
+    const where = [];
+    const params = [];
+    if (country) { params.push(country.toUpperCase()); where.push(`country=$${params.length}`); }
+    if (q) { params.push('%' + q.toLowerCase() + '%'); where.push(`LOWER(company_name) LIKE $${params.length}`); }
+    params.push(parseInt(limit || '50', 10));
+    const rows = await db.queryAll(
+      `SELECT id, country, company_name, city, region, route, rating, source
+       FROM emp_visa_sponsors
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY company_name LIMIT $${params.length}`,
+      params
     );
     res.json({ ok: true, count: rows.length, data: rows });
   } catch (err) {

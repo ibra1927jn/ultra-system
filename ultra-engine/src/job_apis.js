@@ -353,4 +353,8 @@ module.exports = {
   fetchAshby,
   fetchSmartRecruiters,
   computeScore,
+  insertJob,
+  makeFingerprint,
+  detectCountry,
+  isRemote,
 };

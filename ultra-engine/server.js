@@ -21,6 +21,7 @@ const path = require('path');
 const db = require('./src/db');
 const telegram = require('./src/telegram');
 const scheduler = require('./src/scheduler');
+const bridges = require('./src/bridges');
 const { apiKeyAuth } = require('./src/middleware/auth');
 const { requireAuth } = require('./src/middleware/jwt-auth');
 
@@ -35,6 +36,7 @@ const opportunitiesRouter = require('./src/routes/opportunities');
 const logisticsRouter = require('./src/routes/logistics');
 const bioRouter = require('./src/routes/bio');
 const bureaucracyRouter = require('./src/routes/bureaucracy');
+const webhooksRouter = require('./src/routes/webhooks');
 const agentBusRouter = require("./src/routes/agentbus");
 
 const app = express();
@@ -62,6 +64,9 @@ app.use('/api/logistics', requireAuth, logisticsRouter);
 app.use('/api/bio', requireAuth, bioRouter);
 app.use('/api/bureaucracy', requireAuth, bureaucracyRouter);
 app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
+
+// ─── Webhooks (públicos, validados por shared secret) ────
+app.use('/webhooks', webhooksRouter);
 
 // ─── Health endpoint (publico, sin auth para monitoreo) ───
 // Devuelve: estado DB, estado Telegram, pilares cargados, uptime
@@ -152,6 +157,9 @@ async function start() {
   // 3. Iniciar Scheduler (cron jobs)
   console.log('⏰ Iniciando scheduler...');
   scheduler.init();
+
+  // 3b. Iniciar bridges P3↔P5/P6 (event subscribers)
+  bridges.init();
 
   // 4. Iniciar servidor HTTP
   app.listen(PORT, '0.0.0.0', () => {

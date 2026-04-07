@@ -6,6 +6,9 @@
 
 const express = require('express');
 const db = require('../db');
+const schengen = require('../schengen');
+const cdio = require('../changedetection');
+const paperless = require('../paperless');
 
 const router = express.Router();
 
@@ -281,5 +284,306 @@ async function publishEvent(eventType, sourcePillar, payload) {
     console.error('❌ Error publicando evento:', err.message);
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+//  P4 FASE 2 — TRAVEL LOG (bur_travel_log)
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/bureaucracy/travel-log ─────────────────────
+router.get('/travel-log', async (req, res) => {
+  try {
+    const { country, area, ongoing } = req.query;
+    const where = [];
+    const params = [];
+    if (country) {
+      params.push(country.toUpperCase());
+      where.push(`country = $${params.length}`);
+    }
+    if (area) {
+      params.push(area.toUpperCase());
+      where.push(`area = $${params.length}`);
+    }
+    if (ongoing === 'true') where.push('exit_date IS NULL');
+
+    const rows = await db.queryAll(
+      `SELECT id, country, area, entry_date, exit_date, purpose, passport_used, notes, source,
+              CASE WHEN exit_date IS NULL THEN (CURRENT_DATE - entry_date) + 1
+                   ELSE (exit_date - entry_date) + 1 END AS days
+       FROM bur_travel_log
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY entry_date DESC`,
+      params
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/bureaucracy/travel-log ────────────────────
+router.post('/travel-log', async (req, res) => {
+  try {
+    const { country, area, entry_date, exit_date, purpose, passport_used, notes, source } = req.body;
+    if (!country || !entry_date) {
+      return res.status(400).json({ ok: false, error: 'country y entry_date son obligatorios' });
+    }
+    // Auto-detectar area Schengen si no se pasa
+    let detectedArea = area || null;
+    if (!detectedArea && schengen.SCHENGEN_COUNTRIES.has(country.toUpperCase())) {
+      detectedArea = 'SCHENGEN';
+    }
+    const row = await db.queryOne(
+      `INSERT INTO bur_travel_log
+       (country, area, entry_date, exit_date, purpose, passport_used, notes, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [
+        country.toUpperCase(),
+        detectedArea,
+        entry_date,
+        exit_date || null,
+        purpose || null,
+        passport_used ? passport_used.toUpperCase() : null,
+        notes || null,
+        source || 'manual',
+      ]
+    );
+    await publishEvent('bur.travel_logged', 'P4', {
+      trip_id: row.id, country: row.country, area: row.area,
+      entry_date: row.entry_date, exit_date: row.exit_date,
+    });
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── PUT /api/bureaucracy/travel-log/:id ─────────────────
+router.put('/travel-log/:id', async (req, res) => {
+  try {
+    const { country, area, entry_date, exit_date, purpose, passport_used, notes } = req.body;
+    const row = await db.queryOne(
+      `UPDATE bur_travel_log SET
+         country = COALESCE($1, country),
+         area = COALESCE($2, area),
+         entry_date = COALESCE($3, entry_date),
+         exit_date = COALESCE($4, exit_date),
+         purpose = COALESCE($5, purpose),
+         passport_used = COALESCE($6, passport_used),
+         notes = COALESCE($7, notes)
+       WHERE id = $8 RETURNING *`,
+      [
+        country ? country.toUpperCase() : null,
+        area, entry_date, exit_date, purpose,
+        passport_used ? passport_used.toUpperCase() : null,
+        notes, req.params.id,
+      ]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'Trip no encontrado' });
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── DELETE /api/bureaucracy/travel-log/:id ──────────────
+router.delete('/travel-log/:id', async (req, res) => {
+  try {
+    const row = await db.queryOne(
+      'DELETE FROM bur_travel_log WHERE id = $1 RETURNING id',
+      [req.params.id]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'Trip no encontrado' });
+    res.json({ ok: true, deleted: row.id });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P4 FASE 2 — SCHENGEN 90/180 CALCULATOR
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/bureaucracy/schengen?date=YYYY-MM-DD ───────
+router.get('/schengen', async (req, res) => {
+  try {
+    const targetDate = req.query.date ? new Date(req.query.date) : new Date();
+    if (isNaN(targetDate.getTime())) {
+      return res.status(400).json({ ok: false, error: 'date inválida (formato YYYY-MM-DD)' });
+    }
+    const status = await schengen.getSchengenStatus(targetDate);
+    res.json({ ok: true, data: status });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P4 FASE 2 — VISA MATRIX (passport-index)
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/bureaucracy/visa?from=ES&to=NZ ─────────────
+// from = passport (ES|DZ); to = destination ISO2.
+// Si solo `from` → lista todos los destinos del pasaporte.
+router.get('/visa', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from) return res.status(400).json({ ok: false, error: 'Falta parámetro `from` (passport ISO2)' });
+
+    if (to) {
+      const row = await db.queryOne(
+        `SELECT * FROM bur_visa_matrix WHERE passport = $1 AND destination = $2`,
+        [from.toUpperCase(), to.toUpperCase()]
+      );
+      if (!row) return res.status(404).json({ ok: false, error: 'No hay datos para ese par. Datos disponibles: ES, DZ' });
+      return res.json({ ok: true, data: row });
+    }
+
+    const rows = await db.queryAll(
+      `SELECT * FROM bur_visa_matrix WHERE passport = $1 ORDER BY destination`,
+      [from.toUpperCase()]
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/bureaucracy/visa-matrix ───────────────────
+// Upsert manual de entradas (para curación o expansión a más pasaportes)
+router.post('/visa-matrix', async (req, res) => {
+  try {
+    const { passport, destination, requirement, days_allowed, notes } = req.body;
+    if (!passport || !destination || !requirement) {
+      return res.status(400).json({ ok: false, error: 'passport, destination, requirement son obligatorios' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO bur_visa_matrix (passport, destination, requirement, days_allowed, notes)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (passport, destination) DO UPDATE SET
+         requirement = EXCLUDED.requirement,
+         days_allowed = EXCLUDED.days_allowed,
+         notes = EXCLUDED.notes,
+         updated_at = NOW()
+       RETURNING *`,
+      [passport.toUpperCase(), destination.toUpperCase(), requirement, days_allowed || null, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P4 FASE 2 — GOV WATCHES (changedetection.io)
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/bureaucracy/gov-watches ────────────────────
+router.get('/gov-watches', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT id, label, url, country, category, cdio_uuid, is_active,
+              last_changed_at, last_check_at, notes, created_at
+       FROM bur_gov_watches ORDER BY country, label`
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/bureaucracy/gov-watches ───────────────────
+router.post('/gov-watches', async (req, res) => {
+  try {
+    const { label, url, country, category, notes } = req.body;
+    if (!label || !url) {
+      return res.status(400).json({ ok: false, error: 'label y url son obligatorios' });
+    }
+    const row = await db.queryOne(
+      `INSERT INTO bur_gov_watches (label, url, country, category, notes)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (url) DO UPDATE SET label=EXCLUDED.label, notes=EXCLUDED.notes
+       RETURNING *`,
+      [label, url, country ? country.toUpperCase() : null, category || null, notes || null]
+    );
+    res.status(201).json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/bureaucracy/gov-watches/sync ──────────────
+// Sincroniza watches locales hacia changedetection.io
+router.post('/gov-watches/sync', async (req, res) => {
+  try {
+    const result = await cdio.syncWatches();
+    res.json({ ok: result.ok !== false, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/bureaucracy/gov-changes ────────────────────
+router.get('/gov-changes', async (req, res) => {
+  try {
+    const rows = await db.queryAll(
+      `SELECT c.id, c.detected_at, c.diff_summary, w.label, w.url, w.country, w.category
+       FROM bur_gov_changes c
+       LEFT JOIN bur_gov_watches w ON c.watch_id = w.id
+       ORDER BY c.detected_at DESC LIMIT 30`
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  P4 FASE 2 — PAPERLESS-NGX BRIDGE
+// ═══════════════════════════════════════════════════════════
+
+// ─── GET /api/bureaucracy/paperless/status ───────────────
+router.get('/paperless/status', async (req, res) => {
+  try {
+    const reachable = await paperless.isReachable();
+    if (!reachable) {
+      return res.json({ ok: false, reachable: false });
+    }
+    const stats = await paperless.getStats();
+    res.json({ ok: true, reachable: true, stats });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── GET /api/bureaucracy/paperless/documents ────────────
+router.get('/paperless/documents', async (req, res) => {
+  try {
+    const { query, page } = req.query;
+    const data = await paperless.listDocuments({
+      query, page: parseInt(page || '1', 10), page_size: 25,
+    });
+    res.json({ ok: true, data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/bureaucracy/paperless/link ────────────────
+// Sube un fichero local (path en server) y linkea a un row existente.
+// Body: { filepath, title, target_table, target_id }
+router.post('/paperless/link', async (req, res) => {
+  try {
+    const { filepath, title, target_table, target_id, tags } = req.body;
+    if (!filepath || !target_table || !target_id) {
+      return res.status(400).json({ ok: false, error: 'filepath, target_table, target_id obligatorios' });
+    }
+    const result = await paperless.uploadAndLink({
+      filepath, title, targetTable: target_table, targetId: target_id, tags: tags || [],
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 module.exports = router;

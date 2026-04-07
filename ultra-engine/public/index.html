@@ -846,6 +846,13 @@ async function refreshAll() {
 refreshAll();
 setInterval(refreshAll, 60000);
 setInterval(loadBus, 30000);
+
+// Service Worker — offline-first dashboard (P6 Fase 2)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW register failed:', err));
+  });
+}
 </script>
 </body>
 </html>
