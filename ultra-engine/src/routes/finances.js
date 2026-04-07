@@ -16,6 +16,7 @@ const recurring = require('../recurring');
 const crypto = require('../crypto');
 const bridges = require('../bridges');
 const ocr = require('../ocr');
+const firefly = require('../firefly');
 
 const router = express.Router();
 const upload = multer({
@@ -24,30 +25,52 @@ const upload = multer({
 });
 
 // ─── GET /api/finances ─ Listar movimientos ──────────────
+// Bridge layer (R5 2026-04-07): si Firefly III está configurado, prefiere FF3.
+// Fallback transparente al ledger custom si FF3 no responde o no hay token.
+// Header `x-source: firefly|local` indica al cliente quién respondió.
 router.get('/', async (req, res) => {
   try {
     const { type, category, limit } = req.query;
+    const lim = parseInt(limit) || 50;
+
+    // Primary: Firefly III si configurado
+    if (firefly.isConfigured()) {
+      const ffType = type === 'expense' ? 'withdrawal' : type === 'income' ? 'deposit' : null;
+      const ff = await firefly.listTransactions({ type: ffType, limit: lim });
+      if (ff.ok) {
+        const rows = (ff.data?.data || []).map(t => {
+          const tx = t.attributes?.transactions?.[0] || {};
+          return {
+            id: t.id,
+            type: tx.type === 'withdrawal' ? 'expense' : tx.type === 'deposit' ? 'income' : tx.type,
+            amount: parseFloat(tx.amount),
+            currency: tx.currency_code,
+            category: tx.category_name,
+            description: tx.description,
+            date: tx.date?.slice(0, 10),
+            account: tx.source_name || tx.destination_name,
+            external_id: tx.external_id,
+            source: 'firefly',
+          };
+        });
+        const filtered = category ? rows.filter(r => r.category === category) : rows;
+        res.set('x-source', 'firefly');
+        return res.json({ ok: true, data: filtered, source: 'firefly' });
+      }
+      // FF3 unreachable / token bad → fall through to local
+    }
+
+    // Fallback: ledger custom (`finances` table)
     let sql = 'SELECT * FROM finances WHERE 1=1';
     const params = [];
-
-    // Filtro por tipo (income/expense)
-    if (type) {
-      params.push(type);
-      sql += ` AND type = $${params.length}`;
-    }
-
-    // Filtro por categoria
-    if (category) {
-      params.push(category);
-      sql += ` AND category = $${params.length}`;
-    }
-
+    if (type) { params.push(type); sql += ` AND type = $${params.length}`; }
+    if (category) { params.push(category); sql += ` AND category = $${params.length}`; }
     sql += ' ORDER BY date DESC';
-    params.push(parseInt(limit) || 50);
+    params.push(lim);
     sql += ` LIMIT $${params.length}`;
-
     const rows = await db.queryAll(sql, params);
-    res.json({ ok: true, data: rows });
+    res.set('x-source', 'local');
+    res.json({ ok: true, data: rows, source: 'local' });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -307,30 +330,55 @@ router.get('/alerts', async (req, res) => {
 });
 
 // ─── POST /api/finances ─ Registrar movimiento ──────────
+// Bridge (R5 2026-04-07): si Firefly III configurado, escribe ahí PRIMERO
+// y refleja en `finances` para queries locales legacy (recurring/budgets).
+// Si FF3 falla, escribe sólo en local + log warning.
 router.post('/', async (req, res) => {
   try {
-    const { type, amount, category, description, date } = req.body;
+    const { type, amount, category, description, date, currency, account } = req.body;
 
     if (!type || !amount || !category) {
       return res.status(400).json({ ok: false, error: 'Faltan campos obligatorios: type, amount, category' });
     }
-
     if (!['income', 'expense'].includes(type)) {
       return res.status(400).json({ ok: false, error: 'type debe ser income o expense' });
     }
-
     if (parseFloat(amount) <= 0 || isNaN(parseFloat(amount))) {
       return res.status(400).json({ ok: false, error: 'amount debe ser un numero positivo' });
     }
 
-    const result = await db.queryOne(
-      `INSERT INTO finances (type, amount, category, description, date)
-       VALUES ($1, $2, $3, $4, $5)
+    const txDate = date || new Date().toISOString().split('T')[0];
+    const cur = currency || 'NZD';
+    const acct = account || 'Cash';
+
+    // Local insert siempre (preserva budgets/recurring/savings_goals)
+    const local = await db.queryOne(
+      `INSERT INTO finances (type, amount, category, description, date, currency, account)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [type, parseFloat(amount), category, description || null, date || new Date().toISOString().split('T')[0]]
+      [type, parseFloat(amount), category, description || null, txDate, cur, acct]
     );
 
-    res.status(201).json({ ok: true, data: result });
+    // Forward a Firefly III si configurado
+    let ffResult = null;
+    if (firefly.isConfigured()) {
+      const isExpense = type === 'expense';
+      const tx = await firefly.createTransaction({
+        type: isExpense ? 'withdrawal' : 'deposit',
+        amount: parseFloat(amount),
+        currency_code: cur,
+        description: description || `${type} ${category}`,
+        date: txDate,
+        category_name: category,
+        source_name: isExpense ? acct : (category || 'Income'),
+        destination_name: isExpense ? category : acct,
+        external_id: `ultra:${local.id}`,
+      });
+      ffResult = tx.ok ? { ok: true, firefly_id: tx.data?.data?.id } : { ok: false, error: tx.error };
+      if (!tx.ok) console.warn('⚠️ Firefly forward failed:', tx.error);
+    }
+
+    res.status(201).json({ ok: true, data: local, firefly: ffResult });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

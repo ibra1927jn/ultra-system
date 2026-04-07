@@ -33,10 +33,32 @@
 - [2026-04-08] | **Primer usuario admin** registrado vía `/register` (CSRF flow). Credenciales guardadas como `FIREFLY_ADMIN_EMAIL`/`FIREFLY_ADMIN_PASSWORD` en `.env` (password random 32 chars, no reusa `ADMIN_PASSWORD` del engine). Verificado: `users` tiene 1 row, session auth devuelve 200 en `/accounts/asset`.
 - [2026-04-08] | **Acceso**: http://95.217.158.7:8080 (firewall del host permite 8080).
 
-**Pendiente (próxima sesión):**
-- Generar `FIREFLY_PERSONAL_TOKEN` real vía Profile → OAuth → Personal Access Tokens (reemplaza placeholder).
-- Migration script `scripts/migrate_finances_to_firefly.js`: lee `finances` table + inserta vía API REST Firefly (accounts → transactions → budgets → recurring).
-- Bridge en `routes/finances.js`: mantener como proxy/extender sobre Firefly API para endpoints custom (tax_reporting Modelo 720/721/100, FIF NZ, Beckham, PAYE NZ — NO están en Firefly).
+## Firefly III — Bridge + migration completos (post-R4 step 1 cont.) ✅
+
+- [2026-04-08] | **PAT real generado** — `php artisan passport:client --personal` creó el personal access client (id=1), luego POST a `/oauth/personal-access-tokens` autenticado con session cookie produjo un JWT de 980 chars. Tested: `GET /api/v1/about` → 200 (version 6.5.9). Guardado en `.env` como `FIREFLY_PERSONAL_TOKEN`.
+- [2026-04-08] | **Firefly client** `ultra-engine/src/firefly.js` — thin REST client (150 líneas) con `isConfigured()`, `getAbout()`, `listAccounts()`, `createAccount()`, `createTransaction()`, `listTransactions()`, `listCategories()`, `createCategory()`, `listBudgets()`, `getSummary()`. Timeout 15s, uses `Bearer ${TOKEN}`, devuelve siempre `{ ok, data/error }`.
+- [2026-04-08] | **Bridge bidireccional** en `routes/finances.js`:
+  - `GET /api/finances` — si `firefly.isConfigured()`, reads FF3 y devuelve en shape local compatible (`x-source: firefly`). Fallback transparente a `finances` table si FF3 falla (`x-source: local`).
+  - `POST /api/finances` — writes dual: **local PRIMERO** (preserva budgets/recurring/savings_goals) y después forward a Firefly como `withdrawal`/`deposit` con `external_id=ultra:${local.id}`. Response incluye `{ ok, data, firefly: {ok, firefly_id|error} }`. Si FF3 falla, log warning y response sigue siendo ok.
+  - GET `/budget`, `/recurring`, `/runway`, `/investments/*`, `/tax/*` — se quedan en local DB (Firefly no cubre tax NZ/ES/Beckham).
+- [2026-04-08] | **Wire engine ↔ firefly** — `FIREFLY_BASE_URL=http://firefly_iii:8080` + `FIREFLY_PERSONAL_TOKEN` añadidos al bloque `engine` en docker-compose.yml. Engine recreado; verificado `ff.isConfigured()=true` y version 6.5.9 reachable desde dentro del container.
+- [2026-04-08] | **Migration script** `ultra-engine/scripts/migrate_finances_to_firefly.js` — idempotente (tag `external_id=ultra:{row_id}`, skip duplicates). Test run con `finances` vacío: `✅ Nothing to migrate (empty table). Bridge ready for new entries.` Listo para cuando lleguen datos.
+- [2026-04-08] | **End-to-end test** — `createTransaction({ amount: 12.50, ... })` desde el engine → Firefly devuelve id=1, `listTransactions` confirma persistencia. Cash asset account creada vía API (id=1).
+- [2026-04-08] | **Docs** — `docs/FIREFLY_MIGRATION.md` (manual setup steps, fallback matrix, rollback procedure, future work list).
+
+## Puppeteer sidecar — Install + first wire (post-R4 step 2) ✅
+
+- [2026-04-08] | **Sidecar `puppeteer`** añadido a docker-compose.yml como servicio profile-gated (`--profile puppeteer`). Build desde `./puppeteer-sidecar/` (Dockerfile sobre `ghcr.io/puppeteer/puppeteer:23.10.4`), memory limit 1500M, shm_size 1gb, puerto 8010→3000.
+- [2026-04-08] | **Express server** `puppeteer-sidecar/server.js` (170 líneas): browser singleton (no relaunch por request), mutex de 1 concurrencia, cache LRU 15min (50 entradas), endpoints `GET /health` + `POST /scrape` con body shape `{ url, waitFor, selectors, extract, evaluate, no_cache }`. Graceful shutdown en SIGTERM/SIGINT.
+- [2026-04-08] | **Client** `ultra-engine/src/puppeteer.js` (63 líneas): `isAvailable()` con cache 60s (no spammea health checks), `scrape(opts)`. Si sidecar offline, devuelve `{ ok: false, error }` sin lanzar — los fetchers deciden fallback transparente.
+- [2026-04-08] | **Wire engine** — `PUPPETEER_BASE_URL=http://puppeteer:3000` añadido al bloque engine en docker-compose.yml.
+- [2026-04-08] | **Primer SPA reactivado: Code4rena** — `fetchCode4rena` en `opp_fetchers.js` ya NO devuelve `skipped:spa_no_rss`. Usa Puppeteer para scrapear `/audits`, extrae anchors `/audits/{slug}`, limpia prefijos (ENDS IN N DAYS, JUDGING, etc.), scorea via spaCy NER, inserta con `external_id=c4:{slug}`. Fallback a skipped si el sidecar no está running.
+- [2026-04-08] | **Smoke test** — `curl /scrape example.com` devuelve `{ok:true, data:"Example Domain..."}`. Container healthy, browser_alive=true.
+
+**Pendiente (sesión siguiente, step 3 = Tier A R5):**
+- Wire resto de SPAs críticos via puppeteer: Immunefi (bug bounties), Park4Night (van-life campings), IssueHunt, Imoova, eSIMDB, Lablab.
+- Nuevos fetchers R5: Trustroots/BeWelcome/WarmShowers (hospitality), OSS-Fund/NumFOCUS (grants OSS), Greenhouse/Lever job boards masivos.
+- Tax bridge: decidir si `tax_reporting` lee agregados de Firefly o sigue 100% custom.
 
 ## En progreso 🔄
 - Implementacion de CI/CD local en AgenticOS (Ollama + Claude Code).

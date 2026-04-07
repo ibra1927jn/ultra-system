@@ -532,22 +532,113 @@ async function fetchUnstop() {
 const Parser = require('rss-parser');
 const _parser = new Parser({ timeout: 15000 });
 
-// Skipped 2026-04-07: immunefi.com/explore/rss/ devuelve HTML wrapper Next.js, no RSS.
-// Migración SPA elimina el feed. Cobertura web3 bounty: Algora + Code4rena (también broken)
-// + GitHub bounty issues. Para reactivar, usar Puppeteer sidecar contra immunefi.com/explore.
+// R5 2026-04-07: Immunefi reactivado vía Puppeteer sidecar. La página
+// /explore lista bounty programs como cards con enlace a /bounty/{slug}.
 async function fetchImmunefi() {
-  return { source: 'Immunefi', total: 0, inserted: 0, highScore: 0, skipped: 'spa_no_rss' };
+  const pup = require('./puppeteer');
+  if (!(await pup.isAvailable())) {
+    return { source: 'Immunefi', total: 0, inserted: 0, highScore: 0, skipped: 'puppeteer_sidecar_offline' };
+  }
+  try {
+    const r = await pup.scrape({
+      url: 'https://immunefi.com/explore/',
+      waitFor: 4000,
+      selectors: { bounties: 'a[href*="/bounty/"]' },
+    });
+    if (!r.ok) return { source: 'Immunefi', total: 0, inserted: 0, highScore: 0, error: r.error };
+
+    const items = r.data?.bounties || [];
+    const seen = new Set();
+    let inserted = 0, highScore = 0;
+    for (const it of items) {
+      const href = (it.href || '').replace(/\/$/, '');
+      if (!href || !href.includes('/bounty/') || seen.has(href)) continue;
+      seen.add(href);
+      const slug = href.split('/bounty/')[1]?.split('/')[0];
+      if (!slug) continue;
+      const rawText = (it.text || '').replace(/\s+/g, ' ').trim();
+      // Try to extract reward from text (formats like "$50,000 — Foo Protocol" or "Up to $100K")
+      const rewardMatch = rawText.match(/\$\s*([\d,]+(?:\.\d+)?)\s*([KMkm])?/);
+      let salary = null;
+      if (rewardMatch) {
+        salary = parseFloat(rewardMatch[1].replace(/,/g, ''));
+        const mult = rewardMatch[2]?.toUpperCase();
+        if (mult === 'K') salary *= 1000;
+        if (mult === 'M') salary *= 1000000;
+      }
+      const score = await scoreText(`${rawText} web3 security audit bounty`);
+      const ok = await insertOpportunity({
+        title: rawText.slice(0, 500) || slug,
+        source: 'Immunefi',
+        url: href,
+        category: 'bounty',
+        description: rawText.slice(0, 1500),
+        payout_type: 'bounty',
+        salary_min: salary, salary_max: salary,
+        currency: 'USD',
+        tags: ['web3', 'security'],
+        match_score: score,
+        external_id: `immunefi:${slug}`,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'Immunefi', total: seen.size, inserted, highScore, via: 'puppeteer' };
+  } catch (err) {
+    return { source: 'Immunefi', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
 //  CODE4RENA — audit contests (RSS)
 //  https://code4rena.com/feed.xml
 // ═══════════════════════════════════════════════════════════
-// Skipped 2026-04-07: code4rena.com/feed.xml devuelve HTML wrapper Next.js. Mismo
-// problema que Immunefi: SPA migration killed the feed. Audit contest space cubierto
-// parcialmente por Devpost + Algora.
+// R5 2026-04-07: code4rena migró a Next.js SPA — RSS muerto. Reactivado vía
+// Puppeteer sidecar. Si el sidecar no está corriendo, devuelve skipped.
+// Selector: anchors con /audits/{slug} en la página /audits.
 async function fetchCode4rena() {
-  return { source: 'Code4rena', total: 0, inserted: 0, highScore: 0, skipped: 'spa_no_rss' };
+  const pup = require('./puppeteer');
+  if (!(await pup.isAvailable())) {
+    return { source: 'Code4rena', total: 0, inserted: 0, highScore: 0, skipped: 'puppeteer_sidecar_offline' };
+  }
+  try {
+    const r = await pup.scrape({
+      url: 'https://code4rena.com/audits',
+      waitFor: 3000,
+      selectors: { contests: 'a[href*="/audits/"]' },
+    });
+    if (!r.ok) return { source: 'Code4rena', total: 0, inserted: 0, highScore: 0, error: r.error };
+
+    const items = r.data?.contests || [];
+    const seen = new Set();
+    let inserted = 0, highScore = 0;
+    for (const it of items) {
+      const href = (it.href || '').replace(/\/$/, '');
+      if (!href || !href.includes('/audits/') || seen.has(href)) continue;
+      seen.add(href);
+      const slug = href.split('/audits/')[1]?.split('/')[0];
+      if (!slug) continue;
+      // Title viene como concatenación de status + tipo + nombre. Limpia los prefijos comunes.
+      const rawText = (it.text || '').replace(/\s+/g, ' ').trim();
+      const title = rawText.replace(/^(ENDS IN \d+ DAYS?|JUDGING|MITIGATION REVIEW|REPORT IN PROGRESS|POST-JUDGING QA|AUDIT)\s*/gi, '').trim() || slug;
+      const score = await scoreText(`${title} solidity audit web3`);
+      const ok = await insertOpportunity({
+        title: title.slice(0, 500),
+        source: 'Code4rena',
+        url: href,
+        category: 'audit_contest',
+        description: rawText.slice(0, 1500),
+        payout_type: 'contest',
+        currency: 'USD',
+        tags: ['solidity', 'audit', 'web3'],
+        match_score: score,
+        external_id: `c4:${slug}`,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'Code4rena', total: seen.size, inserted, highScore, via: 'puppeteer' };
+  } catch (err) {
+    return { source: 'Code4rena', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
