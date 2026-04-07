@@ -856,14 +856,79 @@ async function rssOppHelper({ source, url, category = 'remote', tagBase = '' }) 
   }
 }
 
-// Skipped 2026-04-07: dailyremote.com/feed.xml → 403 CF block desde datacenter Hetzner.
-// Sin proxy residencial no hay fix. RemoteOK + Remotive + Himalayas cubren el segmento.
+// R6 2026-04-08: DailyRemote reactivado vía Puppeteer sidecar. RSS sigue
+// 403 CF-blocked desde datacenter Hetzner, pero Chromium real pasa el
+// challenge. Multi-category sweep: cada categoría tiene ~50-60 jobs con
+// shape `a[href*="/remote-job/"]`. Scoreamos con spaCy.
+const DAILYREMOTE_CATEGORIES = [
+  'remote-software-development-jobs',
+  'remote-design-jobs',
+  'remote-data-jobs',
+  'remote-marketing-jobs',
+  'remote-sales-jobs',
+  'remote-customer-support-jobs',
+  'remote-product-jobs',
+  'remote-finance-jobs',
+  'remote-devops-jobs',
+  'remote-qa-jobs',
+];
 async function fetchDailyRemote() {
-  return { source: 'DailyRemote', total: 0, inserted: 0, highScore: 0, skipped: 'cf_block_datacenter' };
+  const pup = require('./puppeteer');
+  if (!(await pup.isAvailable())) {
+    return { source: 'DailyRemote', total: 0, inserted: 0, highScore: 0, skipped: 'puppeteer_sidecar_offline' };
+  }
+  const seen = new Set();
+  let total = 0, inserted = 0, highScore = 0, errors = 0;
+  for (const cat of DAILYREMOTE_CATEGORIES) {
+    try {
+      const r = await pup.scrape({
+        url: `https://dailyremote.com/${cat}`,
+        waitFor: 3000,
+        selectors: { jobs: 'a[href*="/remote-job/"]' },
+      });
+      if (!r.ok) { errors++; continue; }
+      const items = r.data?.jobs || [];
+      for (const it of items) {
+        const href = (it.href || '').replace(/\/$/, '');
+        if (!href || !href.includes('/remote-job/') || seen.has(href)) continue;
+        seen.add(href);
+        const slug = href.split('/remote-job/')[1]?.split(/[/?#]/)[0];
+        if (!slug || slug === 'apply') continue;
+        const rawText = (it.text || '').replace(/\s+/g, ' ').trim();
+        if (rawText.toUpperCase() === 'APPLY') continue;
+        total++;
+        const score = await scoreText(`${rawText} remote`);
+        const ok = await insertOpportunity({
+          title: rawText.slice(0, 300) || slug,
+          source: 'DailyRemote',
+          url: href,
+          category: cat.replace(/^remote-|-jobs$/g, '').replace(/-/g, '_'),
+          description: rawText.slice(0, 1500),
+          payout_type: 'salary',
+          currency: 'USD',
+          tags: ['remote', cat.replace(/^remote-|-jobs$/g, '')],
+          match_score: score,
+          external_id: `dailyremote:${slug}`,
+        });
+        if (ok) { inserted++; if (score >= 8) highScore++; }
+      }
+    } catch (err) {
+      errors++;
+      if (errors >= 3) break;
+    }
+  }
+  return { source: 'DailyRemote', total, inserted, highScore, errors, via: 'puppeteer' };
 }
-// Skipped 2026-04-07: nodesk.co/remote-jobs/feed/ → 404. RSS removido del sitio.
+
+// R6 2026-04-08: Nodesk sigue skipped. Probado con Puppeteer: /remote-jobs/
+// y /remote-jobs/{categoria}/ cargan pero el DOM NO contiene anchors a job
+// detail pages. 1201 nodesk.co anchors internos, todos hub/categoría (2 path
+// segments máx). Los jobs en el markup son server-rendered sin link propio
+// — el click va a un redirect externo hacia la careers page de la empresa
+// vía JS handler (no tracking URL scrapable estáticamente). Reactivación
+// requiere interceptar click events o su API interna. Deferido.
 async function fetchNodesk() {
-  return { source: 'Nodesk', total: 0, inserted: 0, highScore: 0, skipped: 'rss_removed' };
+  return { source: 'Nodesk', total: 0, inserted: 0, highScore: 0, skipped: 'jobs_redirected_via_js_no_detail_urls' };
 }
 async function fetchIntigriti() {
   return rssOppHelper({ source: 'Intigriti', url: 'https://blog.intigriti.com/feed/', category: 'bug_bounty', tagBase: 'security' });
@@ -873,6 +938,20 @@ async function fetchIntigriti() {
 async function fetchHuntr() {
   return { source: 'Huntr', total: 0, inserted: 0, highScore: 0, skipped: 'rss_removed' };
 }
+// Skipped 2026-04-08 (R6 investigation): f6s.com/programs vía Puppeteer — 558 links
+// totales pero solo 168 matches con regex `/[a-z0-9-]+/?$` que son nav/action
+// items (events, jobs, create-*), NO slugs de programas reales. El contenido
+// de programas está en lazy-load JS detrás de filtros/paginación. Deferido.
+async function fetchF6SInvestigated() { return null; }
+// Skipped 2026-04-08 (R6 investigation): euraxess.ec.europa.eu/jobs/search vía
+// Puppeteer — 283 links totales pero solo 1 detail real (/jobs/hosting/msca-*).
+// Los resultados de búsqueda son loaded vía AJAX después del page load inicial.
+// Requiere scroll-trigger o interceptar su API. Deferido.
+async function fetchEuraxessInvestigated() { return null; }
+// Skipped 2026-04-08 (R6 investigation): sovereigntechfund.de/news vía Puppeteer —
+// 51 links totales, 0 match con el host (content en iframe o CDN externo).
+// Contenido server-rendered pero markup peculiar. Deferido.
+async function fetchSTfundInvestigated() { return null; }
 
 // ═══════════════════════════════════════════════════════════
 //  GREENHOUSE public Job Board API — boards-api.greenhouse.io

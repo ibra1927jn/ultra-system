@@ -31,6 +31,24 @@
 
 ---
 
+## 💀 Investigated dead-ends (R6 2026-04-08)
+
+Fetchers probados exhaustivamente vía Puppeteer sidecar durante R6 sweep y confirmados como no-reactivables con el approach actual. Mover a aquí evita re-intentar en futuras sesiones.
+
+| Source | Razón confirmada |
+|---|---|
+| **Nodesk** | /remote-jobs/ y /remote-jobs/{cat}/ cargan 1200+ anchors pero 0 a job detail pages. Los jobs son server-rendered pero el click redirige vía JS handler a careers externos, sin URL estable scrapable. |
+| **F6S** | /programs devuelve 558 links, ~168 son nav/action (events, jobs, create-*), 0 son slugs de programas reales. Programas detrás de lazy-load AJAX. |
+| **Euraxess** | /jobs/search devuelve 283 links, 1 detail real. Resultados de búsqueda cargados vía AJAX después del initial page load. Requiere scroll-trigger o API intercept. |
+| **SovereignTechFund** | /news devuelve 51 links, 0 match con el host (contenido probablemente en iframe/CDN). Markup peculiar, deferido. |
+| **Freecycle** | /posts devuelve "404 Error" page. Freecycle rehizo el site, el listado público requiere login. Step 4 territory. |
+| **NZTA** | /news con Incapsula sigue bloqueado incluso con Chromium (probable fingerprinting sobre UA/IP). Sin solución sin proxy residencial. |
+| **ProMED** | RSS discontinuado 2023. Feed realmente muerto upstream, no hay sustituto público. |
+
+Reactivables solo con approaches más complejos: API intercept post-page-load, click event simulation, auth-bound scraping, o proxy residencial. Todas pasan el bar de "demasiado caro para el valor marginal" excepto si futuros cambios en el upstream lo faciliten.
+
+---
+
 ## Legend
 
 | Symbol | Meaning |

@@ -183,10 +183,12 @@ async function fetchPark4Night({ batchSize = 50 } = {}) {
   };
 }
 
-// Skipped 2026-04-07: groups.freecycle.org devuelve 422 sobre /posts/rss (datacenter
-// rate-limit / IP block). Sin alternativa pública.
+// Skipped 2026-04-07: groups.freecycle.org devuelve 422 sobre /posts/rss.
+// Verified 2026-04-08 (R6): intentado con Puppeteer contra /posts main page,
+// devuelve "404 Error" page — la URL /posts ya no existe. Freecycle rehizo
+// su site y el único listado público ahora requiere login. Dead end.
 async function fetchFreecycle() {
-  return { source: 'freecycle', skipped: 'datacenter_blocked_422', inserted: 0 };
+  return { source: 'freecycle', skipped: 'posts_page_404_and_login_required', inserted: 0 };
 }
 
 // ════════════════════════════════════════════════════════════
