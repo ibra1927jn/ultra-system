@@ -118,3 +118,31 @@ Cuando tengas todas las credenciales pegadas, llamarás a estos crons automátic
 - `opp-fetch` (diario 06:00)
 - `early-warning` (cada 30 min)
 - `gov-jobs-fetch` (diario)
+
+---
+
+## Kill the Newsletter (newsletters → RSS, no signup needed)
+
+Para cualquier newsletter por email que quieras consumir como RSS dentro de Ultra:
+
+1. Abrir https://kill-the-newsletter.com en el navegador
+2. Crear un inbox (te dará un email único + URL de feed Atom)
+3. Suscribirte al newsletter usando el email único
+4. Añadir la URL del feed Atom a Ultra:
+   ```bash
+   curl -X POST http://95.217.158.7/api/feeds \
+     -H "X-API-Key: $API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"url":"https://kill-the-newsletter.com/feeds/XXX.xml","name":"Stratechery","category":"newsletter"}'
+   ```
+5. El cron `rss-fetch` (cada 30min) lo recogerá automáticamente.
+
+**Newsletters recomendados** (técnicos/relevantes a tu perfil):
+- Stratechery (Ben Thompson)
+- Money Stuff (Matt Levine, Bloomberg)
+- The Pragmatic Engineer (Gergely Orosz)
+- Lenny's Newsletter
+- Import AI (Jack Clark)
+- Platformer (Casey Newton)
+
+**Nota:** kill-the-newsletter.com es un servicio público gratuito de @leafac. Self-hosting opcional (defer — añade container Ruby/Node, +150MB).

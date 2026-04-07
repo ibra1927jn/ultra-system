@@ -222,8 +222,20 @@ function summarize(text, { numSentences = 3, dampening = 0.85, maxIter = 30, tol
 }
 
 // ════════════════════════════════════════════════════════════
-//  P1 Fase 3c — NER lite (regex-based, pure JS)
+//  P1 Fase 3c — NER (compromise.js + regex hybrid)
+//  R3: replaced regex-only extractPeople with compromise NLP
+//  for higher recall + adds organizations + places extraction.
+//  compromise is ~1MB, pure JS, no model download.
 // ════════════════════════════════════════════════════════════
+let _compromise = null;
+function getCompromise() {
+  if (_compromise === null) {
+    try { _compromise = require('compromise'); }
+    catch { _compromise = false; } // package missing → fallback to regex
+  }
+  return _compromise || null;
+}
+
 
 // ISO2 country codes (subset relevante para usuario)
 const COUNTRY_NAMES_TO_ISO = {
@@ -332,31 +344,60 @@ function extractMoneyAmounts(text) {
 }
 
 /**
- * Detecta nombres de personas via patrón "Title? FirstName LastName".
- * Heurística: 2-3 palabras consecutivas capitalizadas, opcionalmente con title.
+ * Detecta nombres de personas. Usa compromise.js si está disponible
+ * (NER real con tagging POS), sino fallback al regex previo.
  */
 function extractPeople(text) {
   if (!text) return [];
-  const titles = ['Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Sra', 'Dn', 'Don', 'Doña'];
+  const c = getCompromise();
+  if (c) {
+    try {
+      const doc = c(text);
+      const arr = doc.people().out('array');
+      return [...new Set(arr.map(s => s.replace(/[.,;:]+$/, '').trim()).filter(s => s.length > 1 && s.length < 50))].slice(0, 15);
+    } catch { /* fall through */ }
+  }
+  // Fallback regex (pre-R3)
   const found = new Set();
-  // Match: opcional title + 2-3 palabras capitalizadas
   const re = /(?:(?:Mr|Mrs|Ms|Dr|Prof|Sr|Sra|Dn|Don|Doña)\.?\s+)?([A-ZÁÉÍÓÚ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚ][a-záéíóúñ]+){1,2})/g;
-  // Stop words: capitalized words que NO son nombres
-  const stopWords = new Set(['New', 'York', 'United', 'States', 'European', 'Union', 'Market',
-    'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
-    'October', 'November', 'December', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
-    'Saturday', 'Sunday', 'Spain', 'France', 'Germany', 'Italy', 'Reuters', 'AP', 'BBC',
-    'World', 'Bank', 'Central', 'Bank', 'Federal', 'Reserve']);
+  const stopWords = new Set(['New', 'York', 'United', 'States', 'European', 'Union', 'January', 'February',
+    'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December',
+    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Spain', 'France',
+    'Germany', 'Italy', 'Reuters', 'BBC', 'World', 'Bank', 'Central', 'Federal']);
   let m;
   while ((m = re.exec(text)) !== null) {
     const candidate = m[1];
-    // Skip si primera palabra es stop word
-    const firstWord = candidate.split(' ')[0];
-    if (stopWords.has(firstWord)) continue;
+    if (stopWords.has(candidate.split(' ')[0])) continue;
     if (candidate.length > 50) continue;
     found.add(candidate);
   }
   return [...found].slice(0, 10);
+}
+
+/**
+ * Detecta organizaciones (compromise.js NER). Returns [] sin compromise.
+ */
+function extractOrganizations(text) {
+  if (!text) return [];
+  const c = getCompromise();
+  if (!c) return [];
+  try {
+    const arr = c(text).organizations().out('array');
+    return [...new Set(arr.map(s => s.replace(/[.,;:]+$/, '').trim()).filter(s => s.length > 1 && s.length < 60))].slice(0, 15);
+  } catch { return []; }
+}
+
+/**
+ * Detecta lugares (ciudades/regiones, no países — esos en extractCountries).
+ */
+function extractPlaces(text) {
+  if (!text) return [];
+  const c = getCompromise();
+  if (!c) return [];
+  try {
+    const arr = c(text).places().out('array');
+    return [...new Set(arr.map(s => s.replace(/[.,;:]+$/, '').trim()).filter(s => s.length > 1 && s.length < 60))].slice(0, 15);
+  } catch { return []; }
 }
 
 /**
@@ -368,10 +409,13 @@ function extractEntities(text) {
     currencies: extractCurrencies(text),
     money: extractMoneyAmounts(text),
     people: extractPeople(text),
+    organizations: extractOrganizations(text),
+    places: extractPlaces(text),
   };
 }
 
 module.exports = {
   sentiment, summarize, splitSentences, tokenize, AFINN,
-  extractCountries, extractCurrencies, extractMoneyAmounts, extractPeople, extractEntities,
+  extractCountries, extractCurrencies, extractMoneyAmounts,
+  extractPeople, extractOrganizations, extractPlaces, extractEntities,
 };

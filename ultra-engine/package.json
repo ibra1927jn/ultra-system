@@ -12,6 +12,7 @@
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cheerio": "^1.0.0",
+    "compromise": "^14.14.4",
     "dotenv": "^16.4.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.3",
