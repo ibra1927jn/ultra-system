@@ -17,6 +17,7 @@
 const db = require('./db');
 
 const OSRM_BASE = process.env.OSRM_BASE_URL || 'https://router.project-osrm.org';
+const OSRM_PROVIDER = process.env.OSRM_BASE_URL ? 'osrm_self' : 'osrm_public';
 
 /**
  * Compute single-leg route via OSRM.
@@ -37,7 +38,7 @@ async function routeOSRM(from, to, profile = 'driving') {
     distance_km: Math.round((route.distance / 1000) * 10) / 10,
     duration_min: Math.round(route.duration / 60),
     polyline: route.geometry,
-    provider: 'osrm_public',
+    provider: OSRM_PROVIDER,
     raw: route,
   };
 }
@@ -76,7 +77,7 @@ async function tripOSRM(waypoints, opts = {}) {
     distance_km: Math.round((trip.distance / 1000) * 10) / 10,
     duration_min: Math.round(trip.duration / 60),
     polyline: trip.geometry,
-    provider: 'osrm_trip',
+    provider: `${OSRM_PROVIDER}_trip`,
     ordered_waypoints: ordered,
     raw: trip,
   };

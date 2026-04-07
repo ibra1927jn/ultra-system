@@ -143,6 +143,125 @@ async function uploadAndLink({ filepath, title, targetTable, targetId, tags = []
   return { ok: true, paperless_id: result.document_id, target: { table: targetTable, id: targetId } };
 }
 
+// ════════════════════════════════════════════════════════════
+//  P4 Fase 3c — OCR pipeline integration
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Extract dates from OCR text. Multi-format support:
+ * - DD/MM/YYYY, DD-MM-YYYY (ES/EU)
+ * - MM/DD/YYYY (US ambiguous — hereuristic: if first part > 12, treat as DD/MM)
+ * - YYYY-MM-DD (ISO)
+ * - "1 de enero de 2027" (Spanish written)
+ * - "January 1, 2027" (English written)
+ *
+ * Returns array of { date: 'YYYY-MM-DD', context: '...' }
+ */
+function extractDates(text) {
+  if (!text) return [];
+  const found = [];
+  const seen = new Set();
+
+  const push = (year, month, day, context) => {
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+    const d = parseInt(day, 10);
+    if (y < 2020 || y > 2050 || m < 1 || m > 12 || d < 1 || d > 31) return;
+    const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (seen.has(iso)) return;
+    seen.add(iso);
+    found.push({ date: iso, context: context.slice(0, 80) });
+  };
+
+  // ISO YYYY-MM-DD
+  for (const m of text.matchAll(/(?<![\d/])(\d{4})-(\d{1,2})-(\d{1,2})(?![\d/])/g)) {
+    push(m[1], m[2], m[3], text.slice(Math.max(0, m.index - 30), m.index + 30));
+  }
+  // DD/MM/YYYY o DD-MM-YYYY (EU format)
+  for (const m of text.matchAll(/(?<![\d/])(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?![\d/])/g)) {
+    const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+    // Si a > 12, definitivamente día (DD/MM/YYYY)
+    // Si b > 12, definitivamente mes invertido (MM/DD/YYYY)
+    if (a > 12) push(m[3], m[2], m[1], text.slice(Math.max(0, m.index - 30), m.index + 30));
+    else if (b > 12) push(m[3], m[1], m[2], text.slice(Math.max(0, m.index - 30), m.index + 30));
+    else push(m[3], m[2], m[1], text.slice(Math.max(0, m.index - 30), m.index + 30)); // default EU
+  }
+  // Spanish written: "1 de enero de 2027"
+  const monthsEs = { enero:1, febrero:2, marzo:3, abril:4, mayo:5, junio:6, julio:7, agosto:8, septiembre:9, octubre:10, noviembre:11, diciembre:12 };
+  for (const m of text.matchAll(/(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/gi)) {
+    const month = monthsEs[m[2].toLowerCase()];
+    if (month) push(m[3], month, m[1], text.slice(Math.max(0, m.index - 30), m.index + 50));
+  }
+  // English written: "January 1, 2027"
+  const monthsEn = { january:1, february:2, march:3, april:4, may:5, june:6, july:7, august:8, september:9, october:10, november:11, december:12 };
+  for (const m of text.matchAll(/(\w+)\s+(\d{1,2}),?\s+(\d{4})/gi)) {
+    const month = monthsEn[m[1].toLowerCase()];
+    if (month) push(m[3], month, m[2], text.slice(Math.max(0, m.index - 30), m.index + 50));
+  }
+  return found;
+}
+
+/**
+ * Try to identify expiry date from extracted dates by looking for nearby keywords.
+ * Returns the best candidate or null.
+ */
+function inferExpiryDate(text) {
+  if (!text) return null;
+  const dates = extractDates(text);
+  if (!dates.length) return null;
+  // Score each date by proximity to expiry keywords
+  const keywords = /(expir|valid until|valid through|caduca|vencimiento|válido hasta|valid hasta|expires|expiry|venc|fecha de caducidad|fin de vigencia|vigencia|until)/i;
+  let best = null;
+  let bestScore = -1;
+  for (const d of dates) {
+    const ctx = d.context.toLowerCase();
+    let score = 0;
+    if (keywords.test(ctx)) score += 10;
+    // Future date bonus
+    const dt = new Date(d.date);
+    if (dt > new Date()) score += 5;
+    if (score > bestScore) {
+      bestScore = score;
+      best = { ...d, score };
+    }
+  }
+  return bestScore >= 5 ? best : null;
+}
+
+/**
+ * Sync paperless documents → bur_documents (document_alerts).
+ * Para cada doc en paperless sin link en local, intenta extraer expiry
+ * date del OCR content y persistirla.
+ */
+async function syncOcrExtractions({ limit = 50 } = {}) {
+  if (!(await isReachable())) return { ok: false, error: 'paperless no reachable' };
+  let updated = 0;
+  let scanned = 0;
+  // List documents
+  const data = await listDocuments({ page: 1, page_size: limit });
+  for (const doc of (data.results || [])) {
+    scanned++;
+    if (!doc.content) continue;
+    // Find row in document_alerts linked to this paperless_id
+    const row = await db.queryOne(
+      `SELECT id, expiry_date FROM document_alerts WHERE paperless_id = $1`,
+      [doc.id]
+    );
+    if (!row) continue;
+    // Skip si ya tiene expiry razonable
+    if (row.expiry_date && new Date(row.expiry_date) > new Date()) continue;
+    const inferred = inferExpiryDate(doc.content);
+    if (inferred) {
+      await db.query(
+        `UPDATE document_alerts SET expiry_date = $1, notes = COALESCE(notes,'') || ' [OCR-extracted: ' || $2 || ']' WHERE id = $3`,
+        [inferred.date, inferred.context.slice(0, 100), row.id]
+      );
+      updated++;
+    }
+  }
+  return { ok: true, scanned, updated };
+}
+
 async function getStats() {
   try {
     const headers = await authHeaders();
@@ -162,4 +281,7 @@ module.exports = {
   waitForTask,
   uploadAndLink,
   getStats,
+  extractDates,
+  inferExpiryDate,
+  syncOcrExtractions,
 };

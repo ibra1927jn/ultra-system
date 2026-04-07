@@ -19,6 +19,9 @@ const TENANTS = [
   { tenant: 'salesforce', site: 'External_Career_Site', subdomain: 'wd12', name: 'Salesforce', sector: 'devtools' },
   { tenant: 'nvidia', site: 'nvidiaexternalcareersite', subdomain: 'wd5', name: 'NVIDIA', sector: 'ai' },
   { tenant: 'accenture', site: 'AccentureCareers', subdomain: 'wd103', name: 'Accenture', sector: 'consulting' },
+  // Fase 3c additions:
+  { tenant: 'pwc', site: 'Global_Experienced_Careers', subdomain: 'wd3', name: 'PwC', sector: 'consulting' },
+  { tenant: 'pfizer', site: 'PfizerCareers', subdomain: 'wd1', name: 'Pfizer', sector: 'pharma' },
 ];
 
 const TIMEOUT = 25000;

@@ -11,3 +11,6 @@ paperless/consume/
 # Backups
 backups/
 *.bak
+
+# OSRM self-hosted data (P6 Fase 3c) — 1.2GB pre-procesado
+osrm/data/

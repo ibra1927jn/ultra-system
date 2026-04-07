@@ -221,4 +221,157 @@ function summarize(text, { numSentences = 3, dampening = 0.85, maxIter = 30, tol
   return top.map(t => t.s).join(' ');
 }
 
-module.exports = { sentiment, summarize, splitSentences, tokenize, AFINN };
+// ════════════════════════════════════════════════════════════
+//  P1 Fase 3c — NER lite (regex-based, pure JS)
+// ════════════════════════════════════════════════════════════
+
+// ISO2 country codes (subset relevante para usuario)
+const COUNTRY_NAMES_TO_ISO = {
+  'new zealand': 'NZ', 'nz': 'NZ', 'aotearoa': 'NZ',
+  'australia': 'AU', 'aussie': 'AU',
+  'spain': 'ES', 'españa': 'ES', 'spanish': 'ES',
+  'algeria': 'DZ', 'argelia': 'DZ', 'algerie': 'DZ',
+  'france': 'FR', 'francia': 'FR', 'french': 'FR',
+  'germany': 'DE', 'deutschland': 'DE', 'alemania': 'DE',
+  'united kingdom': 'GB', 'britain': 'GB', 'england': 'GB', 'uk': 'GB',
+  'united states': 'US', 'america': 'US', 'usa': 'US',
+  'canada': 'CA', 'canadá': 'CA',
+  'morocco': 'MA', 'marruecos': 'MA', 'maroc': 'MA',
+  'tunisia': 'TN', 'tunisie': 'TN',
+  'italy': 'IT', 'italia': 'IT',
+  'portugal': 'PT', 'lisbon': 'PT',
+  'japan': 'JP', 'japón': 'JP',
+  'china': 'CN', 'china': 'CN',
+  'india': 'IN',
+  'brazil': 'BR', 'brasil': 'BR',
+  'mexico': 'MX', 'méxico': 'MX',
+  'russia': 'RU', 'rusia': 'RU',
+  'ukraine': 'UA', 'ucrania': 'UA',
+  'israel': 'IL',
+  'palestine': 'PS', 'palestina': 'PS',
+  'iran': 'IR', 'irán': 'IR',
+  'saudi arabia': 'SA', 'arabia saudita': 'SA',
+  'turkey': 'TR', 'turquía': 'TR',
+};
+
+// Currency symbols + codes
+const CURRENCY_PATTERNS = {
+  USD: /\$|\bUSD\b|\bUS\$\b|\bdollars?\b/,
+  EUR: /€|\bEUR\b|\beuros?\b/,
+  GBP: /£|\bGBP\b|\bpounds?\b/,
+  NZD: /\bNZD\b|\bNZ\$\b/,
+  AUD: /\bAUD\b|\bAU\$\b/,
+  JPY: /¥|\bJPY\b|\byen\b/,
+  CHF: /\bCHF\b|\bswiss francs?\b/,
+  CAD: /\bCAD\b|\bCanadian dollars?\b/,
+};
+
+/**
+ * Extrae países mencionados (devuelve ISO2 únicos).
+ */
+function extractCountries(text) {
+  if (!text) return [];
+  const lower = text.toLowerCase();
+  const found = new Set();
+  for (const [name, iso] of Object.entries(COUNTRY_NAMES_TO_ISO)) {
+    // Match word-boundary
+    const re = new RegExp(`\\b${name.replace(/\+/g, '\\+')}\\b`, 'i');
+    if (re.test(lower)) found.add(iso);
+  }
+  return [...found];
+}
+
+/**
+ * Extrae menciones de currency (devuelve códigos ISO únicos).
+ */
+function extractCurrencies(text) {
+  if (!text) return [];
+  const found = new Set();
+  for (const [code, re] of Object.entries(CURRENCY_PATTERNS)) {
+    if (re.test(text)) found.add(code);
+  }
+  return [...found];
+}
+
+/**
+ * Extrae cantidades monetarias con currency. Match formats:
+ *  - $1,234.56  €500  £1.5M  USD 10000  10K USD
+ */
+function extractMoneyAmounts(text) {
+  if (!text) return [];
+  const found = [];
+  const seen = new Set();
+  // Symbol prefix: $1,234 or €500 or £1.5M
+  const re1 = /([\$€£¥])\s*([\d,]+(?:\.\d+)?)\s*(K|M|B|k|m|b)?/g;
+  const symMap = { '$': 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY' };
+  const multMap = { K: 1e3, M: 1e6, B: 1e9 };
+  let m;
+  while ((m = re1.exec(text)) !== null) {
+    const sym = m[1];
+    let amount = parseFloat(m[2].replace(/,/g, ''));
+    if (m[3]) amount *= multMap[m[3].toUpperCase()] || 1;
+    const key = `${symMap[sym]}:${amount}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      found.push({ amount, currency: symMap[sym], raw: m[0] });
+    }
+  }
+  // Code suffix: 10000 USD or 10K USD
+  const re2 = /([\d,]+(?:\.\d+)?)\s*(K|M|B|k|m|b)?\s*(USD|EUR|GBP|NZD|AUD|JPY|CHF|CAD)\b/g;
+  while ((m = re2.exec(text)) !== null) {
+    let amount = parseFloat(m[1].replace(/,/g, ''));
+    if (m[2]) amount *= multMap[m[2].toUpperCase()] || 1;
+    const code = m[3];
+    const key = `${code}:${amount}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      found.push({ amount, currency: code, raw: m[0] });
+    }
+  }
+  return found;
+}
+
+/**
+ * Detecta nombres de personas via patrón "Title? FirstName LastName".
+ * Heurística: 2-3 palabras consecutivas capitalizadas, opcionalmente con title.
+ */
+function extractPeople(text) {
+  if (!text) return [];
+  const titles = ['Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Sra', 'Dn', 'Don', 'Doña'];
+  const found = new Set();
+  // Match: opcional title + 2-3 palabras capitalizadas
+  const re = /(?:(?:Mr|Mrs|Ms|Dr|Prof|Sr|Sra|Dn|Don|Doña)\.?\s+)?([A-ZÁÉÍÓÚ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚ][a-záéíóúñ]+){1,2})/g;
+  // Stop words: capitalized words que NO son nombres
+  const stopWords = new Set(['New', 'York', 'United', 'States', 'European', 'Union', 'Market',
+    'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
+    'October', 'November', 'December', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
+    'Saturday', 'Sunday', 'Spain', 'France', 'Germany', 'Italy', 'Reuters', 'AP', 'BBC',
+    'World', 'Bank', 'Central', 'Bank', 'Federal', 'Reserve']);
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const candidate = m[1];
+    // Skip si primera palabra es stop word
+    const firstWord = candidate.split(' ')[0];
+    if (stopWords.has(firstWord)) continue;
+    if (candidate.length > 50) continue;
+    found.add(candidate);
+  }
+  return [...found].slice(0, 10);
+}
+
+/**
+ * Extract all entities at once.
+ */
+function extractEntities(text) {
+  return {
+    countries: extractCountries(text),
+    currencies: extractCurrencies(text),
+    money: extractMoneyAmounts(text),
+    people: extractPeople(text),
+  };
+}
+
+module.exports = {
+  sentiment, summarize, splitSentences, tokenize, AFINN,
+  extractCountries, extractCurrencies, extractMoneyAmounts, extractPeople, extractEntities,
+};

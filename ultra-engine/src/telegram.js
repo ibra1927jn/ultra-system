@@ -107,6 +107,7 @@ function init() {
       '/mood 7 — Log mood 1-10 (opcional energy/anxiety)',
       '/cbt — Prompt CBT/DBT random para reflexión',
       '/diario — Últimas entradas journal',
+      '/terapia ES — Directory mental health por país',
     ].join('\n');
     send(msg.chat.id, help, 'Markdown');
   });
@@ -454,6 +455,40 @@ function init() {
         `📅 ${entry}${exit ? ' → ' + exit : ' (ongoing)'}${days ? ` (${days}d)` : ''}\n\n` +
         `Usa /schengen para ver días disponibles`,
       );
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P7 Fase 3c: Therapy directory ─────────────────
+  bot.onText(/\/terapia(?:\s+([a-zA-Z]{2}))?/, async (msg, match) => {
+    try {
+      const where = [];
+      const params = [];
+      if (match[1]) { params.push(match[1].toUpperCase()); where.push(`country=$${params.length}`); }
+      const rows = await db.queryAll(
+        `SELECT country, city, name, type, modality, rate_min, rate_max, currency, free_options, url, phone, notes
+         FROM bio_therapy_directory
+         ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+         ORDER BY country, free_options DESC LIMIT 12`,
+        params
+      );
+      if (!rows.length) {
+        send(msg.chat.id, `❌ Sin providers para ${match[1] || '?'}`);
+        return;
+      }
+      const flag = (c) => ({ ES: '🇪🇸', NZ: '🇳🇿', AU: '🇦🇺', FR: '🇫🇷', GB: '🇬🇧', US: '🇺🇸', DZ: '🇩🇿' }[c] || '🌐');
+      const typeEmoji = { platform: '💻', clinic: '🏥', individual: '👤', hotline: '📞' };
+      const lines = ['🧠 *Therapy directory*', '━━━━━━━━━━━━━━━━━━━━━━━━'];
+      for (const r of rows) {
+        const free = r.free_options ? '🆓 ' : '';
+        const rate = r.rate_min ? `${r.currency} ${r.rate_min}-${r.rate_max || '?'}` : (r.free_options ? 'FREE' : '?');
+        lines.push(`${flag(r.country)} ${typeEmoji[r.type] || '?'} ${free}*${r.name}*${r.city ? ' (' + r.city + ')' : ''}`);
+        lines.push(`  💰 ${rate} · 📡 ${(r.modality || []).join('/')}`);
+        if (r.phone) lines.push(`  📞 ${r.phone}`);
+        if (r.notes) lines.push(`  _${r.notes.slice(0, 100)}_`);
+      }
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
     } catch (err) {
       send(msg.chat.id, `❌ Error: ${err.message}`);
     }

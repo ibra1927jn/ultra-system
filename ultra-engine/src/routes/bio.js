@@ -66,6 +66,32 @@ router.post('/food/log', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+//  P7 FASE 3c — Therapy directory
+// ═══════════════════════════════════════════════════════════
+router.get('/therapy', async (req, res) => {
+  try {
+    const { country, language, modality, free_only } = req.query;
+    const where = [];
+    const params = [];
+    if (country) { params.push(country.toUpperCase()); where.push(`country=$${params.length}`); }
+    if (language) { params.push(language); where.push(`$${params.length} = ANY(languages)`); }
+    if (modality) { params.push(modality); where.push(`$${params.length} = ANY(modality)`); }
+    if (free_only === 'true') where.push('free_options = TRUE');
+    const rows = await db.queryAll(
+      `SELECT id, country, city, name, type, specialty, languages, modality,
+              rate_min, rate_max, currency, free_options, sliding_scale, url, phone, notes
+       FROM bio_therapy_directory
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY country, free_options DESC, rate_min NULLS FIRST`,
+      params
+    );
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
 //  P7 FASE 3b — Mental health (mood + journal + CBT prompts)
 // ═══════════════════════════════════════════════════════════
 

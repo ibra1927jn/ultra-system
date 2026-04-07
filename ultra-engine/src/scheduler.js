@@ -133,6 +133,14 @@ function init() {
     'Cada hora :20 — AFINN sentiment + TextRank summary para articles sin procesar'
   );
 
+  // ─── P4 Fase 3c: Paperless OCR sync — cada 6h ───
+  register(
+    'paperless-ocr-sync',
+    '40 */6 * * *',
+    syncPaperlessOcr,
+    'Cada 6h :40 — Extract expiry dates de OCR text → document_alerts'
+  );
+
   // ─── P1: Noticias — Fetch RSS cada 30 min con scoring ───
   register(
     'rss-fetch',
@@ -1079,6 +1087,21 @@ function listJobs() {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  P4 FASE 3c — Paperless OCR → expiry extraction
+// ═══════════════════════════════════════════════════════════
+async function syncPaperlessOcr() {
+  try {
+    const paperless = require('./paperless');
+    const r = await paperless.syncOcrExtractions({ limit: 100 });
+    if (r.ok && r.updated > 0) {
+      console.log(`📂 paperless-ocr-sync: scanned=${r.scanned} updated=${r.updated}`);
+    }
+  } catch (err) {
+    console.error('❌ paperless-ocr-sync error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 //  P1 FASE 3b — NLP processing (AFINN + TextRank)
 // ═══════════════════════════════════════════════════════════
 async function runNlpProcess() {
@@ -1094,13 +1117,14 @@ async function runNlpProcess() {
       const text = `${r.title || ''} ${r.summary || ''}`;
       const sent = nlp.sentiment(text);
       const auto = nlp.summarize(r.summary || r.title || '', { numSentences: 2 });
+      const ents = nlp.extractEntities(text);
       await db.query(
-        `UPDATE rss_articles SET sentiment_score=$1, sentiment_label=$2, auto_summary=$3 WHERE id=$4`,
-        [sent.comparative, sent.label, auto || null, r.id]
+        `UPDATE rss_articles SET sentiment_score=$1, sentiment_label=$2, auto_summary=$3, entities=$4 WHERE id=$5`,
+        [sent.comparative, sent.label, auto || null, JSON.stringify(ents), r.id]
       );
       processed++;
     }
-    if (processed > 0) console.log(`📝 nlp-process: ${processed} articles enriched`);
+    if (processed > 0) console.log(`📝 nlp-process: ${processed} articles enriched (sentiment + summary + entities)`);
   } catch (err) {
     console.error('❌ nlp-process error:', err.message);
   }

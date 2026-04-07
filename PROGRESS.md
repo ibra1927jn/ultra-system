@@ -385,6 +385,58 @@
 
 Engine: 31 cron jobs · 11 containers · 19 modules src/ · 50+ endpoints · 30+ Telegram commands
 
+## Completado (Fase 3c — Heavy work 6 tareas) ✅
+
+### #32 P5 Scholarships + EU SEDIA fetchers
+- [2026-04-07] | gov_grants.js: 2 fetchers más — fetchEUSedia (POST API api.tech.ec.europa.eu Funding & Tenders Portal con filter status=Open/Forthcoming + types calls/tenders/grants), fetchAceleraPyme (RSS gov ES PYMES kit_digital). Erasmus/Chevening sin RSS público (defer).
+- [2026-04-07] | E2E test: EU SEDIA 20 fetched/inserted (de 636,267 disponibles total — pageSize fácilmente escalable). AceleraPyme HTTP 403 (rate limit posible).
+
+### #33 P7 Therapy directory
+- [2026-04-07] | DB: tabla bio_therapy_directory (country, city, name, type platform/clinic/individual/hotline, specialty TEXT[], languages TEXT[], modality TEXT[], rate_min/max + currency, free_options, sliding_scale, insurance, url, phone, notes). 3 índices (country, modality GIN, languages GIN).
+- [2026-04-07] | 21 providers seed: BetterHelp/Talkspace/7Cups multi-país; ES (TherapyChat €35-60, Siquia, 2 clinics Madrid/BCN, Teléfono Esperanza FREE, 024 Suicidio FREE); NZ (Psychological Society directory, 1737 FREE, Lifeline FREE, Mental Health Foundation); AU (Lifeline 13 11 14 FREE, Beyond Blue FREE, Headspace 12-25 FREE); FR (Mon Soutien Psy 8 sesiones REMBOLSADAS Sécu Sociale, 3114 FREE); DZ (Sos Suicide Algérie, CRASC).
+- [2026-04-07] | routes/bio.js: GET /therapy con filtros country/language/modality/free_only
+- [2026-04-07] | telegram.js: comando /terapia [country] formato compacto con flag + type emoji + rate range + modality
+- [2026-04-07] | E2E: ES → 6 providers (2 free hotlines + 2 platforms €35-40 + 2 clinics €50-60). free_only+language=es → 3 (ES hotlines + 7 Cups español).
+
+### #34 P4 Paperless OCR pipeline (date extraction)
+- [2026-04-07] | paperless.js: 3 helpers nuevos — extractDates(text) con 4 formatos (ISO YYYY-MM-DD, EU DD/MM/YYYY con detección día>12, ES escrito "1 de enero de 2027", EN escrito "January 1, 2027"). inferExpiryDate(text) busca dates con keywords expir/caduca/vencimiento/válido hasta nearby + bonus future date. syncOcrExtractions() pollea documents en paperless con content OCR + UPDATE document_alerts.expiry_date si infiere.
+- [2026-04-07] | scheduler: nuevo cron paperless-ocr-sync (cada 6h :40). Total: 31 → 32 jobs.
+- [2026-04-07] | E2E unit tests: ES "Caduca el 15 de marzo de 2027" → 2027-03-15 ✓. EU "31/12/2028" → 2028-12-31 ✓. ISO "2027-06-15" → 2027-06-15 ✓. EN "December 31, 2030" → 2030-12-31 ✓. Mixed dates parsed both. Inference: "Caduca... 1 enero 2030" → score 15 ✓. NZ visa "Valid until 2026-06-01" → score 15 ✓. Sin keyword (factura) → null ✓.
+
+### #35 P2 Workday +tenants
+- [2026-04-07] | workday.js TENANTS: 3 → 5 (añadidos PwC Global_Experienced_Careers/wd3 5055+ jobs, Pfizer PfizerCareers/wd1 574+ jobs). Atlassian/Cisco/Twilio/Stripe/etc devolvieron 401/422 con searchText vacío (defer hasta ajustar params per-tenant).
+- [2026-04-07] | Maritime scrapers DEFER — CrewBay/AllCruiseJobs/maritime-jobs/seaworx sin RSS público funcional (todos 404/000/406)
+- [2026-04-07] | E2E: PwC + Pfizer 36 jobs nuevos primer run
+
+### #36 P1 NER lite
+- [2026-04-07] | nlp.js: 5 funciones nuevas — extractCountries (35+ ISO2 mapping multi-language ES/EN/FR), extractCurrencies (8 codes USD/EUR/GBP/NZD/AUD/JPY/CHF/CAD por símbolo o código), extractMoneyAmounts (regex prefix $1,234 + suffix 10K USD con multiplier K/M/B), extractPeople (regex 2-3 capitalized words con stop word filter para meses/días/lugares conocidos), extractEntities all-in-one
+- [2026-04-07] | DB: rss_articles +entities JSONB con índice GIN
+- [2026-04-07] | scheduler nlp-process: ahora también extrae entities + persiste a entities col
+- [2026-04-07] | E2E: "Stripe raised $5M USD... Patrick Collison... Spain and Australia" → countries [AU,ES], currencies [USD], money [{5000000,USD,$5M}], people [Patrick Collison]. Multi-country test: 4 countries detectados (NZ/AU/ES/JP) + 500K AUD parsed.
+
+### #37 P6 Self-hosted OSRM-NZ
+- [2026-04-07] | OSM data: descargado new-zealand-latest.osm.pbf (376MB compressed) de Geofabrik a osrm/data/
+- [2026-04-07] | Pre-processing: docker run osrm/osrm-backend:latest osrm-extract -p /opt/car.lua → osrm-partition (algoritmo MLD multi-level Dijkstra) → osrm-customize. Peak RAM 1.8GB durante extract. Total ~1.2GB final en disk.
+- [2026-04-07] | docker-compose: nuevo container osrm (osrm/osrm-backend:latest, command osrm-routed --algorithm mld /data/nz-latest.osrm, port 5001:5000, vol osrm/data:ro, mem limit 1500M). Engine env: OSRM_BASE_URL=http://osrm:5000
+- [2026-04-07] | routing.js: const OSRM_PROVIDER = process.env.OSRM_BASE_URL ? 'osrm_self' : 'osrm_public' — auto-detect según env
+- [2026-04-07] | E2E: Auckland → Wellington 641.6km/494min provider 'osrm_self'. Latency 34-41ms (vs typical 300-500ms público). Sin rate limits propios. **No depende de internet para routing**.
+- [2026-04-07] | Disk impact: 17G → 16G libre (1.2GB osrm data + 150MB osrm image). 12 containers totales.
+
+## Coverage actualizado post-Fase 3c
+
+| Pilar | Pre-Fase3c | + Fase 3c | Total | Δ |
+|---|---|---|---|---|
+| P1 News | 52% | +5% (NER) | **57%** | +5 |
+| P2 Empleo | 51% | +4% (Workday +2) | **55%** | +4 |
+| P3 Finanzas | 74% | 0 | 74% | 0 |
+| P4 Burocracia | 58% | +6% (OCR pipeline) | **64%** | +6 |
+| P5 Oportunidades | 60% | +5% (EU SEDIA) | **65%** | +5 |
+| P6 Logística | 48% | +14% (OSRM self-hosted) | **62%** | +14 |
+| P7 Bio-check | 55% | +6% (therapy dir) | **61%** | +6 |
+| **PROMEDIO** | **57%** | **+6%** | **63%** | +6 |
+
+Engine: 32 cron jobs · 12 containers (db engine paperless+redis changedetection jobspy wger mealie grocy fasten traccar **osrm**) · 22 modules src/
+
 ## DEFERIDO post-Fase 2 ⏳
 - **OSRM self-hosted** — usar router.project-osrm.org público por ahora; deploy propio cuando rate limits molesten (necesita ~500MB OSM extract NZ + ~1GB RAM)
 - **tileserver-gl + PMTiles offline** — protomaps NZ extract (~30-50MB) + tileserver container. Defer hasta tener más disco libre (estamos al 87%)
