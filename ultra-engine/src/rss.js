@@ -106,12 +106,44 @@ async function getFeeds() {
  * Fetch articulos de un feed especifico con scoring
  * Retorna { newCount, highScoreArticles } para que el scheduler alerte
  */
+// R6 2026-04-08: fallback a Puppeteer sidecar cuando parseURL falla con
+// 403/network error (típico en feeds CF-blocked desde Hetzner datacenter:
+// Al Jazeera variants, Arab News, DailyRemote, Lablab, Opportunity*, etc.).
+// Chromium real pasa el CF challenge y devuelve el XML raw; después
+// parseamos con parser.parseString(). Primera llamada por feed: +2-4s
+// vs parseURL directo. Sin impacto en feeds que ya funcionan via parseURL.
+async function _parseUrlWithPuppeteerFallback(url) {
+  try {
+    return await parser.parseURL(url);
+  } catch (err) {
+    const msg = String(err?.message || err);
+    // Reintentar solo si es un error típico de CF/403/net
+    if (!/403|406|status code 4\d\d|CERT|ECONN|ETIMEDOUT|EAI_AGAIN|cloudflare/i.test(msg)) {
+      throw err;
+    }
+    try {
+      const pup = require('./puppeteer');
+      if (!(await pup.isAvailable())) throw err;
+      const r = await pup.scrape({ url, waitFor: 2500, extract: 'text' });
+      if (!r.ok) throw new Error(`puppeteer fallback: ${r.error}`);
+      const xml = r.data || '';
+      if (!xml.includes('<item') && !xml.includes('<entry')) {
+        throw new Error('puppeteer fallback: body has no rss markers');
+      }
+      return await parser.parseString(xml);
+    } catch (err2) {
+      // Preferimos el error original — más informativo para debugging
+      throw new Error(`${msg} (puppeteer fallback: ${err2.message})`);
+    }
+  }
+}
+
 async function fetchFeed(feedId) {
   const feed = await db.queryOne('SELECT * FROM rss_feeds WHERE id = $1', [feedId]);
   if (!feed) throw new Error(`Feed ${feedId} no encontrado`);
 
   try {
-    const data = await parser.parseURL(feed.url);
+    const data = await _parseUrlWithPuppeteerFallback(feed.url);
     let newCount = 0;
     const highScoreArticles = [];
 
