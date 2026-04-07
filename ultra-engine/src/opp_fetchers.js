@@ -1177,12 +1177,54 @@ async function fetchGarantiaJuvenil() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  Lablab.ai — AI hackathons (RSS via blog)
+//  Lablab.ai — AI hackathons
 // ═══════════════════════════════════════════════════════════
-// Skipped 2026-04-07: lablab.ai/blog/rss.xml → 403 CF block desde datacenter Hetzner.
-// Devpost + ETHGlobal + SolanaColosseum cubren AI hackathon space.
+// R5 2026-04-08: RSS sigue 403 CF block, pero Puppeteer (Chromium real)
+// SÍ pasa el CF challenge. Página /event devuelve 135+ anchors
+// a[href*="/ai-hackathons/"] con títulos en el texto.
 async function fetchLablab() {
-  return { source: 'Lablab', total: 0, inserted: 0, highScore: 0, skipped: 'cf_block_datacenter' };
+  const pup = require('./puppeteer');
+  if (!(await pup.isAvailable())) {
+    return { source: 'Lablab', total: 0, inserted: 0, highScore: 0, skipped: 'puppeteer_sidecar_offline' };
+  }
+  try {
+    const r = await pup.scrape({
+      url: 'https://lablab.ai/event',
+      waitFor: 5000,
+      selectors: { events: 'a[href*="/ai-hackathons/"]' },
+    });
+    if (!r.ok) return { source: 'Lablab', total: 0, inserted: 0, highScore: 0, error: r.error };
+
+    const items = r.data?.events || [];
+    const seen = new Set();
+    let inserted = 0, highScore = 0;
+    for (const it of items) {
+      const href = (it.href || '').replace(/\/$/, '');
+      if (!href || !href.includes('/ai-hackathons/') || seen.has(href)) continue;
+      seen.add(href);
+      const slug = href.split('/ai-hackathons/')[1]?.split(/[/?#]/)[0];
+      if (!slug || slug === '' || slug === 'past') continue;
+      const rawText = (it.text || '').replace(/\s+/g, ' ').trim();
+      if (!rawText) continue;
+      const score = await scoreText(`${rawText} AI hackathon LLM GPT`);
+      const ok = await insertOpportunity({
+        title: rawText.slice(0, 300),
+        source: 'Lablab',
+        url: href,
+        category: 'hackathon',
+        description: rawText.slice(0, 1500),
+        payout_type: 'prize',
+        currency: 'USD',
+        tags: ['ai', 'hackathon', 'llm'],
+        match_score: score,
+        external_id: `lablab:${slug}`,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'Lablab', total: seen.size, inserted, highScore, via: 'puppeteer' };
+  } catch (err) {
+    return { source: 'Lablab', total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1234,10 +1276,15 @@ async function fetchTorreAI({ size = 30 } = {}) {
 // ═══════════════════════════════════════════════════════════
 //  IssueHunt — OSS bounty platform
 // ═══════════════════════════════════════════════════════════
-// Skipped 2026-04-07: issuehunt.io/api/v1/issues devuelve HTML SPA, no JSON.
-// Sin endpoint público real. Algora + GitHubFund cubren OSS bounty space parcialmente.
+// Skipped 2026-04-08: probado con Puppeteer sidecar contra /explore, devuelve
+// 0 anchors — la página lista las issues vía fetch a /api/v1/issues que
+// responde HTML wrapper (no JSON) cuando se llama sin header interno. El
+// frontend usa un token session-bound para la API real. Requiere:
+// (a) loguearse (needs account) y capturar el token, o (b) scrapear directo
+// issues.issuehunt.io que es un subdomain para repos. Deferido.
+// Algora + GitHubFund cubren OSS bounty parcialmente.
 async function fetchIssueHunt() {
-  return { source: 'IssueHunt', total: 0, inserted: 0, highScore: 0, skipped: 'spa_no_api' };
+  return { source: 'IssueHunt', total: 0, inserted: 0, highScore: 0, skipped: 'spa_auth_required' };
 }
 
 // ═══════════════════════════════════════════════════════════

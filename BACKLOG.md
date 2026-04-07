@@ -18,6 +18,20 @@
   - Dedicar **sesión propia** (2-4h) para investigar la network tab y reverse-engineer el endpoint interno.
   - Prioridad: **alta** (usuario van-life, EU es destino futuro post-NZ).
 
+- [ ] **eSIMDB plans reactivation** — [2026-04-08] descope en R5 step 3.
+  - Contexto: esimdb.com/new-zealand sí carga con Puppeteer pero el DOM es ruidoso (1888 `[class*=price]`, 2587 `[class*=provider]`, 0 anchors a detail). Los planes se renderizan en Vue components anidados sin `data-*` estables.
+  - Approaches a probar:
+    1. Inspección manual devtools para encontrar un contenedor estable (ej: `.plan-card-wrapper > div`) y extraer via `evaluate` (ya fixed en sidecar).
+    2. Network tab: ¿hay una GraphQL/REST interna que devuelva JSON? Esimdb tiene API pública en esimdb.com/api.
+  - Prioridad: **media** (cobertura eSIM NZ ya parcial, no bloqueante para el usuario).
+
+- [ ] **IssueHunt reactivation** — [2026-04-08] descope en R5 step 3.
+  - Contexto: /explore devuelve 0 anchors con Puppeteer. La API /api/v1/issues devuelve HTML wrapper sin session token. Frontend usa auth session-bound.
+  - Approaches:
+    1. Requiere crear cuenta IssueHunt y capturar session token → pasa a step 4 (signups al final).
+    2. Scrapear subdomain `issues.issuehunt.io` que es server-rendered por repo.
+  - Prioridad: **baja** (Algora + GitHubFund cubren parcialmente el OSS bounty space).
+
 ---
 
 ## Legend

@@ -123,8 +123,11 @@ app.post('/scrape', async (req, res) => {
 
         let data;
         if (evaluate) {
-          // eslint-disable-next-line no-new-func
-          data = await page.evaluate(new Function(`return (${evaluate})`)());
+          // Pass the expression as a string to page.evaluate, wrapped as a
+          // thunk so puppeteer serializes it to the page context. The previous
+          // version called `new Function(...)()` immediately in Node, which
+          // made `document` undefined. Fix: serialize fn body as source.
+          data = await page.evaluate(`(() => { return (${evaluate}); })()`);
         } else if (selectors && typeof selectors === 'object') {
           data = {};
           for (const [name, sel] of Object.entries(selectors)) {

@@ -111,13 +111,59 @@ async function fetchTransferCar() {
   }
 }
 
-// Skipped 2026-04-07: imoova.com migró a Next.js SPA, contenido cargado vía JS.
-// HTML server-side sólo tiene marketing pages, los listados reales necesitan
-// Puppeteer (deferido). Endpoints /relocations.json y /api/v1/* devuelven
-// "Only HTML requests are supported here". TransferCar cubre NZ; para AU/EU
-// reactivar cuando sidecar Puppeteer esté disponible.
+// R5 2026-04-08: Imoova reactivado vía Puppeteer. /en/relocations devuelve
+// 50+ anchors `a[href*="/en/relocations/deal/"]` con shape
+// `{from}-to-{to}-RLC{id}`. Text: "From → To, Available MMM-MMM, N days".
 async function fetchImoova() {
-  return { source: 'imoova', skipped: 'spa_needs_puppeteer', inserted: 0 };
+  const pup = require('./puppeteer');
+  if (!(await pup.isAvailable())) {
+    return { source: 'imoova', skipped: 'puppeteer_sidecar_offline', inserted: 0 };
+  }
+  try {
+    const r = await pup.scrape({
+      url: 'https://www.imoova.com/en/relocations',
+      waitFor: 6000,
+      selectors: { deals: 'a[href*="/en/relocations/deal/"]' },
+    });
+    if (!r.ok) return { source: 'imoova', error: r.error, inserted: 0 };
+
+    const items = r.data?.deals || [];
+    const seen = new Set();
+    let inserted = 0;
+    for (const it of items) {
+      const href = (it.href || '').replace(/\/$/, '');
+      if (!href || seen.has(href)) continue;
+      seen.add(href);
+      // Extract RLC code as external_id
+      const match = href.match(/\/deal\/([^/?#]+)/);
+      if (!match) continue;
+      const slug = match[1];
+      const rlcMatch = slug.match(/RLC\d+/);
+      const extId = rlcMatch ? rlcMatch[0] : slug;
+
+      const rawText = (it.text || '').replace(/\s+/g, ' ').trim();
+      if (!rawText) continue;
+      // Parse "From → To" from text (first " → " before "Available" or newline)
+      const routeMatch = rawText.match(/^(.+?\s*→\s*[^,]+?)(?:\s+Available|,|$)/);
+      const name = routeMatch ? routeMatch[1].trim() : rawText.slice(0, 80);
+
+      const ok = await insertPoi({
+        source: 'imoova',
+        external_id: extId,
+        category: 'vehicle_relocation',
+        name,
+        description: rawText.slice(0, 500),
+        country: null,
+        region: null,
+        url: href,
+        payload: { raw_text: rawText.slice(0, 1000) },
+      });
+      if (ok) inserted++;
+    }
+    return { source: 'imoova', total: seen.size, inserted, via: 'puppeteer' };
+  } catch (err) {
+    return { source: 'imoova', error: err.message, inserted: 0 };
+  }
 }
 
 // Skipped 2026-04-07: nzta.govt.nz/feed/news/ devuelve Incapsula challenge
@@ -128,11 +174,15 @@ async function fetchNZVehicleCompliance() {
   return { source: 'nzta_news', skipped: 'incapsula_block_datacenter', inserted: 0 };
 }
 
-// Skipped 2026-04-07: esimdb.com es Vue SPA (path correcto es /new-zealand,
-// no /nz, pero el contenido se renderiza vía JS). Sin endpoint público.
-// Para reactivar usar Puppeteer sidecar.
+// R5 2026-04-08: intentado con Puppeteer sidecar. La página /new-zealand
+// carga pero el DOM está ruidoso: 1888 matches con [class*=price], 2587 con
+// [class*=provider], 0 anchors estables a detail pages. Los planes se
+// renderizan en componentes Vue anidados sin data-attributes claros.
+// Necesita: (a) selector estable post-inspección manual, o (b) interceptar
+// la API GraphQL interna que probablemente alimenta la tabla.
+// Deferido. Ver BACKLOG Priority pending.
 async function fetchESIMDB() {
-  return { source: 'esimdb', skipped: 'spa_needs_puppeteer', inserted: 0 };
+  return { source: 'esimdb', skipped: 'dom_too_noisy_needs_manual_inspection', inserted: 0 };
 }
 
 // ════════════════════════════════════════════════════════════
