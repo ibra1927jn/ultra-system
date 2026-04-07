@@ -346,7 +346,7 @@ async function fetchGDACS() {
 // ════════════════════════════════════════════════════════════
 async function fetchCrisisGroup() {
   try {
-    const r = await fetch('https://www.crisisgroup.org/rss-0', {
+    const r = await fetch('https://www.crisisgroup.org/rss.xml', {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
       signal: AbortSignal.timeout(20000),
     });
@@ -380,7 +380,7 @@ async function fetchCrisisGroup() {
 // ════════════════════════════════════════════════════════════
 async function fetchUSStateDept() {
   try {
-    const r = await fetch('https://travel.state.gov/_res/rss/TAs.xml', {
+    const r = await fetch('https://travel.state.gov/_res/rss/TAsTWs.xml', {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
       signal: AbortSignal.timeout(15000),
     });
