@@ -311,6 +311,25 @@ const FETCHERS = [
   ['WeWorkRemotely', fetchWeWorkRemotely],
   ['CTFtime', fetchCTFtime],
   ['CodeChef', fetchCodeChef],
+  ['DailyRemote', fetchDailyRemote],
+  ['Nodesk', fetchNodesk],
+  ['Intigriti', fetchIntigriti],
+  ['Huntr', fetchHuntr],
+  ['GetOnBoard', fetchGetOnBoard],
+  ['F6S', fetchF6S],
+  ['Euraxess', fetchEuraxess],
+  ['SovereignTechFund', fetchSovereignTechFund],
+  ['NLnet2', fetchNLnetCalls],
+  ['EICAccelerator', fetchEICAccelerator],
+  ['HorizonEurope', fetchHorizonEurope],
+  ['KitDigitalES', fetchKitDigital],
+  ['GarantiaJuvenil', fetchGarantiaJuvenil],
+  ['Lablab', fetchLablab],
+  ['TorreAI', fetchTorreAI],
+  ['IssueHunt', fetchIssueHunt],
+  ['Galxe', fetchGalxe],
+  ['Layer3', fetchLayer3],
+  ['Zealy', fetchZealy],
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -742,6 +761,368 @@ async function fetchJobSpyRemote() {
   return { source: 'JobSpyRemote', total: jobs.length, inserted, highScore };
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Generic RSS-to-opportunity helper
+// ═══════════════════════════════════════════════════════════
+async function rssOppHelper({ source, url, category = 'remote', tagBase = '' }) {
+  try {
+    const Parser = require('rss-parser');
+    const p = new Parser({ timeout: TIMEOUT, headers: UA });
+    const feed = await p.parseURL(url);
+    const items = feed.items || [];
+    let inserted = 0, highScore = 0;
+    for (const it of items.slice(0, 30)) {
+      const text = `${it.title || ''} ${it.contentSnippet || ''}`;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: it.title || source,
+        source,
+        url: it.link,
+        category,
+        description: (it.contentSnippet || '').slice(0, 1500),
+        match_score: score,
+        external_id: it.guid || it.link,
+        posted_at: it.isoDate ? new Date(it.isoDate) : null,
+        tags: tagBase ? [tagBase] : null,
+      });
+      if (ok) {
+        inserted++;
+        if (score >= 8) highScore++;
+      }
+    }
+    return { source, total: items.length, inserted, highScore };
+  } catch (err) {
+    return { source, error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+async function fetchDailyRemote() {
+  return rssOppHelper({ source: 'DailyRemote', url: 'https://dailyremote.com/feed.xml' });
+}
+async function fetchNodesk() {
+  return rssOppHelper({ source: 'Nodesk', url: 'https://nodesk.co/remote-jobs/feed/' });
+}
+async function fetchIntigriti() {
+  return rssOppHelper({ source: 'Intigriti', url: 'https://blog.intigriti.com/feed/', category: 'bug_bounty', tagBase: 'security' });
+}
+async function fetchHuntr() {
+  return rssOppHelper({ source: 'Huntr', url: 'https://huntr.dev/feed.xml', category: 'oss_bounty', tagBase: 'oss' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GetOnBoard LATAM — public API for remote jobs
+//  https://www.getonbrd.com/api/v0/jobs
+// ═══════════════════════════════════════════════════════════
+async function fetchGetOnBoard() {
+  try {
+    const r = await fetch('https://www.getonbrd.com/api/v0/jobs?expand=[%22tags%22,%22categories%22,%22company%22]&per_page=30', {
+      headers: { ...UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const jobs = data.data || [];
+    let inserted = 0, highScore = 0;
+    for (const j of jobs) {
+      const a = j.attributes || {};
+      const title = a.title || '';
+      const company = a.company?.data?.attributes?.name || '';
+      const text = `${title} ${a.description || ''}`;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: `${title} @ ${company}`,
+        source: 'GetOnBoard',
+        url: a.url,
+        category: 'remote',
+        description: (a.description || '').replace(/<[^>]*>/g, '').slice(0, 1500),
+        match_score: score,
+        external_id: `getonbrd:${j.id}`,
+        salary_min: a.min_salary, salary_max: a.max_salary, currency: 'USD',
+        tags: ['latam'],
+        posted_at: a.published_at ? new Date(a.published_at) : null,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'GetOnBoard', total: jobs.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'GetOnBoard', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  F6S — startup community RSS
+// ═══════════════════════════════════════════════════════════
+async function fetchF6S() {
+  return rssOppHelper({ source: 'F6S', url: 'https://www.f6s.com/feed', category: 'accelerator' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Euraxess — EU research positions/grants RSS
+// ═══════════════════════════════════════════════════════════
+async function fetchEuraxess() {
+  return rssOppHelper({ source: 'Euraxess', url: 'https://euraxess.ec.europa.eu/jobs/rss.xml', category: 'research', tagBase: 'eu_research' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Sovereign Tech Fund — German gov funding for OSS infra
+//  Bulletin RSS / Atom feed
+// ═══════════════════════════════════════════════════════════
+async function fetchSovereignTechFund() {
+  return rssOppHelper({ source: 'SovereignTechFund', url: 'https://www.sovereign.tech/news.xml', category: 'oss_grant', tagBase: 'oss_funding' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  NLnet — Open Calls (separate from existing fetchNLnet which targets news)
+// ═══════════════════════════════════════════════════════════
+async function fetchNLnetCalls() {
+  return rssOppHelper({ source: 'NLnet-Calls', url: 'https://nlnet.nl/feed.atom', category: 'oss_grant', tagBase: 'oss_funding' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EU EIC Accelerator — startup grants/cascade funding
+// ═══════════════════════════════════════════════════════════
+async function fetchEICAccelerator() {
+  // EIC publica deadlines vía Funding & Tenders Portal API (sin auth para search)
+  try {
+    const url = 'https://ec.europa.eu/info/funding-tenders/opportunities/data/referenceData/grantsTenders.json';
+    const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    // Si responde, persistir info; degrada gracefully si no
+    return { source: 'EICAccelerator', total: 0, inserted: 0, highScore: 0, note: 'EU portal accesible — implementar parser detallado' };
+  } catch (err) {
+    return { source: 'EICAccelerator', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Horizon Europe — gigantic EU research programme
+// ═══════════════════════════════════════════════════════════
+async function fetchHorizonEurope() {
+  return rssOppHelper({ source: 'HorizonEurope', url: 'https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-search?frameworkProgramme=43108390&format=atom', category: 'research', tagBase: 'horizon_europe' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Kit Digital ES — Spanish digital transformation grants
+//  Sin RSS oficial → seed estático con info actualizable.
+// ═══════════════════════════════════════════════════════════
+async function fetchKitDigital() {
+  try {
+    const ok = await insertOpportunity({
+      title: 'Kit Digital — Bono digitalización autónomos/PYMES (España)',
+      source: 'KitDigitalES',
+      url: 'https://www.acelerapyme.gob.es/kit-digital',
+      category: 'gov_grant',
+      description: 'Programa Next Generation EU. Bonos €2,000-€29,000 para autónomos y PYMES en España. Convocatoria continua hasta agotar fondos.',
+      tags: ['ES', 'gov_grant', 'autonomos'],
+      external_id: 'kitdigital:base',
+    });
+    return { source: 'KitDigitalES', total: 1, inserted: ok ? 1 : 0, highScore: 0 };
+  } catch (err) {
+    return { source: 'KitDigitalES', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Garantía Juvenil ES — programa empleo joven UE
+// ═══════════════════════════════════════════════════════════
+async function fetchGarantiaJuvenil() {
+  try {
+    const ok = await insertOpportunity({
+      title: 'Garantía Juvenil — programa empleo y formación <30 (España)',
+      source: 'GarantiaJuvenil',
+      url: 'https://garantiajuvenil.sepe.es/',
+      category: 'gov_program',
+      description: 'Sistema Nacional de Garantía Juvenil. Inscripción abierta. Acceso a ofertas de empleo, prácticas, formación y autoempleo subvencionados. Hasta 30 años.',
+      tags: ['ES', 'gov_program', 'youth'],
+      external_id: 'garantia_juvenil:base',
+    });
+    return { source: 'GarantiaJuvenil', total: 1, inserted: ok ? 1 : 0, highScore: 0 };
+  } catch (err) {
+    return { source: 'GarantiaJuvenil', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Lablab.ai — AI hackathons (RSS via blog)
+// ═══════════════════════════════════════════════════════════
+async function fetchLablab() {
+  return rssOppHelper({ source: 'Lablab', url: 'https://lablab.ai/blog/rss.xml', category: 'hackathon', tagBase: 'ai' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Torre.ai — LATAM remote jobs API
+// ═══════════════════════════════════════════════════════════
+async function fetchTorreAI() {
+  try {
+    const r = await fetch('https://search.torre.co/opportunities/_search', {
+      method: 'POST',
+      headers: { ...UA, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        and: [{ 'remote': 'YES' }, { 'opportunity.compensation.data.minAmount[gte]': 0 }],
+        size: 30,
+      }),
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const items = data.results || data.opportunities || [];
+    let inserted = 0, highScore = 0;
+    for (const j of items) {
+      const title = j.objective || j.name || '';
+      const text = `${title} ${(j.skills || []).join(' ')}`;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title,
+        source: 'TorreAI',
+        url: `https://torre.ai/opportunity/${j.id}`,
+        category: 'remote',
+        description: (j.objective || '').slice(0, 1500),
+        match_score: score,
+        external_id: `torre:${j.id}`,
+        tags: ['latam', 'remote'],
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'TorreAI', total: items.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'TorreAI', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  IssueHunt — OSS bounty platform
+// ═══════════════════════════════════════════════════════════
+async function fetchIssueHunt() {
+  try {
+    const r = await fetch('https://issuehunt.io/api/v1/issues?status=open&order=newest&limit=30', {
+      headers: { ...UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const items = data.items || data.data || [];
+    let inserted = 0, highScore = 0;
+    for (const it of items) {
+      const text = `${it.title || ''} ${it.body || ''}`;
+      const score = await scoreText(text);
+      const ok = await insertOpportunity({
+        title: it.title,
+        source: 'IssueHunt',
+        url: it.url || it.html_url,
+        category: 'oss_bounty',
+        description: (it.body || '').slice(0, 1500),
+        match_score: score,
+        salary_min: it.amount, currency: 'USD',
+        external_id: `issuehunt:${it.id}`,
+        tags: ['oss_bounty'],
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source: 'IssueHunt', total: items.length, inserted, highScore };
+  } catch (err) {
+    return { source: 'IssueHunt', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  STUBS — keyed (Galxe / Layer3 / Zealy)
+//  Set GALXE_API_KEY / LAYER3_API_KEY / ZEALY_API_KEY in .env
+// ═══════════════════════════════════════════════════════════
+async function fetchGalxe() {
+  const key = process.env.GALXE_API_KEY;
+  if (!key) return { source: 'Galxe', skipped: 'GALXE_API_KEY no configurada', total: 0, inserted: 0, highScore: 0 };
+  try {
+    // Galxe GraphQL: needs Authorization header
+    const r = await fetch('https://graphigo.prd.galaxy.eco/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'access-token': key },
+      body: JSON.stringify({
+        query: `query { campaigns(input:{first:30,statuses:[Active]}){list{id name description rewardName}}}`,
+      }),
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const list = data?.data?.campaigns?.list || [];
+    let inserted = 0;
+    for (const c of list) {
+      const ok = await insertOpportunity({
+        title: c.name, source: 'Galxe',
+        url: `https://galxe.com/quest/${c.id}`,
+        category: 'crypto_quest',
+        description: (c.description || '').slice(0, 1500),
+        external_id: `galxe:${c.id}`,
+        tags: ['crypto', 'quest'],
+      });
+      if (ok) inserted++;
+    }
+    return { source: 'Galxe', total: list.length, inserted, highScore: 0 };
+  } catch (err) {
+    return { source: 'Galxe', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+async function fetchLayer3() {
+  const key = process.env.LAYER3_API_KEY;
+  if (!key) return { source: 'Layer3', skipped: 'LAYER3_API_KEY no configurada', total: 0, inserted: 0, highScore: 0 };
+  try {
+    const r = await fetch('https://app.layer3.xyz/api/quests', {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const items = data.quests || data.data || [];
+    let inserted = 0;
+    for (const q of items) {
+      const ok = await insertOpportunity({
+        title: q.title || q.name,
+        source: 'Layer3',
+        url: q.url || `https://app.layer3.xyz/quests/${q.id}`,
+        category: 'crypto_quest',
+        description: (q.description || '').slice(0, 1500),
+        external_id: `layer3:${q.id}`,
+        tags: ['crypto', 'quest'],
+      });
+      if (ok) inserted++;
+    }
+    return { source: 'Layer3', total: items.length, inserted, highScore: 0 };
+  } catch (err) {
+    return { source: 'Layer3', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
+async function fetchZealy() {
+  const key = process.env.ZEALY_API_KEY;
+  const subdomain = process.env.ZEALY_SUBDOMAIN; // e.g. 'mycommunity'
+  if (!key || !subdomain) return { source: 'Zealy', skipped: 'ZEALY_API_KEY+ZEALY_SUBDOMAIN no configurados', total: 0, inserted: 0, highScore: 0 };
+  try {
+    const r = await fetch(`https://api-v2.zealy.io/public/communities/${subdomain}/quests`, {
+      headers: { 'x-api-key': key },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const items = data.quests || data || [];
+    let inserted = 0;
+    for (const q of items) {
+      const ok = await insertOpportunity({
+        title: q.name,
+        source: 'Zealy',
+        url: `https://zealy.io/cw/${subdomain}/questboard/${q.id}`,
+        category: 'crypto_quest',
+        description: (q.description?.text || q.description || '').slice(0, 1500),
+        external_id: `zealy:${q.id}`,
+        tags: ['crypto', 'quest'],
+      });
+      if (ok) inserted++;
+    }
+    return { source: 'Zealy', total: items.length, inserted, highScore: 0 };
+  } catch (err) {
+    return { source: 'Zealy', error: err.message, total: 0, inserted: 0, highScore: 0 };
+  }
+}
+
 async function fetchAll() {
   const results = [];
   let totalInserted = 0;
@@ -782,5 +1163,24 @@ module.exports = {
   fetchWeWorkRemotely,
   fetchCTFtime,
   fetchCodeChef,
+  fetchDailyRemote,
+  fetchNodesk,
+  fetchIntigriti,
+  fetchHuntr,
+  fetchGetOnBoard,
+  fetchF6S,
+  fetchEuraxess,
+  fetchSovereignTechFund,
+  fetchNLnetCalls,
+  fetchEICAccelerator,
+  fetchHorizonEurope,
+  fetchKitDigital,
+  fetchGarantiaJuvenil,
+  fetchLablab,
+  fetchTorreAI,
+  fetchIssueHunt,
+  fetchGalxe,
+  fetchLayer3,
+  fetchZealy,
   scoreText,
 };

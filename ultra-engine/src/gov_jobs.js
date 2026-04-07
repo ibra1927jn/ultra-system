@@ -327,6 +327,148 @@ async function fetchJobSpyOnsite({ countries = ['New Zealand', 'Australia', 'Spa
   return { source: 'jobspy_onsite', countries: countries.length, fetched: totalFetched, inserted: totalInserted, skipped: totalSkipped, errors };
 }
 
+// ════════════════════════════════════════════════════════════
+//  EURES — European Employment Services public REST API
+//  Docs: https://ec.europa.eu/eures/eures-apps/searchengine/
+//  Search via: https://ec.europa.eu/eures/eures-searchengine/page/main
+//  No-key public endpoint discovered: /jv-se/api/v0/jobs/search
+// ════════════════════════════════════════════════════════════
+async function fetchEURES({ keyword = '', countries = ['ES', 'FR', 'DE', 'NL'], limit = 50 } = {}) {
+  try {
+    const url = 'https://ec.europa.eu/eures/eures-searchengine/page/jv-search/search';
+    const body = {
+      page: 0,
+      resultsPerPage: limit,
+      sortSearch: 'BEST_MATCH',
+      keywordsEverywhere: keyword || '',
+      locationCodes: countries,
+      occupationCodes: [],
+      educationLevels: [],
+      sectorCodes: [],
+      requiredExperienceCodes: [],
+      contractTypeCodes: [],
+      workingTimeCodes: [],
+    };
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...UA },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) throw new Error(`EURES HTTP ${r.status}`);
+    const data = await r.json();
+    const items = data.jvs || data.results || [];
+    let inserted = 0;
+    for (const j of items) {
+      const title = j.title || j.jobTitle || '';
+      const location = j.locationName || j.location?.toString() || '';
+      if (/\bremote\b/i.test(`${title} ${location}`)) continue;
+      const country = (j.locationCountry || countries[0] || '').toUpperCase().slice(0, 2);
+      const row = await buildRow({
+        source: 'eures',
+        externalId: j.id || j.referenceNumber,
+        title,
+        company: j.employerName || 'EURES',
+        location,
+        country,
+        description: (j.description || '').slice(0, 3000),
+        url: j.url || `https://ec.europa.eu/eures/eures-searchengine/page/jv-details/${j.id}`,
+        postedAt: j.publicationStartDate,
+        salaryMin: j.salaryFrom, salaryMax: j.salaryTo, salaryCurrency: j.salaryCurrency,
+      });
+      const res = await jobApis.insertJob(row);
+      if (res.inserted) inserted++;
+    }
+    return { source: 'eures', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'eures', error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  Job Bank Canada — XML feed (free, no auth)
+//  https://www.jobbank.gc.ca/jobsearch/xmlfeed
+// ════════════════════════════════════════════════════════════
+async function fetchJobBankCanada({ limit = 50 } = {}) {
+  try {
+    const Parser = require('rss-parser');
+    const p = new Parser({ timeout: TIMEOUT, headers: UA });
+    const feed = await p.parseURL('https://www.jobbank.gc.ca/jobsearch/jobsearch?fsrc=21&fage=1&sort=M&fmt=rss');
+    const items = (feed.items || []).slice(0, limit);
+    let inserted = 0;
+    for (const it of items) {
+      const title = it.title || '';
+      const desc = it.contentSnippet || '';
+      // Extract company + location from title format "Title - Company - Location"
+      const parts = title.split(/\s+-\s+/);
+      const jobTitle = parts[0] || title;
+      const company = parts[1] || 'Unknown';
+      const location = parts[2] || 'Canada';
+      if (/\bremote\b/i.test(`${title} ${desc}`)) continue;
+      const row = await buildRow({
+        source: 'jobbank_ca',
+        externalId: it.guid || it.link,
+        title: jobTitle,
+        company,
+        location,
+        country: 'CA',
+        description: desc.slice(0, 3000),
+        url: it.link,
+        postedAt: it.isoDate,
+      });
+      const res = await jobApis.insertJob(row);
+      if (res.inserted) inserted++;
+    }
+    return { source: 'jobbank_ca', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'jobbank_ca', error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  Visa-sponsorship-companies importer (multi-country)
+//  Source: github.com/SiaExplains/visa-sponsorship-companies (50+ countries)
+//  Stub: fetches the README/JSON if user clones it locally to data/
+// ════════════════════════════════════════════════════════════
+async function importVisaSponsorshipCompanies() {
+  try {
+    // Try GitHub raw README parsing — README has tables per country
+    const url = 'https://raw.githubusercontent.com/SiaExplains/visa-sponsorship-companies/main/README.md';
+    const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(TIMEOUT) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const md = await r.text();
+    // Parse markdown lines like "| Company | Website | Country |"
+    const lines = md.split('\n');
+    let inserted = 0;
+    let currentCountry = null;
+    for (const line of lines) {
+      const h = line.match(/^##\s+(.+)/);
+      if (h) {
+        currentCountry = h[1].trim().slice(0, 50);
+        continue;
+      }
+      const m = line.match(/^\|\s*([^|]+)\s*\|\s*([^|]*)\s*\|/);
+      if (m && currentCountry && !/^---|company|name/i.test(m[1])) {
+        const name = m[1].trim();
+        const website = m[2].trim().replace(/[\[\]()]/g, '');
+        if (!name || name.length < 2) continue;
+        try {
+          await db.query(
+            `INSERT INTO emp_visa_sponsors (company_name, website, country, source)
+             VALUES ($1, $2, $3, 'siaexplains')
+             ON CONFLICT (company_name, country) DO NOTHING`,
+            [name, website || null, currentCountry]
+          );
+          inserted++;
+        } catch (_) { /* table may not exist; create on demand */ }
+      }
+    }
+    return { source: 'visa_sponsors_import', inserted };
+  } catch (err) {
+    return { source: 'visa_sponsors_import', error: err.message };
+  }
+}
+
 async function fetchAll() {
   const results = [];
   const workday = require('./workday');
@@ -336,6 +478,8 @@ async function fetchAll() {
     ['hh_ru', () => fetchHHru({ text: '', perPage: 25 })],
     ['nav_no', () => fetchNAV({ size: 25 })],
     ['jobspy_onsite', () => fetchJobSpyOnsite()],
+    ['eures', () => fetchEURES({})],
+    ['jobbank_ca', () => fetchJobBankCanada({})],
     ['workday', async () => {
       const r = await workday.fetchAll();
       const inserted = r.reduce((a, x) => a + (x.inserted || 0), 0);
@@ -369,6 +513,9 @@ module.exports = {
   fetchJobSpyOnsite,
   fetchFranceTravail,
   fetchBundesagentur,
+  fetchEURES,
+  fetchJobBankCanada,
+  importVisaSponsorshipCompanies,
   importUKSponsorRegister,
   crossRefVisaSponsors,
   fetchAll,

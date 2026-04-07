@@ -357,10 +357,225 @@ async function fetchFinlight() {
   }
 }
 
+/**
+ * NewsAPI.ai (Event Registry) — 2K searches/mes free, 150K sources, clusters de eventos
+ * Docs: https://eventregistry.org/documentation
+ */
+async function fetchEventRegistry() {
+  const key = process.env.EVENT_REGISTRY_API_KEY;
+  if (!key) {
+    return { newCount: 0, highScoreArticles: [], skipped: 'EVENT_REGISTRY_API_KEY no configurada' };
+  }
+  try {
+    const url = 'https://eventregistry.org/api/v1/article/getArticles';
+    const body = {
+      action: 'getArticles',
+      apiKey: key,
+      lang: ['eng', 'spa', 'fra', 'ara'],
+      articlesCount: 50,
+      articlesSortBy: 'date',
+      resultType: 'articles',
+    };
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`EventRegistry HTTP ${r.status}`);
+    const data = await r.json();
+    const articles = data.articles?.results || [];
+    const feedId = await ensurePseudoFeed('event_registry', 'NewsAPI.ai (Event Registry)');
+    let newCount = 0;
+    const highScoreArticles = [];
+    for (const a of articles) {
+      const score = await scoreArticleText(`${a.title} ${a.body || ''}`);
+      const inserted = await insertArticle(feedId, a.title, a.url, (a.body || '').slice(0, 1000), a.dateTime, score);
+      if (inserted) {
+        newCount++;
+        if (score >= 8) highScoreArticles.push({ title: a.title, score, url: a.url });
+      }
+    }
+    return { newCount, highScoreArticles, fetched: articles.length };
+  } catch (err) {
+    return { newCount: 0, highScoreArticles: [], error: err.message };
+  }
+}
+
+/**
+ * YouTube Data API v3 — search videos for keywords (free 10K units/day)
+ * Docs: https://developers.google.com/youtube/v3/docs/search/list
+ * 1 search = 100 units → 100 searches/day
+ */
+async function fetchYouTubeSearch() {
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) {
+    return { newCount: 0, highScoreArticles: [], skipped: 'YOUTUBE_API_KEY no configurada' };
+  }
+  try {
+    const kws = await db.queryAll('SELECT keyword FROM rss_keywords ORDER BY weight DESC LIMIT 3');
+    if (!kws.length) return { newCount: 0, highScoreArticles: [] };
+    const feedId = await ensurePseudoFeed('youtube_search', 'YouTube Search');
+    let newCount = 0;
+    const highScoreArticles = [];
+    for (const { keyword } of kws) {
+      const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&order=date&maxResults=15&q=${encodeURIComponent(keyword)}&key=${key}`;
+      const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) continue;
+      const data = await r.json();
+      for (const item of (data.items || [])) {
+        const vid = item.id?.videoId;
+        if (!vid) continue;
+        const title = item.snippet?.title || '';
+        const desc = item.snippet?.description || '';
+        const ytUrl = `https://www.youtube.com/watch?v=${vid}`;
+        const score = await scoreArticleText(`${title} ${desc}`);
+        const inserted = await insertArticle(feedId, `[YT] ${title}`, ytUrl, desc.slice(0, 500), item.snippet?.publishedAt, score);
+        if (inserted) {
+          newCount++;
+          if (score >= 8) highScoreArticles.push({ title, score, url: ytUrl });
+        }
+      }
+    }
+    return { newCount, highScoreArticles };
+  } catch (err) {
+    return { newCount: 0, highScoreArticles: [], error: err.message };
+  }
+}
+
+/**
+ * Mastodon Search API — search posts across instances (no key needed for public search,
+ * but rate-limited; with token gives higher limits + private/direct visibility access)
+ * Docs: https://docs.joinmastodon.org/methods/search/
+ */
+async function fetchMastodonSearch() {
+  const instance = process.env.MASTODON_INSTANCE || 'https://mastodon.social';
+  const token = process.env.MASTODON_ACCESS_TOKEN;
+  try {
+    const kws = await db.queryAll('SELECT keyword FROM rss_keywords ORDER BY weight DESC LIMIT 3');
+    if (!kws.length) return { newCount: 0, highScoreArticles: [] };
+    const feedId = await ensurePseudoFeed('mastodon_search', 'Mastodon Search');
+    let newCount = 0;
+    const highScoreArticles = [];
+    for (const { keyword } of kws) {
+      const url = `${instance}/api/v2/search?q=${encodeURIComponent(keyword)}&type=statuses&limit=20`;
+      const headers = { Accept: 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const r = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) {
+        if (r.status === 401 || r.status === 403) {
+          return { newCount: 0, highScoreArticles: [], skipped: 'MASTODON_ACCESS_TOKEN required for search' };
+        }
+        continue;
+      }
+      const data = await r.json();
+      for (const s of (data.statuses || [])) {
+        const text = (s.content || '').replace(/<[^>]*>/g, '').slice(0, 500);
+        const sUrl = s.url || s.uri;
+        if (!sUrl) continue;
+        const score = await scoreArticleText(text);
+        const inserted = await insertArticle(feedId, `[Mastodon] ${text.slice(0, 200)}`, sUrl, text, s.created_at, score);
+        if (inserted) {
+          newCount++;
+          if (score >= 8) highScoreArticles.push({ title: text.slice(0, 80), score, url: sUrl });
+        }
+      }
+    }
+    return { newCount, highScoreArticles };
+  } catch (err) {
+    return { newCount: 0, highScoreArticles: [], error: err.message };
+  }
+}
+
+/**
+ * Apple Podcasts Search — FREE no auth via iTunes Search API
+ * Docs: https://performance-partners.apple.com/search-api
+ */
+async function fetchApplePodcasts() {
+  try {
+    const kws = await db.queryAll('SELECT keyword FROM rss_keywords ORDER BY weight DESC LIMIT 3');
+    if (!kws.length) return { newCount: 0, highScoreArticles: [] };
+    const feedId = await ensurePseudoFeed('apple_podcasts', 'Apple Podcasts Search');
+    let newCount = 0;
+    const highScoreArticles = [];
+    for (const { keyword } of kws) {
+      const url = `https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit=15&term=${encodeURIComponent(keyword)}`;
+      const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) continue;
+      const data = await r.json();
+      for (const ep of (data.results || [])) {
+        const title = ep.trackName || ep.collectionName || '';
+        const epUrl = ep.trackViewUrl || ep.collectionViewUrl;
+        if (!epUrl) continue;
+        const desc = (ep.description || ep.shortDescription || '').slice(0, 500);
+        const score = await scoreArticleText(`${title} ${desc}`);
+        const inserted = await insertArticle(feedId, `[Podcast] ${title}`, epUrl, desc, ep.releaseDate, score);
+        if (inserted) {
+          newCount++;
+          if (score >= 8) highScoreArticles.push({ title, score, url: epUrl });
+        }
+      }
+    }
+    return { newCount, highScoreArticles };
+  } catch (err) {
+    return { newCount: 0, highScoreArticles: [], error: err.message };
+  }
+}
+
+/**
+ * Podcast Index API — 4M+ podcasts, free with key (unlimited)
+ * Docs: https://podcastindex-org.github.io/docs-api/
+ */
+async function fetchPodcastIndex() {
+  const key = process.env.PODCAST_INDEX_KEY;
+  const secret = process.env.PODCAST_INDEX_SECRET;
+  if (!key || !secret) {
+    return { newCount: 0, highScoreArticles: [], skipped: 'PODCAST_INDEX_KEY+SECRET no configurados' };
+  }
+  try {
+    const crypto = require('crypto');
+    const apiHeaderTime = Math.floor(Date.now() / 1000);
+    const sha1 = crypto.createHash('sha1').update(key + secret + apiHeaderTime).digest('hex');
+    const headers = {
+      'X-Auth-Date': String(apiHeaderTime),
+      'X-Auth-Key': key,
+      'Authorization': sha1,
+      'User-Agent': 'UltraSystem/1.0',
+    };
+    const kws = await db.queryAll('SELECT keyword FROM rss_keywords ORDER BY weight DESC LIMIT 3');
+    if (!kws.length) return { newCount: 0, highScoreArticles: [] };
+    const feedId = await ensurePseudoFeed('podcast_index', 'Podcast Index');
+    let newCount = 0;
+    const highScoreArticles = [];
+    for (const { keyword } of kws) {
+      const url = `https://api.podcastindex.org/api/1.0/search/byterm?q=${encodeURIComponent(keyword)}&max=15`;
+      const r = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) continue;
+      const data = await r.json();
+      for (const f of (data.feeds || [])) {
+        const score = await scoreArticleText(`${f.title} ${f.description || ''}`);
+        const inserted = await insertArticle(feedId, `[Podcast] ${f.title}`, f.link || f.url, (f.description || '').slice(0, 500), f.lastUpdateTime ? new Date(f.lastUpdateTime * 1000) : null, score);
+        if (inserted) {
+          newCount++;
+          if (score >= 8) highScoreArticles.push({ title: f.title, score, url: f.link });
+        }
+      }
+    }
+    return { newCount, highScoreArticles };
+  } catch (err) {
+    return { newCount: 0, highScoreArticles: [], error: err.message };
+  }
+}
+
 module.exports = {
   fetchGdelt,
   fetchBlueskySearch,
   fetchCurrents,
   fetchNewsdata,
   fetchFinlight,
+  fetchEventRegistry,
+  fetchYouTubeSearch,
+  fetchMastodonSearch,
+  fetchApplePodcasts,
+  fetchPodcastIndex,
 };

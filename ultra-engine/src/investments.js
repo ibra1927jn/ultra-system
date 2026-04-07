@@ -143,4 +143,76 @@ async function getPortfolio() {
   };
 }
 
-module.exports = { getQuote, getQuotes, getPortfolio, fxToNzd };
+/**
+ * Historical OHLCV from Stooq daily CSV.
+ * Returns array of {date, open, high, low, close, volume}.
+ *   d1: daily, d2: weekly, d3: monthly. interval default daily.
+ *   from/to format: YYYYMMDD
+ */
+async function getHistory(symbol, { from, to, interval = 'd' } = {}) {
+  const params = new URLSearchParams({ s: symbol.toLowerCase(), i: interval });
+  if (from) params.set('d1', from);
+  if (to) params.set('d2', to);
+  const url = `https://stooq.com/q/d/l/?${params}`;
+  const r = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 UltraSystem/1.0' },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) throw new Error(`Stooq history HTTP ${r.status}`);
+  const text = await r.text();
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].toLowerCase().split(',');
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const v = lines[i].split(',');
+    const row = Object.fromEntries(headers.map((h, idx) => [h.trim(), v[idx]?.trim()]));
+    if (row.date && row.close && row.close !== 'N/D') {
+      out.push({
+        date: row.date,
+        open: parseFloat(row.open),
+        high: parseFloat(row.high),
+        low: parseFloat(row.low),
+        close: parseFloat(row.close),
+        volume: parseInt(row.volume || '0', 10),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Persiste históricos a fin_investment_history (idempotente por symbol+date).
+ */
+async function syncHistory(symbol, days = 365) {
+  await db.query(
+    `CREATE TABLE IF NOT EXISTS fin_investment_history (
+       id SERIAL PRIMARY KEY,
+       symbol TEXT NOT NULL,
+       date DATE NOT NULL,
+       open NUMERIC(18,4),
+       high NUMERIC(18,4),
+       low NUMERIC(18,4),
+       close NUMERIC(18,4),
+       volume BIGINT,
+       UNIQUE(symbol, date)
+     )`
+  );
+  const to = new Date();
+  const from = new Date(Date.now() - days * 86400000);
+  const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, '');
+  const rows = await getHistory(symbol, { from: fmt(from), to: fmt(to) });
+  let inserted = 0;
+  for (const r of rows) {
+    const res = await db.queryOne(
+      `INSERT INTO fin_investment_history (symbol, date, open, high, low, close, volume)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (symbol, date) DO NOTHING RETURNING id`,
+      [symbol.toUpperCase(), r.date, r.open, r.high, r.low, r.close, r.volume]
+    );
+    if (res) inserted++;
+  }
+  return { symbol, fetched: rows.length, inserted };
+}
+
+module.exports = { getQuote, getQuotes, getPortfolio, fxToNzd, getHistory, syncHistory };

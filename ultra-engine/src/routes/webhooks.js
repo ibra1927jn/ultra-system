@@ -279,4 +279,97 @@ router.get('/wearable/recent', async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════
+//  P7 — Wearable OAuth flows (stubs ready, just paste credentials)
+//  Activan cuando los env vars están configurados.
+//   FITBIT_CLIENT_ID + FITBIT_CLIENT_SECRET
+//   WITHINGS_CLIENT_ID + WITHINGS_CLIENT_SECRET
+//   OURA_PERSONAL_TOKEN (no OAuth, token directo)
+//
+//  Callback URL a configurar en el dev portal:
+//   https://YOUR-DOMAIN/webhooks/wearable/{provider}/callback
+// ════════════════════════════════════════════════════════════
+
+router.get('/wearable/fitbit/auth', (req, res) => {
+  const id = process.env.FITBIT_CLIENT_ID;
+  if (!id) return res.status(503).send('FITBIT_CLIENT_ID not configured');
+  const cb = encodeURIComponent(`${req.protocol}://${req.get('host')}/webhooks/wearable/fitbit/callback`);
+  const scope = encodeURIComponent('activity heartrate sleep weight nutrition');
+  res.redirect(`https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${id}&redirect_uri=${cb}&scope=${scope}&expires_in=604800`);
+});
+
+router.get('/wearable/fitbit/callback', async (req, res) => {
+  const id = process.env.FITBIT_CLIENT_ID;
+  const secret = process.env.FITBIT_CLIENT_SECRET;
+  if (!id || !secret) return res.status(503).send('FITBIT_CLIENT_ID/SECRET not configured');
+  const code = req.query.code;
+  if (!code) return res.status(400).send('missing code');
+  try {
+    const cb = `${req.protocol}://${req.get('host')}/webhooks/wearable/fitbit/callback`;
+    const basic = Buffer.from(`${id}:${secret}`).toString('base64');
+    const tokenRes = await fetch('https://api.fitbit.com/oauth2/token', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${basic}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: `client_id=${id}&grant_type=authorization_code&redirect_uri=${encodeURIComponent(cb)}&code=${code}`,
+    });
+    const tok = await tokenRes.json();
+    if (!tok.access_token) return res.status(500).send(`Fitbit token error: ${JSON.stringify(tok)}`);
+    const bioExtras = require('../bio_extras');
+    await bioExtras.ensureWearableCreds();
+    await db.query(
+      `INSERT INTO wearable_credentials (provider, access_token, refresh_token, expires_at, scope, user_id, updated_at)
+       VALUES ('fitbit', $1, $2, NOW() + ($3 || ' seconds')::interval, $4, $5, NOW())
+       ON CONFLICT (provider) DO UPDATE SET
+         access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token,
+         expires_at=EXCLUDED.expires_at, updated_at=NOW()`,
+      [tok.access_token, tok.refresh_token, String(tok.expires_in || 28800), tok.scope, tok.user_id]
+    );
+    res.send('✓ Fitbit linked. You can close this window.');
+  } catch (err) {
+    res.status(500).send(`Fitbit OAuth error: ${err.message}`);
+  }
+});
+
+router.get('/wearable/withings/auth', (req, res) => {
+  const id = process.env.WITHINGS_CLIENT_ID;
+  if (!id) return res.status(503).send('WITHINGS_CLIENT_ID not configured');
+  const cb = encodeURIComponent(`${req.protocol}://${req.get('host')}/webhooks/wearable/withings/callback`);
+  res.redirect(`https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${id}&state=ultra&scope=user.metrics,user.activity,user.sleepevents&redirect_uri=${cb}`);
+});
+
+router.get('/wearable/withings/callback', async (req, res) => {
+  const id = process.env.WITHINGS_CLIENT_ID;
+  const secret = process.env.WITHINGS_CLIENT_SECRET;
+  if (!id || !secret) return res.status(503).send('WITHINGS_CLIENT_ID/SECRET not configured');
+  const code = req.query.code;
+  if (!code) return res.status(400).send('missing code');
+  try {
+    const cb = `${req.protocol}://${req.get('host')}/webhooks/wearable/withings/callback`;
+    const tokenRes = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `action=requesttoken&grant_type=authorization_code&client_id=${id}&client_secret=${secret}&code=${code}&redirect_uri=${encodeURIComponent(cb)}`,
+    });
+    const data = await tokenRes.json();
+    const tok = data.body || {};
+    if (!tok.access_token) return res.status(500).send(`Withings error: ${JSON.stringify(data)}`);
+    const bioExtras = require('../bio_extras');
+    await bioExtras.ensureWearableCreds();
+    await db.query(
+      `INSERT INTO wearable_credentials (provider, access_token, refresh_token, expires_at, scope, user_id, updated_at)
+       VALUES ('withings', $1, $2, NOW() + ($3 || ' seconds')::interval, $4, $5, NOW())
+       ON CONFLICT (provider) DO UPDATE SET
+         access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token,
+         expires_at=EXCLUDED.expires_at, updated_at=NOW()`,
+      [tok.access_token, tok.refresh_token, String(tok.expires_in || 10800), tok.scope, String(tok.userid || '')]
+    );
+    res.send('✓ Withings linked. You can close this window.');
+  } catch (err) {
+    res.status(500).send(`Withings OAuth error: ${err.message}`);
+  }
+});
+
 module.exports = router;

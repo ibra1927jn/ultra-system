@@ -195,6 +195,84 @@ router.post('/budget', async (req, res) => {
   }
 });
 
+// ─── GET /api/finances/budget/carryover ────────────────────
+//   Envelope budgeting: el saldo no gastado de un mes se acumula
+//   al limite del mes siguiente. Calcula carryover sumando deltas
+//   (limit - spent) de los meses anteriores hasta el month query.
+router.get('/budget/carryover', async (req, res) => {
+  try {
+    const month = req.query.month || new Date().toISOString().slice(0, 7);
+    const monthsBack = parseInt(req.query.monthsBack || '6', 10);
+    // Genera los meses incluidos
+    const start = new Date(`${month}-01T00:00:00Z`);
+    start.setUTCMonth(start.getUTCMonth() - monthsBack);
+    const startStr = start.toISOString().slice(0, 7);
+
+    const rows = await db.queryAll(
+      `WITH months AS (
+         SELECT TO_CHAR(generate_series($1::date, $2::date, INTERVAL '1 month'), 'YYYY-MM') AS m
+       ),
+       spend AS (
+         SELECT TO_CHAR(date, 'YYYY-MM') AS m, LOWER(category) AS cat, SUM(amount) AS spent
+         FROM finances
+         WHERE type='expense' AND TO_CHAR(date,'YYYY-MM') BETWEEN $1 AND $2
+         GROUP BY 1,2
+       )
+       SELECT
+         b.category,
+         b.monthly_limit::numeric AS monthly_limit,
+         m.m AS month,
+         COALESCE(s.spent,0)::numeric AS spent,
+         (b.monthly_limit - COALESCE(s.spent,0))::numeric AS delta
+       FROM budgets b
+       CROSS JOIN months m
+       LEFT JOIN spend s ON s.m = m.m AND s.cat = LOWER(b.category)
+       ORDER BY b.category, m.m`,
+      [`${startStr}-01`, `${month}-01`]
+    );
+
+    // Acumula deltas hasta el target month
+    const byCategory = {};
+    for (const r of rows) {
+      if (!byCategory[r.category]) {
+        byCategory[r.category] = { category: r.category, monthly_limit: parseFloat(r.monthly_limit), carryover: 0, current_spent: 0, history: [] };
+      }
+      const c = byCategory[r.category];
+      c.history.push({ month: r.month, spent: parseFloat(r.spent), delta: parseFloat(r.delta) });
+      if (r.month === month) {
+        c.current_spent = parseFloat(r.spent);
+      } else {
+        c.carryover += parseFloat(r.delta);
+      }
+    }
+    const data = Object.values(byCategory).map(c => ({
+      category: c.category,
+      monthly_limit: c.monthly_limit,
+      carryover_balance: Math.max(0, Math.round(c.carryover * 100) / 100),
+      effective_limit: Math.round((c.monthly_limit + Math.max(0, c.carryover)) * 100) / 100,
+      current_spent: c.current_spent,
+      remaining: Math.round((c.monthly_limit + Math.max(0, c.carryover) - c.current_spent) * 100) / 100,
+      history: c.history,
+    }));
+    res.json({ ok: true, month, monthsBack, data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/finances/investments/sync-history ────────────
+router.post('/investments/sync-history', async (req, res) => {
+  try {
+    const investments = require('../investments');
+    const { symbol, days = 365 } = req.body || {};
+    if (!symbol) return res.status(400).json({ ok: false, error: 'symbol required' });
+    const r = await investments.syncHistory(symbol, parseInt(days, 10));
+    res.json({ ok: true, data: r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ─── GET /api/finances/alerts ─ Categorias excediendo 80% ─
 router.get('/alerts', async (req, res) => {
   try {

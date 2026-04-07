@@ -590,6 +590,81 @@ router.post('/paperless/link', async (req, res) => {
 //  P4 FASE 3b — EMBASSIES + CONSULAR REGISTRATIONS
 // ═══════════════════════════════════════════════════════════
 
+// ─── GET /api/bureaucracy/tax-deadlines.ics ─────────────────
+//   Exporta deadlines fiscales en formato iCalendar para suscribir
+//   desde Google Calendar / Apple Calendar / cualquier cliente CalDAV.
+//   URL: GET /api/bureaucracy/tax-deadlines.ics?country=NZ
+router.get('/tax-deadlines.ics', async (req, res) => {
+  try {
+    const { country } = req.query;
+    const where = country ? 'WHERE country = $1' : '';
+    const params = country ? [country.toUpperCase()] : [];
+    const rows = await db.queryAll(
+      `SELECT id, country, name, deadline_date, frequency, description, currency
+       FROM bur_tax_deadlines ${where}
+       ORDER BY deadline_date`,
+      params
+    );
+
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//UltraSystem//Tax Deadlines//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      `X-WR-CALNAME:Ultra Tax Deadlines${country ? ' ' + country : ''}`,
+    ];
+    for (const r of rows) {
+      const date = (r.deadline_date instanceof Date ? r.deadline_date.toISOString() : String(r.deadline_date)).slice(0, 10).replace(/-/g, '');
+      const dtstamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:tax-${r.id}@ultra-system`,
+        `DTSTAMP:${dtstamp}`,
+        `DTSTART;VALUE=DATE:${date}`,
+        `SUMMARY:[${r.country}] ${(r.name || '').replace(/[\r\n,;]/g, ' ')}`,
+        `DESCRIPTION:${(r.description || '').replace(/[\r\n,;]/g, ' ')} (${r.frequency || ''})`,
+        'END:VEVENT'
+      );
+    }
+    lines.push('END:VCALENDAR');
+    res.type('text/calendar').send(lines.join('\r\n'));
+  } catch (err) {
+    res.status(500).send(`ERROR: ${err.message}`);
+  }
+});
+
+// ─── POST /api/bureaucracy/embassies/seed ─────────────────────
+//   Seed embajadas relevantes (ES, DZ, NZ, AU). Idempotente.
+router.post('/embassies/seed', async (_req, res) => {
+  try {
+    const seed = [
+      // España representando a Ibrahim en países relevantes
+      { representing: 'ES', located_in: 'NZ', city: 'Wellington', address: '50 Manners Street', phone: '+64-4-802-5665', email: 'emb.wellington@maec.es', url: 'https://www.exteriores.gob.es/embajadas/wellington' },
+      { representing: 'ES', located_in: 'AU', city: 'Canberra', address: '15 Arkana Street, Yarralumla', phone: '+61-2-6273-3555', email: 'emb.canberra@maec.es', url: 'https://www.exteriores.gob.es/embajadas/canberra' },
+      { representing: 'ES', located_in: 'DZ', city: 'Argel', address: '46/46bis Boulevard Mohamed Khemisti', phone: '+213-21-92-12-22', url: 'https://www.exteriores.gob.es/embajadas/argel' },
+      // Argelia (segundo pasaporte) en países relevantes
+      { representing: 'DZ', located_in: 'AU', city: 'Canberra', address: '9 Terrigal Crescent, O\'Malley', phone: '+61-2-6286-7355', url: 'http://www.algerianembassy.org.au' },
+      { representing: 'DZ', located_in: 'ES', city: 'Madrid', address: 'Calle General Oraá 12', phone: '+34-91-562-9707' },
+      // Consulados ES en Auckland (más cercano que Wellington)
+      { representing: 'ES', located_in: 'NZ', type: 'consulate', city: 'Auckland', notes: 'Consulado honorario' },
+    ];
+    let inserted = 0;
+    for (const e of seed) {
+      const r = await db.queryOne(
+        `INSERT INTO bur_embassies (representing, located_in, type, city, address, phone, email, url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (representing, located_in, city) DO NOTHING RETURNING id`,
+        [e.representing, e.located_in, e.type || 'embassy', e.city, e.address || null, e.phone || null, e.email || null, e.url || null]
+      );
+      if (r) inserted++;
+    }
+    res.json({ ok: true, inserted, total: seed.length });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/embassies', async (req, res) => {
   try {
     const { representing, located_in, city } = req.query;

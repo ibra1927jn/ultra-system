@@ -293,6 +293,48 @@ function init() {
     'Cada 5 min — Probe wger/mealie/grocy/fasten'
   );
 
+  // ─── P6 Tier A: Logistics extras (Park4Night/Freecycle/etc) semanal jueves 04:30 ──
+  register(
+    'logistics-extras',
+    '30 4 * * 4',
+    async () => {
+      const le = require('./logistics_extras');
+      const r = await le.fetchAll();
+      console.log('🗺️ logistics-extras:', r.map(x => `${x.source}=${x.inserted ?? x.error?.slice(0,30) ?? x.skipped ?? '?'}`).join(' '));
+    },
+    'Jueves 04:30 — Park4Night/Freecycle/TransferCar/Imoova/eSIMDB/etc'
+  );
+
+  // ─── P7 Tier A: Bio extras pollers cada 6h ──
+  register(
+    'bio-extras-poll',
+    '0 */6 * * *',
+    async () => {
+      const bx = require('./bio_extras');
+      const results = [];
+      for (const fn of [bx.fetchOpenUV, bx.fetchFitbitDaily, bx.fetchOuraDaily, bx.fetchWithingsDaily]) {
+        try { results.push(await fn()); } catch (e) { results.push({ error: e.message }); }
+      }
+      console.log('🩺 bio-extras:', results.map(r => `${r.source || '?'}=${r.skipped ? 'skip' : (r.error ? 'err' : 'ok')}`).join(' '));
+    },
+    'Cada 6h — OpenUV/Fitbit/Oura/Withings (skipped si no hay credenciales)'
+  );
+
+  // ─── P1 Tier A: News API stubs poll cada 4h ──
+  register(
+    'news-api-stubs',
+    '15 */4 * * *',
+    async () => {
+      const na = require('./news_apis');
+      const results = [];
+      for (const fn of [na.fetchCurrents, na.fetchNewsdata, na.fetchFinlight, na.fetchEventRegistry, na.fetchYouTubeSearch, na.fetchMastodonSearch, na.fetchApplePodcasts, na.fetchPodcastIndex]) {
+        try { results.push(await fn()); } catch (e) { results.push({ error: e.message }); }
+      }
+      console.log('📰 news-api-stubs:', results.map(r => r.skipped ? 'skip' : (r.error ? 'err' : `+${r.newCount || 0}`)).join(' '));
+    },
+    'Cada 4h+15min — Currents/Newsdata/Finlight/EventRegistry/YouTube/Mastodon/ApplePodcasts/PodcastIndex'
+  );
+
   // ─── Health check — Cada hora ───
   register(
     'health-ping',

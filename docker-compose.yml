@@ -288,6 +288,53 @@ services:
         limits:
           memory: 400M
 
+  # ─── APPRISE — multi-channel notifications (P4 opcional) ────
+  # Activar: docker compose --profile notify up -d apprise
+  # Después: set APPRISE_URL=http://apprise:8000 en .env
+  apprise:
+    image: caronc/apprise:latest
+    container_name: ultra_apprise
+    restart: unless-stopped
+    profiles: ["notify"]
+    ports:
+      - "8008:8000"
+    environment:
+      APPRISE_STATEFUL_MODE: simple
+      APPRISE_CONFIG_LOCK: "no"
+    volumes:
+      - apprise_data:/config
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+
+  # ─── n8n — workflow automation (P4 opcional) ────────────────
+  # Activar: docker compose --profile automation up -d n8n
+  # Acceso: http://localhost:5678
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: ultra_n8n
+    restart: unless-stopped
+    profiles: ["automation"]
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-changeme}
+      TZ: ${TZ:-Pacific/Auckland}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  VOLÚMENES PERSISTENTES
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -308,6 +355,8 @@ volumes:
   paperless_export:
   traccar_data:
   traccar_logs:
+  apprise_data:
+  n8n_data:
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  RED INTERNA

@@ -571,3 +571,67 @@ Engine: 32 cron jobs · 12 containers · 24 modules src/ + map.html UI · 80+ en
 ## Bloqueado 🚫
 
 ---
+
+## 🚀 Tier A Round 2 (2026-04-07) — keyed stubs masivos
+
+Continuación masiva del Tier A. Plan: ejecutar todo lo que NO requiere keys, dejar stubs idempotentes para todo lo que sí (gated por env vars). 36 cron jobs registrados (antes 33).
+
+### P1 News (10 nuevos)
+- `early_warning.js`: +ProMED, FEWS NET, Smartraveller, MAEC España (URLs por verificar — bloqueados desde Hetzner IP)
+- `news_apis.js`: +EventRegistry, YouTube Data API, Mastodon Search, **Apple Podcasts (FREE FUNCIONA)**, Podcast Index
+- `seed_multilingual_feeds.js`: 18 feeds (EFE, Jeune Afrique, RFI Afrique, Lusa, Al Jazeera EN/AR, Le Monde, La Tercera, Khaleej Times, France 24 ES, DW Español, Echorouk DZ, El Watan DZ, TSA Algérie + 5 Mastodon profile RSS + 3 YouTube channel RSS)
+- Cron `news-api-stubs` (cada 4h+15min) auto-skip cuando keys ausentes
+
+### P2 Empleo (8+9 nuevos)
+- Workday tenants +9: Atlassian, Cisco, Adobe, Twilio, Stripe, McKinsey, Deloitte, KPMG, EY, JPMorgan, Goldman Sachs (16 total)
+- `gov_jobs.js`: +EURES (UE 28 países), Job Bank Canada, importVisaSponsorshipCompanies (parser GitHub README)
+
+### P3 Finanzas (3 nuevos)
+- `investments.js`: +`getHistory()` + `syncHistory()` Stooq histórico OHLCV → tabla `fin_investment_history` (creada on-demand)
+- `routes/finances.js`: GET `/budget/carryover?month=YYYY-MM&monthsBack=6` (envelope budgeting)
+- POST `/investments/sync-history`
+
+### P4 Burocracia (4 nuevos)
+- GET `/api/bureaucracy/tax-deadlines.ics` (suscribible desde Google/Apple Calendar)
+- POST `/api/bureaucracy/embassies/seed` (6 embajadas relevantes ES↔NZ/AU/DZ + DZ↔AU/ES)
+- `notifications.js`: wrapper Apprise → fallback Telegram. Container Apprise añadido a docker-compose con `--profile notify`
+- Container n8n añadido con `--profile automation` (port 5678)
+
+### P5 Oportunidades (21 nuevos fetchers)
+- RSS-based: DailyRemote, Nodesk, Intigriti (✅ 20 inserted), Huntr, F6S, Euraxess, SovereignTechFund, NLnetCalls, HorizonEurope, Lablab
+- API-based: GetOnBoard LATAM, TorreAI, IssueHunt, EICAccelerator
+- Spain gov: KitDigital, GarantiaJuvenil (seed estático ✅)
+- Crypto quests stubs (gated): Galxe, Layer3, Zealy
+- Total `FETCHERS` array: 17 → 38
+
+### P6 Logística (file nuevo, 9 fetchers)
+- `logistics_extras.js`: Park4Night unofficial, Freecycle, TransferCar, Imoova, NZ vehicle compliance, eSIMDB
+- Stubs gated: BlaBlaCar, WiFi Map, Open Charge Map
+- Tabla `logistics_pois` creada on-demand
+- Cron `logistics-extras` jueves 04:30
+
+### P7 Bio-check (file nuevo + OAuth flows)
+- `bio_extras.js`: USDA FoodData (stub), OpenUV (→`bio_environmental` table), CalorieNinjas, Fitbit/Oura/Withings daily pollers
+- Tabla `wearable_credentials` con access/refresh tokens
+- `routes/webhooks.js`: GET `/webhooks/wearable/fitbit/auth` + `/callback` (OAuth flow completo)
+- GET `/webhooks/wearable/withings/auth` + `/callback` (OAuth flow completo)
+- Cron `bio-extras-poll` cada 6h
+
+### Documentación
+- **`SIGNUPS.md`** (NEW): lista exhaustiva de ~30 signups con URLs, prioridades, flujo recomendado en 5 sesiones
+- **`.env.example`**: +30 variables de entorno con URLs de signup en comentarios
+
+### Verificación
+- Container engine: ✅ boots clean con 36 cron jobs
+- Apple Podcasts (FREE no auth): ✅ 15 episodes fetched
+- Intigriti RSS: ✅ 20 bounties inserted
+- KitDigital + GarantiaJuvenil: ✅ 2 seeded
+- Multilingual feeds: 18 inserted
+
+### URLs que fallan / por verificar
+- ProMED, Smartraveller (Cloudflare/IP block desde datacenter)
+- FEWS NET, Crisis Group XML, Sovereign Tech Fund, DailyRemote, Nodesk, Huntr, F6S, Euraxess (URLs candidatas → 404, son SPAs sin RSS)
+- GetOnBoard 401, TorreAI 400, IssueHunt HTML
+- Quedan en código con error logs graceful — reemplazar URLs cuando se verifiquen
+
+---

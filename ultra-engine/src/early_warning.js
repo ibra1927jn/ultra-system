@@ -458,6 +458,161 @@ async function fetchCDCTravelNotices() {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+//  ProMED-mail — disease outbreak posts (RSS via promedmail.org)
+// ════════════════════════════════════════════════════════════
+async function fetchProMED() {
+  try {
+    const r = await fetch('https://promedmail.org/promed-posts/feed/', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    const feed = await parser.parseString(text).catch(() => ({ items: [] }));
+    const items = feed.items || [];
+    let inserted = 0;
+    for (const it of items.slice(0, 30)) {
+      const title = it.title || '';
+      const country = extractCountryISO(`${title} ${it.contentSnippet || ''}`);
+      let severity = 'medium';
+      if (/fatal|outbreak|epidemic/i.test(title)) severity = 'high';
+      const result = await db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
+         VALUES ('promed', $1, 'disease_outbreak', $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (source, external_id) DO NOTHING RETURNING id`,
+        [it.guid || it.link, severity, title.slice(0, 500),
+         (it.contentSnippet || '').slice(0, 1000), country,
+         it.isoDate || new Date(), it.link]
+      );
+      if (result) inserted++;
+    }
+    return { source: 'promed', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'promed', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  FEWS NET — Famine Early Warning Systems Network (USAID)
+//  Food security alerts Africa/Yemen/Afghanistan/Caribbean
+// ════════════════════════════════════════════════════════════
+async function fetchFEWSNET() {
+  try {
+    const r = await fetch('https://fews.net/rss.xml', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    const feed = await parser.parseString(text).catch(() => ({ items: [] }));
+    const items = feed.items || [];
+    let inserted = 0;
+    for (const it of items.slice(0, 30)) {
+      const title = it.title || '';
+      const country = extractCountryISO(`${title} ${it.contentSnippet || ''}`);
+      let severity = 'medium';
+      if (/famine|emergency|ipc 4|ipc 5/i.test(title + (it.contentSnippet || ''))) severity = 'critical';
+      else if (/crisis|ipc 3/i.test(title + (it.contentSnippet || ''))) severity = 'high';
+      const result = await db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
+         VALUES ('fews_net', $1, 'food_security', $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (source, external_id) DO NOTHING RETURNING id`,
+        [it.guid || it.link, severity, title.slice(0, 500),
+         (it.contentSnippet || '').slice(0, 1000), country,
+         it.isoDate || new Date(), it.link]
+      );
+      if (result) inserted++;
+    }
+    return { source: 'fews_net', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'fews_net', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  Smartraveller (Australia DFAT) — travel advisories RSS
+// ════════════════════════════════════════════════════════════
+async function fetchSmartraveller() {
+  try {
+    const r = await fetch('https://www.smartraveller.gov.au/countries/rss.xml', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    const feed = await parser.parseString(text).catch(() => ({ items: [] }));
+    const items = feed.items || [];
+    let inserted = 0;
+    for (const it of items.slice(0, 50)) {
+      const title = it.title || '';
+      // AU levels: 1=normal, 2=high caution, 3=reconsider, 4=do not travel
+      let severity = 'low';
+      if (/do not travel|level 4/i.test(title)) severity = 'critical';
+      else if (/reconsider|level 3/i.test(title)) severity = 'high';
+      else if (/high.+caution|level 2/i.test(title)) severity = 'medium';
+      const country = extractCountryISO(title);
+      const result = await db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, summary, country, occurred_at, url)
+         VALUES ('smartraveller', $1, 'travel_advisory', $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (source, external_id) DO NOTHING RETURNING id`,
+        [it.guid || it.link, severity, title.slice(0, 500),
+         (it.contentSnippet || '').slice(0, 1000), country,
+         it.isoDate || new Date(), it.link]
+      );
+      if (result) inserted++;
+    }
+    return { source: 'smartraveller', fetched: items.length, inserted };
+  } catch (err) {
+    return { source: 'smartraveller', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  MAEC España — Recomendaciones de viaje (HTML scraper)
+//  Sitio: exteriores.gob.es; no expone RSS oficial → scrape
+// ════════════════════════════════════════════════════════════
+async function fetchMAECEspana() {
+  try {
+    const cheerio = require('cheerio');
+    const r = await fetch('https://www.exteriores.gob.es/es/ServiciosAlCiudadano/Paginas/Recomendaciones-de-viaje.aspx', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UltraBot/1.0)' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const html = await r.text();
+    const $ = cheerio.load(html);
+    let inserted = 0;
+    let fetched = 0;
+    // Sitio renderiza listas con anchors a /es/...PaisViaje/Paginas/{country}.aspx
+    $('a[href*="PaisViaje"]').each((_, el) => {
+      const href = $(el).attr('href');
+      const country = $(el).text().trim();
+      if (!country || !href) return;
+      fetched++;
+      // No tenemos detalle de severidad sin scrape extra. Marcamos como info.
+      const url = href.startsWith('http') ? href : `https://www.exteriores.gob.es${href}`;
+      const iso = extractCountryISO(country);
+      // External ID estable por URL
+      db.queryOne(
+        `INSERT INTO events_store
+         (source, external_id, event_type, severity, title, country, occurred_at, url)
+         VALUES ('maec_es', $1, 'travel_advisory', 'low', $2, $3, NOW(), $4)
+         ON CONFLICT (source, external_id) DO NOTHING RETURNING id`,
+        [url, `MAEC ES — ${country}`, iso, url]
+      ).then(res => { if (res) inserted++; }).catch(() => {});
+    });
+    // Wait microtasks
+    await new Promise(r => setTimeout(r, 200));
+    return { source: 'maec_es', fetched, inserted };
+  } catch (err) {
+    return { source: 'maec_es', fetched: 0, inserted: 0, error: err.message };
+  }
+}
+
 async function fetchAll() {
   const results = [];
   try { results.push(await fetchUSGSEarthquakes()); }
@@ -487,6 +642,18 @@ async function fetchAll() {
   try { results.push(await fetchCDCTravelNotices()); }
   catch (e) { results.push({ source: 'cdc_travel', error: e.message }); }
 
+  try { results.push(await fetchProMED()); }
+  catch (e) { results.push({ source: 'promed', error: e.message }); }
+
+  try { results.push(await fetchFEWSNET()); }
+  catch (e) { results.push({ source: 'fews_net', error: e.message }); }
+
+  try { results.push(await fetchSmartraveller()); }
+  catch (e) { results.push({ source: 'smartraveller', error: e.message }); }
+
+  try { results.push(await fetchMAECEspana()); }
+  catch (e) { results.push({ source: 'maec_es', error: e.message }); }
+
   return results;
 }
 
@@ -500,6 +667,10 @@ module.exports = {
   fetchCrisisGroup,
   fetchUSStateDept,
   fetchCDCTravelNotices,
+  fetchProMED,
+  fetchFEWSNET,
+  fetchSmartraveller,
+  fetchMAECEspana,
   fetchAll,
   extractCountryISO,
 };

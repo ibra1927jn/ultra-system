@@ -26,6 +26,18 @@ const TENANTS = [
   { tenant: 'wilhelmsen', site: 'Wilhelmsen', subdomain: 'wd3', name: 'Wilhelmsen', sector: 'maritime' },
   // Tier A additions:
   { tenant: 'netflix', site: 'Netflix', subdomain: 'wd1', name: 'Netflix', sector: 'media' },
+  // Tier A round 2 — verified Workday tenants:
+  { tenant: 'atlassian', site: 'External', subdomain: 'wd5', name: 'Atlassian', sector: 'devtools' },
+  { tenant: 'cisco', site: 'External_Career_Site', subdomain: 'wd5', name: 'Cisco', sector: 'networking' },
+  { tenant: 'adobe', site: 'external_experienced', subdomain: 'wd5', name: 'Adobe', sector: 'devtools' },
+  { tenant: 'twilio', site: 'External', subdomain: 'wd5', name: 'Twilio', sector: 'devtools' },
+  { tenant: 'stripe', site: 'External', subdomain: 'wd5', name: 'Stripe', sector: 'fintech' },
+  { tenant: 'mckinsey', site: 'External', subdomain: 'wd1', name: 'McKinsey', sector: 'consulting' },
+  { tenant: 'deloitte', site: 'External_Career_Site', subdomain: 'wd1', name: 'Deloitte', sector: 'consulting' },
+  { tenant: 'kpmg', site: 'External', subdomain: 'wd5', name: 'KPMG', sector: 'consulting' },
+  { tenant: 'ey', site: 'EYCareers', subdomain: 'wd1', name: 'EY (Ernst & Young)', sector: 'consulting' },
+  { tenant: 'jpmorgan', site: 'jpmc', subdomain: 'wd5', name: 'JPMorgan Chase', sector: 'finance' },
+  { tenant: 'gs', site: 'goldman', subdomain: 'wd5', name: 'Goldman Sachs', sector: 'finance' },
 ];
 
 const TIMEOUT = 25000;
