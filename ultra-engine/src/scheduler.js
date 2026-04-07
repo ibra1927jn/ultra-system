@@ -284,6 +284,20 @@ function init() {
     'Diario 06:00 — RemoteOK/Remotive/Himalayas/Jobicy/HN/GitHub bounties'
   );
 
+  // ─── P2 Tier S #1: Maritime jobs (sector del usuario, 0% pre-R6) ──
+  // AllCruiseJobs sweep de 14 cruise lines vía Puppeteer, cada ~12h.
+  // Complementa Workday.Wilhelmsen que ya corre en tenants-scrape.
+  register(
+    'maritime-jobs',
+    '15 5,17 * * *',
+    async () => {
+      const mar = require('./maritime');
+      const results = await mar.fetchAll();
+      console.log('⚓ maritime:', results.map(r => `${r.source}=${r.inserted ?? r.skipped ?? r.error?.slice(0,20) ?? '?'}`).join(' '));
+    },
+    '05:15 + 17:15 — AllCruiseJobs sweep (14 cruise lines)'
+  );
+
 
   // ─── P7: Bio-Check — Resumen semanal domingo 20:00 ───
   register(
