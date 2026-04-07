@@ -56,10 +56,131 @@ async function insertPoi(row) {
   return !!r;
 }
 
-// Skipped 2026-04-07: park4night.com cerró su API (HTTP 400 en /api/places/around).
-// Cobertura camping NZ ya tenemos vía Overpass (1902 POIs en log_pois).
-async function fetchPark4Night() {
-  return { source: 'park4night', skipped: 'api_closed_2024', fetched: 0, inserted: 0 };
+// ════════════════════════════════════════════════════════════
+//  Park4Night — van-life camping POIs (R5 step 5)
+// ════════════════════════════════════════════════════════════
+// Reactivation strategy (2026-04-08):
+//  1. /api/places/around sigue 400. Frontend usa SPA con CF challenge.
+//  2. DESCUBIERTO: cada detail page /en/place/{id} tiene una static-map
+//     image de shape:
+//       https://cdn3.park4night.com/img_cache/streets-v2/{zoom}/{lat}/{lon}/{color}/{WxH}.jpg
+//     Lat/lon baked en el URL. No necesitamos JS runtime, sólo HTML.
+//  3. IDs los sacamos de sitemap-index.xml (91 sitemap files, ~350K places total).
+//  4. Páginas crudas están protegidas por CF challenge intermitente → usamos
+//     Puppeteer sidecar que pasa el challenge. Coste ~3-5s/página.
+//  5. Batched: BATCH_SIZE places per run (default 50). Cron-friendly. Acumula
+//     cobertura en el tiempo sin bloquear nada. State en tabla p4n_crawl_state.
+//
+// Resultado: {source, scanned, inserted, skipped_no_coord, total_known, batch_range}
+async function fetchPark4Night({ batchSize = 50 } = {}) {
+  const pup = require('./puppeteer');
+  if (!(await pup.isAvailable())) {
+    return { source: 'park4night', skipped: 'puppeteer_sidecar_offline', fetched: 0, inserted: 0 };
+  }
+
+  // ─── Ensure crawl state table (tracks progress across runs) ─────
+  await db.query(
+    `CREATE TABLE IF NOT EXISTS p4n_crawl_state (
+       id INT PRIMARY KEY DEFAULT 1,
+       last_sitemap_idx INT NOT NULL DEFAULT 1,
+       last_place_idx INT NOT NULL DEFAULT 0,
+       place_ids JSONB,
+       updated_at TIMESTAMPTZ DEFAULT NOW()
+     )`
+  );
+  let state = await db.queryOne('SELECT * FROM p4n_crawl_state WHERE id = 1');
+  if (!state) {
+    await db.query('INSERT INTO p4n_crawl_state (id, last_sitemap_idx, last_place_idx, place_ids) VALUES (1, 1, 0, NULL)');
+    state = { last_sitemap_idx: 1, last_place_idx: 0, place_ids: null };
+  }
+
+  // ─── If place_ids cache empty, fetch sitemap-{idx} and extract ──
+  let placeIds = state.place_ids || [];
+  if (!placeIds.length || state.last_place_idx >= placeIds.length) {
+    try {
+      const sitemapUrl = `https://park4night.com/sitemap/sitemap-${state.last_sitemap_idx}.xml`;
+      const r = await fetch(sitemapUrl, { signal: AbortSignal.timeout(60000) });
+      if (!r.ok) throw new Error(`sitemap HTTP ${r.status}`);
+      const xml = await r.text();
+      const matches = xml.match(/\/en\/place\/\d+/g) || [];
+      placeIds = [...new Set(matches.map(m => parseInt(m.split('/').pop())))].sort((a, b) => a - b);
+      state.last_place_idx = 0;
+      state.last_sitemap_idx = state.last_sitemap_idx + (placeIds.length ? 0 : 1); // advance if empty
+      await db.query(
+        'UPDATE p4n_crawl_state SET place_ids = $1, last_place_idx = $2, last_sitemap_idx = $3, updated_at = NOW() WHERE id = 1',
+        [JSON.stringify(placeIds), state.last_place_idx, state.last_sitemap_idx]
+      );
+    } catch (err) {
+      return { source: 'park4night', error: `sitemap fetch: ${err.message}`, inserted: 0 };
+    }
+  }
+
+  // ─── Process batch ──────────────────────────────────────────────
+  const start = state.last_place_idx || 0;
+  const end = Math.min(start + batchSize, placeIds.length);
+  const batch = placeIds.slice(start, end);
+
+  let inserted = 0, skippedNoCoord = 0, errors = 0;
+  for (const id of batch) {
+    try {
+      const r = await pup.scrape({
+        url: `https://park4night.com/en/place/${id}`,
+        waitFor: 3000,
+        evaluate: '({' +
+          'title: document.querySelector("h1.place-header-name")?.innerText?.trim(),' +
+          'coord: Array.from(document.querySelectorAll("img")).map(i=>i.src).find(s=>s?.includes("img_cache/streets-v2/")),' +
+          'desc: document.querySelector(".place-description, .description-content, [itemprop=description]")?.innerText?.slice(0,500)' +
+        '})',
+      });
+      if (!r.ok || !r.data?.coord) { skippedNoCoord++; continue; }
+      const coordMatch = r.data.coord.match(/img_cache\/streets-v2\/\d+\/(-?\d+\.\d+)\/(-?\d+\.\d+)/);
+      if (!coordMatch) { skippedNoCoord++; continue; }
+      const lat = parseFloat(coordMatch[1]);
+      const lon = parseFloat(coordMatch[2]);
+      const name = r.data.title || `park4night #${id}`;
+      const ok = await insertPoi({
+        source: 'park4night',
+        external_id: `p4n:${id}`,
+        category: 'camping_van',
+        name: name.slice(0, 200),
+        description: (r.data.desc || '').slice(0, 1000),
+        latitude: lat,
+        longitude: lon,
+        url: `https://park4night.com/en/place/${id}`,
+        payload: { source_id: id, coord_source: 'sitemap_streets_v2' },
+      });
+      if (ok) inserted++;
+    } catch (err) {
+      errors++;
+      if (errors > 10) break; // abort batch if too many errors in a row
+    }
+  }
+
+  // ─── Advance cursor ─────────────────────────────────────────────
+  let newIdx = end;
+  let newSitemapIdx = state.last_sitemap_idx;
+  let newPlaceIds = placeIds;
+  if (newIdx >= placeIds.length) {
+    newSitemapIdx = state.last_sitemap_idx + 1;
+    newIdx = 0;
+    newPlaceIds = null; // trigger re-fetch next run
+  }
+  await db.query(
+    'UPDATE p4n_crawl_state SET last_sitemap_idx = $1, last_place_idx = $2, place_ids = $3, updated_at = NOW() WHERE id = 1',
+    [newSitemapIdx, newIdx, newPlaceIds ? JSON.stringify(newPlaceIds) : null]
+  );
+
+  return {
+    source: 'park4night',
+    scanned: batch.length,
+    inserted,
+    skipped_no_coord: skippedNoCoord,
+    errors,
+    total_known: placeIds.length,
+    batch_range: [start, end],
+    sitemap: state.last_sitemap_idx,
+    via: 'puppeteer+sitemap',
+  };
 }
 
 // Skipped 2026-04-07: groups.freecycle.org devuelve 422 sobre /posts/rss (datacenter

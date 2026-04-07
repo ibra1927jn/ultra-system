@@ -321,6 +321,28 @@ function init() {
     'Jueves 04:30 — Park4Night/Freecycle/TransferCar/Imoova/eSIMDB/etc'
   );
 
+  // ─── P6 R5: Park4Night crawl incremental cada 2h ──
+  // Strategy: sitemap-based accumulation. Cada run scrape batchSize=30 places
+  // via Puppeteer (3-5s/place → ~2min por batch). Cron-friendly, no bloquea.
+  // Estado persiste en tabla `p4n_crawl_state`. Sitemap-1 (4168 places)
+  // cubierto en ~12 días. Total 91 sitemaps → acumulación continua.
+  register(
+    'park4night-crawl',
+    '0 */2 * * *',
+    async () => {
+      const le = require('./logistics_extras');
+      try {
+        const r = await le.fetchPark4Night({ batchSize: 30 });
+        if (r.error || r.skipped) {
+          console.log(`🏕️ p4n crawl: ${r.error || r.skipped}`);
+        } else {
+          console.log(`🏕️ p4n crawl: sitemap=${r.sitemap} range=[${r.batch_range.join(',')}] inserted=${r.inserted}/${r.scanned} total_known=${r.total_known}`);
+        }
+      } catch (err) { console.error('park4night-crawl err:', err.message); }
+    },
+    'Cada 2h — Park4Night sitemap crawl (30/batch via Puppeteer)'
+  );
+
   // ─── P6 R4 Tier A: Overpass essentials POIs — mensual día 1 a las 03:00 ──
   // Fetch fuel/water/showers/toilets/laundry/picnic_site para país base.
   // Cron mensual porque OSM cambia poco y Overpass público tiene rate limits estrictos.

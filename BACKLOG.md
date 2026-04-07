@@ -8,15 +8,12 @@
 
 ## 🔥 Priority pending (R5+ sesiones)
 
-- [ ] **Park4Night van-life POIs** — [2026-04-08] descope temporal durante R5 step 2.
-  - Contexto: /api/places/around cerrado (HTTP 400 desde 2024). La web es un map-based React app con lazy-load por viewport — NO es scrapable con un simple `waitFor + selector`. Requiere pattern más complejo:
-    1. Opción A: click en marcadores del mapa (necesita coordenadas por región)
-    2. Opción B: interceptar la API interna que el frontend llama al panear el mapa (devtools network tab)
-    3. Opción C: parsear los sitemap.xml que Park4Night genera para SEO (si existen)
-  - Stub actual: `logistics_extras.js:fetchPark4Night` devuelve `skipped: 'api_closed_2024'`.
-  - Cobertura actual de camping NZ: Overpass (1902 POIs en `log_pois`) — no es bloqueante pero Park4Night cubre EU que Overpass no tiene al mismo nivel.
-  - Dedicar **sesión propia** (2-4h) para investigar la network tab y reverse-engineer el endpoint interno.
-  - Prioridad: **alta** (usuario van-life, EU es destino futuro post-NZ).
+- [x] **~~Park4Night van-life POIs~~** — **DONE 2026-04-08** (R5 step 5).
+  - **Approach ganador: híbrido sitemap + Puppeteer.** Sitemap-index tiene 91 files, cada uno con ~4K URLs `/en/place/{id}`. Cada detail page tiene la lat/lon **bakeada en la URL del static-map thumbnail** (`cdn3.park4night.com/img_cache/streets-v2/{zoom}/{lat}/{lon}/{color}/{WxH}.jpg`). No JSON-LD, no og:geo, no JSON API — pero la coord está en el atributo `src` de un `<img>`. Puppeteer necesario porque ~50% de las requests via plain curl reciben un CF JS challenge que devuelve 32KB blank HTML.
+  - **Implementación**: `fetchPark4Night({batchSize})` en logistics_extras.js. Tabla de estado `p4n_crawl_state` (id=1 row) con cursor `(sitemap_idx, place_idx, place_ids_cache_jsonb)`. Cada run: si cache vacío descarga sitemap-N, parsea IDs únicos, caches. Procesa batch, scrape via `pup.scrape({evaluate})` extrayendo `{title, coord, desc}`. Regex lat/lon desde coord URL, insert en `logistics_pois` con `external_id=p4n:{id}`, category=`camping_van`.
+  - **Cron dedicado**: `park4night-crawl` cada 2h, batchSize=30 → ~360 places/día. Sitemap-1 (4168) en ~12 días. Escalable subiendo batchSize si hace falta.
+  - **Verified en prod**: primer batch=5 (5/5 insertados, 0 errors), segundo batch=25 (25/25, 0 errors). Lat/lon reales francesas (43°-50°N, -2°-7°E, coincide con IDs bajos = entries originales francesas).
+  - **Descoperado de paso**: bug en `puppeteer-sidecar/server.js` con el param `evaluate` (corría en Node, no en page context) — fixed en commit `ffd3059`.
 
 - [ ] **eSIMDB plans reactivation** — [2026-04-08] descope en R5 step 3.
   - Contexto: esimdb.com/new-zealand sí carga con Puppeteer pero el DOM es ruidoso (1888 `[class*=price]`, 2587 `[class*=provider]`, 0 anchors a detail). Los planes se renderizan en Vue components anidados sin `data-*` estables.
