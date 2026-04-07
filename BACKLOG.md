@@ -8,6 +8,18 @@
 
 ## 🔥 Priority pending (R5+ sesiones)
 
+- [ ] **iOverlander 600K POIs** — [2026-04-08] investigado R6, **pattern descubierto pero discovery de UUIDs sigue pendiente**.
+  - Discovery del pattern: detail URL shape `https://ioverlander.com/places/{UUID}` (UUIDv4). Cada detail page tiene título con categoría embebida, ej: "Manna Gum, Main Range National Park | Established Campground".
+  - **Problema bloqueante**: no hay sitemap listando UUIDs, no hay API pública `/places.json`, el filtro `?country=XX` silenciosamente devuelve random. La única forma de enumerar es navegar la app mapa-based con bounding boxes y capturar tiles/XHR.
+  - Approaches para sesión dedicada:
+    1. **Interceptar network requests** del mapa en Puppeteer cuando pan/zoom (probable endpoint JSON interno)
+    2. **GitHub community dumps** — buscar en repos (github.com/search?q=ioverlander+dataset) por CSVs/KMLs filtrados
+    3. **Request oficial** — contactar iOverlander pidiendo export (tardan semanas)
+  - Alternativa actual: 37K POIs en `log_pois` via Overpass/OSM cubren parcialmente el caso de uso. No bloqueante.
+  - Prioridad: **alta** — user declared van-life, EU/Americas coverage.
+
+
+
 - [x] **~~Park4Night van-life POIs~~** — **DONE 2026-04-08** (R5 step 5).
   - **Approach ganador: híbrido sitemap + Puppeteer.** Sitemap-index tiene 91 files, cada uno con ~4K URLs `/en/place/{id}`. Cada detail page tiene la lat/lon **bakeada en la URL del static-map thumbnail** (`cdn3.park4night.com/img_cache/streets-v2/{zoom}/{lat}/{lon}/{color}/{WxH}.jpg`). No JSON-LD, no og:geo, no JSON API — pero la coord está en el atributo `src` de un `<img>`. Puppeteer necesario porque ~50% de las requests via plain curl reciben un CF JS challenge que devuelve 32KB blank HTML.
   - **Implementación**: `fetchPark4Night({batchSize})` en logistics_extras.js. Tabla de estado `p4n_crawl_state` (id=1 row) con cursor `(sitemap_idx, place_idx, place_ids_cache_jsonb)`. Cada run: si cache vacío descarga sitemap-N, parsea IDs únicos, caches. Procesa batch, scrape via `pup.scrape({evaluate})` extrayendo `{title, coord, desc}`. Regex lat/lon desde coord URL, insert en `logistics_pois` con `external_id=p4n:{id}`, category=`camping_van`.

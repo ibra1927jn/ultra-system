@@ -337,6 +337,8 @@ const FETCHERS = [
   ['FLOSSFund', fetchFLOSSFund],
   ['GitHubFund', fetchGitHubFund],
   ['OpenCollective', fetchOpenCollective],
+  ['OpportunityDesk', fetchOpportunityDesk],
+  ['OpportunitiesCircle', fetchOpportunitiesCircle],
   ['Clist', fetchClist],
   ['GitHubTrending', fetchGitHubTrending],
   ['Greenhouse', fetchGreenhouse],
@@ -1727,6 +1729,76 @@ async function fetchOpenCollective({ limit = 30 } = {}) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Scholarship/opportunity aggregators via Puppeteer
+//  (R6 Tier S #5 extensión — cobertura DZ-eligible scholarships)
+// ═══════════════════════════════════════════════════════════
+// Estos 2 aggregators publican RSS feeds con 10+ items por fetch. Ambos
+// tiran 403 CF-blocked desde datacenter via plain curl, pero Chromium real
+// pasa el challenge y devuelve el XML raw. Usamos pup.scrape({extract:text})
+// para capturar el body, después rss-parser.parseString().
+//
+// El usuario es DZ national — Chevening/IsDB/Campus France/Said Foundation/
+// SISGP/OKP son scholarships donde pasaporte argelino es elegible.
+// Estos aggregators publican cada vez que hay nueva convocatoria.
+async function _fetchRssViaPuppeteer(source, url, defaultCategory = 'scholarship') {
+  const pup = require('./puppeteer');
+  if (!(await pup.isAvailable())) {
+    return { source, total: 0, inserted: 0, highScore: 0, skipped: 'puppeteer_sidecar_offline' };
+  }
+  try {
+    const r = await pup.scrape({ url, waitFor: 3000, extract: 'text', no_cache: false });
+    if (!r.ok) return { source, total: 0, inserted: 0, highScore: 0, error: r.error };
+    const xml = r.data || '';
+    if (!xml.includes('<item') && !xml.includes('<entry')) {
+      return { source, total: 0, inserted: 0, highScore: 0, error: 'no_rss_markers_in_body' };
+    }
+    const Parser = require('rss-parser');
+    const p = new Parser({ timeout: TIMEOUT });
+    const feed = await p.parseString(xml);
+    let inserted = 0, highScore = 0;
+    for (const it of (feed.items || []).slice(0, 30)) {
+      const text = `${it.title} ${it.contentSnippet || ''}`.toLowerCase();
+      // Derive category from content signals
+      let category = defaultCategory;
+      if (/fellowship|postdoc|phd/i.test(text)) category = 'fellowship';
+      else if (/scholarship|bursary|stipend/i.test(text)) category = 'scholarship';
+      else if (/grant|fund/i.test(text)) category = 'grant';
+      else if (/internship/i.test(text)) category = 'internship';
+      else if (/competition|prize|award/i.test(text)) category = 'competition';
+      const score = await scoreText(text);
+      // Tag DZ-friendly keywords
+      const tags = ['scholarship', 'aggregator'];
+      if (/africa|algeria|dz |maghreb|muslim|oic|arab/i.test(text)) tags.push('dz_eligible');
+      if (/fully funded|full scholarship/i.test(text)) tags.push('fully_funded');
+      const ok = await insertOpportunity({
+        title: it.title?.slice(0, 500) || '(untitled)',
+        source,
+        url: it.link,
+        category,
+        description: (it.contentSnippet || '').slice(0, 1500),
+        payout_type: category === 'scholarship' ? 'scholarship' : 'grant',
+        currency: 'USD',
+        match_score: score,
+        posted_at: it.isoDate ? new Date(it.isoDate) : null,
+        tags,
+        external_id: it.guid || it.link,
+      });
+      if (ok) { inserted++; if (score >= 8) highScore++; }
+    }
+    return { source, total: (feed.items || []).length, inserted, highScore, via: 'puppeteer+rss' };
+  } catch (err) {
+    return { source, total: 0, inserted: 0, highScore: 0, error: err.message };
+  }
+}
+
+async function fetchOpportunityDesk() {
+  return _fetchRssViaPuppeteer('OpportunityDesk', 'https://opportunitydesk.org/feed/', 'scholarship');
+}
+async function fetchOpportunitiesCircle() {
+  return _fetchRssViaPuppeteer('OpportunitiesCircle', 'https://opportunitiescircle.com/feed/', 'scholarship');
+}
+
 // GitHub Fund / Sponsorship announcements — blog RSS
 async function fetchGitHubFund() {
   try {
@@ -1942,6 +2014,8 @@ module.exports = {
   fetchFLOSSFund,
   fetchGitHubFund,
   fetchOpenCollective,
+  fetchOpportunityDesk,
+  fetchOpportunitiesCircle,
   fetchClist,
   fetchGitHubTrending,
   fetchGetOnBoardFull,
