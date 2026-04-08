@@ -533,13 +533,64 @@ function init() {
     'Cada 5 min — Snapshot del Map in-memory de military vessels mantenido por aisstream_subscriber → wm_military_vessels'
   );
 
+  // ─── P1 WM Phase 2 step 9: natural events (NASA EONET + GDACS) → wm_natural_events cada 30 min ──
+  // EONET and GDACS are non-realtime feeds (refresh ~hours). 30min cadence
+  // is more than fast enough. fetchNaturalEvents() merges both sources
+  // internally; idempotent upsert by (source, event_id).
+  register(
+    'wm-natural-events',
+    '7,37 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runNaturalEventsJob({ days: 30 });
+        console.log(`🌪️  wm-natural-events: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} deleted=${r.deleted} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-natural-events:', err.message); }
+    },
+    'Cada 30 min (HH:07, HH:37) — NASA EONET + GDACS direct fetch → wm_natural_events'
+  );
+
+  // ─── P1 WM Phase 2 step 10: USGS earthquakes → wm_earthquakes cada 10 min ──
+  // USGS feed updates ~1-2 min after a quake. 10 min cron catches every
+  // significant quake (M>=4.5) within ~10 min of occurrence. Idempotent
+  // upsert by usgs_id; re-fetching the same quake refreshes felt/cdi/mmi
+  // counts as DYFI reports come in.
+  register(
+    'wm-earthquakes',
+    '*/10 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runEarthquakesJob({ minMagnitude: '4.5', period: 'day' });
+        console.log(`🌍 wm-earthquakes: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} deleted=${r.deleted} maxMag=${r.maxMag.toFixed(1)} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-earthquakes:', err.message); }
+    },
+    'Cada 10 min — USGS GeoJSON M>=4.5 last day direct fetch → wm_earthquakes'
+  );
+
+  // ─── P1 WM Phase 2 step 11: NASA FIRMS satellite fires → wm_satellite_fires cada 30 min ──
+  // VIIRS_SNPP_NRT global fire detections, last 24h window. ~20K-50K
+  // detections per day → ~500K-1.5M rows/mes. Retention 14 días bounded.
+  // Composite UNIQUE prevents duplicate inserts of the same satellite pass.
+  register(
+    'wm-satellite-fires',
+    '12,42 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runSatelliteFiresJob({ source: 'VIIRS_SNPP_NRT', area: '-180,-90,180,90', dayRange: 1 });
+        console.log(`🔥 wm-satellite-fires: fetched=${r.fetched} inserted=${r.inserted} deleted=${r.deleted} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-satellite-fires:', err.message); }
+    },
+    'Cada 30 min (HH:12, HH:42) — NASA FIRMS VIIRS NRT direct fetch global → wm_satellite_fires'
+  );
+
   // ─── P1 WM Phase 2 step 8: signal-aggregator → wm_signal_summary cada 5 min (offset +1) ──
-  // Combines military flights (from wm_military_flights last 10min) with
-  // tracked military vessels (in-memory from aisstream subscriber) into
-  // a single SignalSummary that downstream services consume. Activates
-  // focal-point urgencies elevated/critical and CII security component.
-  // Offset +1 min vs flights/vessels (which fire at *\/5 :00) so the
-  // aggregator always reads fresh data.
+  // Combines military flights, vessels, satellite fires (FIRMS), and
+  // earthquake spikes (USGS) into a single SignalSummary that downstream
+  // services consume. Activates focal-point urgencies elevated/critical
+  // and CII security component. Offset +1 min vs flights/vessels (which
+  // fire at *\/5 :00) so the aggregator always reads fresh data.
   register(
     'wm-signal-aggregator',
     '1-59/5 * * * *',
@@ -551,10 +602,10 @@ function init() {
           .filter(([, v]) => v > 0)
           .map(([k,v]) => `${k}=${v}`)
           .join(' ');
-        console.log(`📡 wm-signal-aggregator: flights=${r.flights} vessels=${r.vessels} signals=${r.totalSignals} [${types || 'none'}] countries=${r.topCountriesCount} convergence=${r.convergenceZonesCount} inserted=${r.inserted} deleted=${r.deleted} ${r.durationMs}ms`);
+        console.log(`📡 wm-signal-aggregator: flights=${r.flights} vessels=${r.vessels} fires=${r.fires} quakes=${r.quakeAnomalies} signals=${r.totalSignals} [${types || 'none'}] countries=${r.topCountriesCount} convergence=${r.convergenceZonesCount} inserted=${r.inserted} deleted=${r.deleted} ${r.durationMs}ms`);
       } catch (err) { console.error('❌ wm-signal-aggregator:', err.message); }
     },
-    'Cada 5 min :01 — Signal aggregator combina flights+vessels → singleton signalAggregator → wm_signal_summary'
+    'Cada 5 min :01 — Signal aggregator combina flights+vessels+fires+quakes → singleton signalAggregator → wm_signal_summary'
   );
 
   // ─── P1 Tier A: News API stubs poll cada 4h ──

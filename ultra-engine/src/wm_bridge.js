@@ -15,9 +15,13 @@
 //   5. runMilitaryFlightsJob     — OpenSky direct OAuth2 → military-flights.ts → wm_military_flights
 //   6. runUSNIFleetJob           — usni_scraper.js (puppeteer HTML) → wm_usni_fleet
 //   7. runMilitaryVesselsJob     — aisstream_subscriber.js (WebSocket) → wm_military_vessels
-//   8. runSignalAggregatorJob    — flights+vessels → signal-aggregator.ts singleton → wm_signal_summary
+//   8. runSignalAggregatorJob    — flights+vessels+fires+quakes → signal-aggregator.ts → wm_signal_summary
+//   9. runNaturalEventsJob       — eonet.ts (NASA EONET + GDACS) → wm_natural_events
+//  10. runEarthquakesJob         — earthquakes.ts (USGS GeoJSON direct) → wm_earthquakes
+//  11. runSatelliteFiresJob      — wildfires/index.ts (NASA FIRMS direct) → wm_satellite_fires
 //
-//  Otros bridges (internet outages, etc.) vendrán en commits separados.
+//  Otros bridges (internet outages, ACLED protests, etc.) vendrán en
+//  commits separados.
 // ════════════════════════════════════════════════════════════
 
 const db = require('./db');
@@ -70,6 +74,30 @@ function loadSignalAggregator() {
     signalAggregatorMod = require('./worldmonitor/services/signal-aggregator');
   }
   return signalAggregatorMod;
+}
+
+let eonetMod = null;
+function loadEonet() {
+  if (!eonetMod) {
+    eonetMod = require('./worldmonitor/services/eonet');
+  }
+  return eonetMod;
+}
+
+let earthquakesMod = null;
+function loadEarthquakes() {
+  if (!earthquakesMod) {
+    earthquakesMod = require('./worldmonitor/services/earthquakes');
+  }
+  return earthquakesMod;
+}
+
+let wildfiresMod = null;
+function loadWildfires() {
+  if (!wildfiresMod) {
+    wildfiresMod = require('./worldmonitor/services/wildfires');
+  }
+  return wildfiresMod;
 }
 
 let trendingMod = null;
@@ -1167,8 +1195,12 @@ async function cleanupOldSignalSummaries(retentionDays) {
 }
 
 /**
- * Job principal signal-aggregator: pull flights from BD + vessels from
- * memory → ingest into singleton → snapshot SignalSummary → persist.
+ * Job principal signal-aggregator: pull flights/vessels/fires/quakes
+ * from BD/memory → ingest into singleton → snapshot SignalSummary →
+ * persist.
+ *
+ * Each `ingest*` call clears its own signal type before pushing, so this
+ * acts as "replace per type" — fully idempotent across cron runs.
  */
 async function runSignalAggregatorJob() {
   const t0 = Date.now();
@@ -1177,6 +1209,8 @@ async function runSignalAggregatorJob() {
   // 1. Pull data from upstream sources
   const flights = await getRecentMilitaryFlights({ lookbackMinutes: 10 });
   const vessels = loadMilitaryVesselsTs().getTrackedMilitaryVessels();
+  const fires = await getRecentSatelliteFires({ lookbackHours: 24, minBrightness: 340 });
+  const quakeAnomalies = await getRecentEarthquakeAnomalies({ lookbackHours: 24, minQuakes: 3 });
 
   // 2. Ingest into the singleton aggregator. Each ingest clears its own
   //    signal type first, so this acts like "replace flights signals,
@@ -1184,6 +1218,8 @@ async function runSignalAggregatorJob() {
   const sa = loadSignalAggregator();
   sa.signalAggregator.ingestFlights(flights);
   sa.signalAggregator.ingestVessels(vessels);
+  if (fires.length > 0) sa.signalAggregator.ingestSatelliteFires(fires);
+  if (quakeAnomalies.length > 0) sa.signalAggregator.ingestTemporalAnomalies(quakeAnomalies);
 
   // 3. Snapshot the resulting SignalSummary
   const summary = sa.signalAggregator.getSummary();
@@ -1197,10 +1233,400 @@ async function runSignalAggregatorJob() {
   return {
     flights: flights.length,
     vessels: vessels.length,
+    fires: fires.length,
+    quakeAnomalies: quakeAnomalies.length,
     totalSignals: summary.totalSignals,
     byType: summary.byType,
     topCountriesCount: (summary.topCountries || []).length,
     convergenceZonesCount: (summary.convergenceZones || []).length,
+    inserted: persistResult.inserted,
+    deleted,
+    durationMs: Date.now() - t0,
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  Phase 2 — Jobs 9-11: natural disasters (EONET, GDACS, USGS, FIRMS)
+//
+//  Three independent producers:
+//
+//   - runNaturalEventsJob   → fetchNaturalEvents() (EONET + GDACS merged)
+//                              → wm_natural_events (upsert by source+event_id)
+//
+//   - runEarthquakesJob     → fetchEarthquakesFromUsgs() (USGS GeoJSON)
+//                              → wm_earthquakes (upsert by usgs_id)
+//
+//   - runSatelliteFiresJob  → fetchSatelliteFiresFromFirms() (NASA FIRMS CSV)
+//                              → wm_satellite_fires (insert ON CONFLICT DO NOTHING
+//                                via composite UNIQUE)
+//
+//  All three are consumed by runSignalAggregatorJob via two helpers:
+//   - getRecentEarthquakes  → derives temporal_anomaly signals (quake spikes
+//                              per country) and feeds ingestTemporalAnomalies()
+//   - getRecentSatelliteFires → feeds ingestSatelliteFires() directly
+// ════════════════════════════════════════════════════════════
+
+const NATURAL_EVENTS_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.NATURAL_EVENTS_RETENTION_DAYS || '30', 10) || 30
+);
+const EARTHQUAKES_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.EARTHQUAKES_RETENTION_DAYS || '30', 10) || 30
+);
+const SATELLITE_FIRES_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.SATELLITE_FIRES_RETENTION_DAYS || '14', 10) || 14
+);
+
+// ─── Persisters ───────────────────────────────────────────
+
+async function persistNaturalEvents(events) {
+  let inserted = 0, updated = 0;
+  for (const e of events) {
+    // EONET event id is e.id (string like "EONET_19349")
+    // GDACS converted event id is e.id (string like "gdacs-FL-1103757")
+    const source = (e.sourceName === 'GDACS' || String(e.id).startsWith('gdacs-')) ? 'GDACS' : 'EONET';
+    const r = await db.queryOne(
+      `INSERT INTO wm_natural_events
+         (source, event_id, category, title, description,
+          lat, lon, event_date, magnitude, magnitude_unit,
+          alert_level, country, source_url, source_name, closed, raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       ON CONFLICT (source, event_id) DO UPDATE SET
+         category       = EXCLUDED.category,
+         title          = EXCLUDED.title,
+         description    = EXCLUDED.description,
+         lat            = EXCLUDED.lat,
+         lon            = EXCLUDED.lon,
+         event_date     = EXCLUDED.event_date,
+         magnitude      = EXCLUDED.magnitude,
+         magnitude_unit = EXCLUDED.magnitude_unit,
+         alert_level    = EXCLUDED.alert_level,
+         country        = EXCLUDED.country,
+         source_url     = EXCLUDED.source_url,
+         closed         = EXCLUDED.closed,
+         raw            = EXCLUDED.raw,
+         last_seen      = NOW(),
+         updated_at     = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        source,
+        String(e.id).slice(0, 200),
+        String(e.category || '').slice(0, 50) || null,
+        String(e.title || 'Unknown').slice(0, 500),
+        e.description ? String(e.description).slice(0, 2000) : null,
+        Number.isFinite(e.lat) ? e.lat : null,
+        Number.isFinite(e.lon) ? e.lon : null,
+        e.date instanceof Date ? e.date : (e.date ? new Date(e.date) : null),
+        Number.isFinite(e.magnitude) ? e.magnitude : null,
+        e.magnitudeUnit ? String(e.magnitudeUnit).slice(0, 50) : null,
+        // GDACS title starts with emoji marker for Red/Orange — extract
+        (typeof e.title === 'string' && e.title.startsWith('🔴 ')) ? 'Red'
+          : (typeof e.title === 'string' && e.title.startsWith('🟠 ')) ? 'Orange'
+          : null,
+        null,  // country (GDACS sets it but the merged shape strips it; could be improved)
+        e.sourceUrl ? String(e.sourceUrl).slice(0, 1000) : null,
+        e.sourceName ? String(e.sourceName).slice(0, 100) : null,
+        Boolean(e.closed),
+        JSON.stringify({ id: e.id, categoryTitle: e.categoryTitle }),
+      ]
+    );
+    if (r?.inserted) inserted++;
+    else updated++;
+  }
+  return { inserted, updated };
+}
+
+async function persistEarthquakes(quakes) {
+  let inserted = 0, updated = 0;
+  for (const q of quakes) {
+    const r = await db.queryOne(
+      `INSERT INTO wm_earthquakes
+         (usgs_id, magnitude, place, event_time, depth_km,
+          lat, lon, event_type, alert_level, tsunami,
+          felt, cdi, mmi, significance, url, raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       ON CONFLICT (usgs_id) DO UPDATE SET
+         magnitude    = EXCLUDED.magnitude,
+         place        = EXCLUDED.place,
+         depth_km     = EXCLUDED.depth_km,
+         alert_level  = EXCLUDED.alert_level,
+         tsunami      = EXCLUDED.tsunami,
+         felt         = EXCLUDED.felt,
+         cdi          = EXCLUDED.cdi,
+         mmi          = EXCLUDED.mmi,
+         significance = EXCLUDED.significance,
+         raw          = EXCLUDED.raw,
+         updated_at   = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        String(q.id).slice(0, 50),
+        Number(q.magnitude),
+        String(q.place || '').slice(0, 300),
+        q.eventTime instanceof Date ? q.eventTime : new Date(q.eventTime),
+        Number(q.depthKm) || 0,
+        Number(q.lat),
+        Number(q.lon),
+        String(q.eventType || 'earthquake').slice(0, 30),
+        q.alertLevel || null,
+        Boolean(q.tsunami),
+        Number.isFinite(q.felt) ? q.felt : null,
+        Number.isFinite(q.cdi) ? q.cdi : null,
+        Number.isFinite(q.mmi) ? q.mmi : null,
+        Number.isFinite(q.significance) ? q.significance : null,
+        q.url ? String(q.url).slice(0, 500) : null,
+        JSON.stringify(q.raw || {}),
+      ]
+    );
+    if (r?.inserted) inserted++;
+    else updated++;
+  }
+  return { inserted, updated };
+}
+
+async function persistSatelliteFires(fires, observedAt) {
+  let inserted = 0;
+  for (const f of fires) {
+    const r = await db.queryOne(
+      `INSERT INTO wm_satellite_fires
+         (lat, lon, bright_ti4, bright_ti5, scan, track,
+          acq_date, acq_time, satellite, instrument, confidence,
+          version, frp, daynight, region, raw, observed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       ON CONFLICT (lat, lon, acq_date, acq_time, satellite) DO NOTHING
+       RETURNING id`,
+      [
+        Number(f.lat),
+        Number(f.lon),
+        Number(f.brightTi4) || null,
+        Number(f.brightTi5) || null,
+        Number(f.scan) || null,
+        Number(f.track) || null,
+        f.acqDate,
+        String(f.acqTime || '').slice(0, 6),
+        String(f.satellite || '').slice(0, 5),
+        f.instrument ? String(f.instrument).slice(0, 20) : null,
+        f.confidence ? String(f.confidence).slice(0, 5) : null,
+        f.version ? String(f.version).slice(0, 20) : null,
+        Number(f.frp) || null,
+        f.daynight ? String(f.daynight).slice(0, 2) : null,
+        null,  // region — could be derived from lat/lon, left null for now
+        null,  // raw — would explode storage if we keep full per-fire payload
+        observedAt,
+      ]
+    );
+    if (r?.id) inserted++;
+  }
+  return { inserted };
+}
+
+// ─── Cleanup helpers ──────────────────────────────────────
+
+async function cleanupOldNaturalEvents(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_natural_events
+                  WHERE last_seen < NOW() - ($1::int * INTERVAL '1 day')
+                    AND closed = TRUE
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+async function cleanupOldEarthquakes(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_earthquakes
+                  WHERE event_time < NOW() - ($1::int * INTERVAL '1 day')
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+async function cleanupOldSatelliteFires(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_satellite_fires
+                  WHERE observed_at < NOW() - ($1::int * INTERVAL '1 day')
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+// ─── Recent-window readers (for signal-aggregator) ────────
+
+/**
+ * Pull recent earthquakes from BD and bucket them by country code via the
+ * signal-aggregator's coordsToCountry() helper. Returns the temporal
+ * anomaly shape that ingestTemporalAnomalies() expects:
+ *   { type, region, currentCount, expectedCount, zScore, message, severity }
+ *
+ * Logic: any country with >=3 quakes M>=4.5 in the last 24h is flagged
+ * as a "earthquake_spike" anomaly. Without a real baseline (would
+ * require a temporal-baseline service backend), expectedCount=1 is the
+ * heuristic prior; severity scales with currentCount.
+ */
+async function getRecentEarthquakeAnomalies({ lookbackHours = 24, minQuakes = 3 } = {}) {
+  const rows = await db.queryAll(
+    `SELECT lat, lon, magnitude, place, event_time
+     FROM wm_earthquakes
+     WHERE event_time >= NOW() - ($1::int * INTERVAL '1 hour')
+       AND magnitude >= 4.5
+     ORDER BY event_time DESC`,
+    [lookbackHours]
+  );
+
+  // Bucket by country via the signal-aggregator's own helper logic.
+  // We mirror the bbox logic from signal-aggregator.ts coordsToCountry()
+  // here in JS to avoid pulling the singleton just for classification.
+  const coordsToCountry = (lat, lon) => {
+    if (lat >= 25 && lat <= 40 && lon >= 44 && lon <= 63) return 'IR';
+    if (lat >= 29 && lat <= 33 && lon >= 34 && lon <= 36) return 'IL';
+    if (lat >= 15 && lat <= 32 && lon >= 34 && lon <= 55) return 'SA';
+    if (lat >= 20 && lat <= 55 && lon >= 73 && lon <= 135) return 'CN';
+    if (lat >= 22 && lat <= 25 && lon >= 120 && lon <= 122) return 'TW';
+    if (lat >= 8 && lat <= 37 && lon >= 68 && lon <= 97) return 'IN';
+    if (lat >= 44 && lat <= 52 && lon >= 22 && lon <= 40) return 'UA';
+    if (lat >= 50 && lat <= 82 && lon >= 20 && lon <= 180) return 'RU';
+    if (lat >= 22 && lat <= 32 && lon >= 25 && lon <= 35) return 'EG';
+    return 'XX';
+  };
+
+  const counts = new Map();
+  for (const r of rows) {
+    const c = coordsToCountry(Number(r.lat), Number(r.lon));
+    if (c === 'XX') continue;
+    counts.set(c, (counts.get(c) || 0) + 1);
+  }
+
+  const anomalies = [];
+  for (const [country, n] of counts) {
+    if (n < minQuakes) continue;
+    anomalies.push({
+      type: 'earthquake_spike',
+      region: country,
+      currentCount: n,
+      expectedCount: 1,
+      zScore: n,  // crude — without real baseline, count IS the score
+      message: `${n} earthquakes M>=4.5 in last ${lookbackHours}h in ${country}`,
+      severity: n >= 8 ? 'critical' : n >= 5 ? 'high' : 'medium',
+    });
+  }
+  return anomalies;
+}
+
+/**
+ * Pull recent satellite fires from BD and reshape to the format that
+ * signalAggregator.ingestSatelliteFires() expects.
+ *
+ * The aggregator's ingest only uses brightness > 320 / 360 thresholds
+ * for severity. We pre-filter to high-confidence + high-intensity to
+ * keep noise low (NRT data has ~30% nominal-confidence false positives).
+ *
+ * CRITICAL: signal-aggregator runs `new Date(fire.acq_date)` then
+ * pruneOld() which drops everything older than 24h. If we passed only
+ * the date string (e.g. "2026-04-07"), JS parses it as midnight UTC of
+ * that day — easily 36+ hours ago — and pruneOld() drops every fire.
+ *
+ * Fix: combine acq_date + acq_time (HHMM format from FIRMS) into a
+ * proper Date instance and pass THAT as acq_date. signal-aggregator's
+ * `new Date(...)` accepts both strings and Date instances; the latter
+ * preserves the actual observation timestamp inside the 24h window.
+ *
+ * We also drop any fire whose computed timestamp is already > 24h old
+ * before returning, so the aggregator never sees stale ingestions.
+ */
+async function getRecentSatelliteFires({ lookbackHours = 24, minBrightness = 340 } = {}) {
+  // Cast acq_date to text in the SELECT to avoid pg-node converting it
+  // through the container's local timezone (Pacific/Auckland, UTC+12).
+  // Without the cast, a DATE column 2026-04-08 comes back as
+  // 2026-04-07T12:00:00Z (NZ midnight in UTC), and `.toISOString().slice(0,10)`
+  // would give the wrong day. Same TZ-shift bug we had with USNI dates.
+  const rows = await db.queryAll(
+    `SELECT lat, lon, bright_ti4, frp, region,
+            to_char(acq_date, 'YYYY-MM-DD') AS acq_date_str,
+            acq_time
+     FROM wm_satellite_fires
+     WHERE observed_at >= NOW() - ($1::int * INTERVAL '1 hour')
+       AND bright_ti4 >= $2
+       AND confidence IN ('h','n')
+     ORDER BY bright_ti4 DESC
+     LIMIT 5000`,
+    [lookbackHours, minBrightness]
+  );
+  const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
+  const out = [];
+  for (const r of rows) {
+    const dateStr = String(r.acq_date_str || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
+    // FIRMS acq_time is HHMM but with leading zero stripped:
+    // "22" = 00:22, "219" = 02:19, "1958" = 19:58. padStart restores it.
+    const timeStr = String(r.acq_time || '0000').padStart(4, '0');
+    const hh = timeStr.slice(0, 2);
+    const mm = timeStr.slice(2, 4);
+    const ts = new Date(`${dateStr}T${hh}:${mm}:00Z`);
+    if (!Number.isFinite(ts.getTime())) continue;
+    if (ts.getTime() < cutoff) continue;
+    out.push({
+      lat: Number(r.lat),
+      lon: Number(r.lon),
+      brightness: Number(r.bright_ti4),
+      frp: Number(r.frp) || 0,
+      region: r.region || 'Unknown',
+      // Pass a Date instance, not a string — survives `new Date(date)` and
+      // keeps the real observation timestamp for the aggregator's pruneOld.
+      acq_date: ts,
+    });
+  }
+  return out;
+}
+
+// ─── Jobs ─────────────────────────────────────────────────
+
+async function runNaturalEventsJob({ days = 30 } = {}) {
+  const t0 = Date.now();
+  const eonet = loadEonet();
+  const events = await eonet.fetchNaturalEvents(days);
+  const persistResult = await persistNaturalEvents(events);
+  const deleted = await cleanupOldNaturalEvents(NATURAL_EVENTS_RETENTION_DAYS);
+  return {
+    fetched: events.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    deleted,
+    durationMs: Date.now() - t0,
+  };
+}
+
+async function runEarthquakesJob({ minMagnitude = '4.5', period = 'day' } = {}) {
+  const t0 = Date.now();
+  const eq = loadEarthquakes();
+  const quakes = await eq.fetchEarthquakesFromUsgs({ minMagnitude, period });
+  const persistResult = await persistEarthquakes(quakes);
+  const deleted = await cleanupOldEarthquakes(EARTHQUAKES_RETENTION_DAYS);
+  return {
+    fetched: quakes.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    deleted,
+    maxMag: quakes.reduce((m, q) => Math.max(m, q.magnitude || 0), 0),
+    durationMs: Date.now() - t0,
+  };
+}
+
+async function runSatelliteFiresJob({ source = 'VIIRS_SNPP_NRT', area = '-180,-90,180,90', dayRange = 1 } = {}) {
+  const t0 = Date.now();
+  const observedAt = new Date();
+  const wf = loadWildfires();
+  const fires = await wf.fetchSatelliteFiresFromFirms({ source, area, dayRange });
+  const persistResult = await persistSatelliteFires(fires, observedAt);
+  const deleted = await cleanupOldSatelliteFires(SATELLITE_FIRES_RETENTION_DAYS);
+  return {
+    fetched: fires.length,
     inserted: persistResult.inserted,
     deleted,
     durationMs: Date.now() - t0,
@@ -1216,6 +1642,9 @@ module.exports = {
   runUSNIFleetJob,
   runMilitaryVesselsJob,
   runSignalAggregatorJob,
+  runNaturalEventsJob,
+  runEarthquakesJob,
+  runSatelliteFiresJob,
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing
@@ -1228,6 +1657,14 @@ module.exports = {
   cleanupOldVessels,           // exported for testing
   persistSignalSummary,        // exported for testing
   cleanupOldSignalSummaries,   // exported for testing
+  persistNaturalEvents,        // exported for testing
+  persistEarthquakes,          // exported for testing
+  persistSatelliteFires,       // exported for testing
+  cleanupOldNaturalEvents,     // exported for testing
+  cleanupOldEarthquakes,       // exported for testing
+  cleanupOldSatelliteFires,    // exported for testing
   getRecentMilitaryFlights,    // exported for testing
   getCurrentSignalSummary,     // exported for testing
+  getRecentEarthquakeAnomalies,// exported for testing
+  getRecentSatelliteFires,     // exported for testing
 };

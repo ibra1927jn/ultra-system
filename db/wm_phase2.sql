@@ -299,3 +299,120 @@ CREATE INDEX IF NOT EXISTS idx_wm_signal_summary_observed
   ON wm_signal_summary (observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_wm_signal_summary_total
   ON wm_signal_summary (total_signals DESC, observed_at DESC);
+
+-- ─── Step 9: natural events (NASA EONET + GDACS, merged) ────
+-- One row per (source, event_id). Same event re-fetched in next cron run
+-- updates last_seen + closed status. EONET earthquakes are filtered out
+-- in the WM service code (USGS provides better data); they only land in
+-- wm_earthquakes below.
+CREATE TABLE IF NOT EXISTS wm_natural_events (
+  id              BIGSERIAL PRIMARY KEY,
+  source          TEXT NOT NULL CHECK (source IN ('EONET','GDACS')),
+  event_id        TEXT NOT NULL,
+  category        TEXT,
+  title           TEXT NOT NULL,
+  description     TEXT,
+  lat             DOUBLE PRECISION,
+  lon             DOUBLE PRECISION,
+  event_date      TIMESTAMPTZ,
+  magnitude       NUMERIC(12,4),
+  magnitude_unit  TEXT,
+  alert_level     TEXT,
+  country         TEXT,
+  source_url      TEXT,
+  source_name     TEXT,
+  closed          BOOLEAN NOT NULL DEFAULT FALSE,
+  raw             JSONB,
+  first_seen      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_natural_events_unique UNIQUE (source, event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_natural_events_last_seen
+  ON wm_natural_events (last_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_natural_events_category
+  ON wm_natural_events (category, last_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_natural_events_alert
+  ON wm_natural_events (alert_level, last_seen DESC)
+  WHERE alert_level IN ('Red','Orange');
+CREATE INDEX IF NOT EXISTS idx_wm_natural_events_open
+  ON wm_natural_events (last_seen DESC)
+  WHERE closed = FALSE;
+
+-- ─── Step 10: USGS earthquakes (direct GeoJSON feed) ────────
+-- One row per USGS event_id. Re-fetching the same quake refreshes
+-- felt/cdi/mmi/significance counts (those grow as more reports come in).
+CREATE TABLE IF NOT EXISTS wm_earthquakes (
+  id              BIGSERIAL PRIMARY KEY,
+  usgs_id         TEXT NOT NULL UNIQUE,
+  magnitude       NUMERIC(4,2) NOT NULL,
+  place           TEXT,
+  event_time      TIMESTAMPTZ NOT NULL,
+  depth_km        NUMERIC(8,3),
+  lat             DOUBLE PRECISION NOT NULL,
+  lon             DOUBLE PRECISION NOT NULL,
+  event_type      TEXT,
+  alert_level     TEXT,
+  tsunami         BOOLEAN NOT NULL DEFAULT FALSE,
+  felt            INTEGER,
+  cdi             NUMERIC(4,2),
+  mmi             NUMERIC(4,2),
+  significance    INTEGER,
+  url             TEXT,
+  raw             JSONB,
+  observed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_earthquakes_event_time
+  ON wm_earthquakes (event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_earthquakes_magnitude
+  ON wm_earthquakes (magnitude DESC, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_earthquakes_alert
+  ON wm_earthquakes (alert_level, event_time DESC)
+  WHERE alert_level IN ('orange','red');
+CREATE INDEX IF NOT EXISTS idx_wm_earthquakes_significance
+  ON wm_earthquakes (significance DESC, event_time DESC)
+  WHERE significance >= 600;
+
+-- ─── Step 11: NASA FIRMS satellite fire detections ──────────
+-- Historical snapshots — one row per detection. NASA FIRMS NRT data
+-- updates every ~3-6 hours from the VIIRS_SNPP_NRT and MODIS_NRT
+-- satellites. UNIQUE composite (lat, lon, acq_date, acq_time, satellite)
+-- ensures the same fire pixel detected in the same satellite pass is
+-- not duplicated across cron runs.
+--
+-- Storage budget: ~5K-50K detections/day globally → ~150K-1.5M rows/mo.
+-- Bounded with retention 30 days cleanup in the cron.
+CREATE TABLE IF NOT EXISTS wm_satellite_fires (
+  id              BIGSERIAL PRIMARY KEY,
+  lat             DOUBLE PRECISION NOT NULL,
+  lon             DOUBLE PRECISION NOT NULL,
+  bright_ti4      NUMERIC(7,2),
+  bright_ti5      NUMERIC(7,2),
+  scan            NUMERIC(5,2),
+  track           NUMERIC(5,2),
+  acq_date        DATE NOT NULL,
+  acq_time        TEXT NOT NULL,
+  satellite       TEXT NOT NULL,
+  instrument      TEXT,
+  confidence      TEXT,
+  version         TEXT,
+  frp             NUMERIC(10,2),
+  daynight        TEXT,
+  region          TEXT,
+  raw             JSONB,
+  observed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_satellite_fires_unique UNIQUE (lat, lon, acq_date, acq_time, satellite)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_sat_fires_observed
+  ON wm_satellite_fires (observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_sat_fires_acq
+  ON wm_satellite_fires (acq_date DESC, acq_time DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_sat_fires_high_intensity
+  ON wm_satellite_fires (frp DESC, observed_at DESC)
+  WHERE bright_ti4 > 360 AND confidence = 'h';
+CREATE INDEX IF NOT EXISTS idx_wm_sat_fires_region
+  ON wm_satellite_fires (region, observed_at DESC)
+  WHERE region IS NOT NULL;
