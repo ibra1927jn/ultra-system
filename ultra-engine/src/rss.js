@@ -168,7 +168,7 @@ async function fetchFeed(feedId) {
             title,
             item.link,
             summary,
-            item.pubDate ? new Date(item.pubDate) : new Date(),
+            (item.pubDate && !isNaN(new Date(item.pubDate).getTime())) ? new Date(item.pubDate) : new Date(),
             score,
           ]
         );
