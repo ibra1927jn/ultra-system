@@ -404,6 +404,20 @@ function init() {
     'Cada 6h :20 — Sync wger workoutsession → bio_journal (requires WGER_API_TOKEN)'
   );
 
+  // ─── P1 WM Phase 2: clustering rss_articles → wm_clusters cada hora :30 ──
+  register(
+    'wm-cluster-news',
+    '30 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runClusteringJob({ lookbackHours: 24, limit: 1000 });
+        console.log(`🧠 wm-cluster-news: scanned=${r.articlesScanned} clusters=${r.clustersFound} inserted=${r.inserted} updated=${r.updated} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-cluster-news:', err.message); }
+    },
+    'Cada hora :30 — Cluster últimas 24h de rss_articles vía worldmonitor/services/clustering.ts → wm_clusters'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',
