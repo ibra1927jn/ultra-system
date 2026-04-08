@@ -266,11 +266,60 @@ async function fetchFranceTravail({ keyword = '', range = '0-49' } = {}) {
   }
 }
 
-async function fetchBundesagentur() {
-  if (!process.env.BUNDESAGENTUR_API_KEY) {
-    return { source: 'bundesagentur', configured: false, reason: 'Requiere registration en jobsuche.api.bund.dev' };
+// Bundesagentur für Arbeit (BA) — German federal employment agency.
+// Public API en rest.arbeitsagentur.de/jobboerse/jobsuche-service. El client id
+// `jobboerse-jobsuche` es público (no es secreto, está en jobsuche.api.bund.dev),
+// y se manda como header X-API-Key. No hay OAuth, no hay signup real.
+// Aceptamos BUNDESAGENTUR_CLIENT_ID o BUNDESAGENTUR_API_KEY (legacy) por compat.
+async function fetchBundesagentur({ keyword = '', location = '', size = 25 } = {}) {
+  const apiKey = process.env.BUNDESAGENTUR_CLIENT_ID || process.env.BUNDESAGENTUR_API_KEY;
+  if (!apiKey) {
+    return { source: 'bundesagentur', configured: false, reason: 'Requiere BUNDESAGENTUR_CLIENT_ID (public id "jobboerse-jobsuche")' };
   }
-  return { source: 'bundesagentur', configured: true, todo: true };
+  try {
+    const params = new URLSearchParams({ size: String(size) });
+    if (keyword) params.set('was', keyword);
+    if (location) params.set('wo', location);
+    const url = `https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs?${params}`;
+    const r = await fetch(url, {
+      headers: { 'X-API-Key': apiKey, Accept: 'application/json', ...UA },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      throw new Error(`Bundesagentur HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    }
+    const data = await r.json();
+    const items = data.stellenangebote || [];
+    let inserted = 0, skipped = 0;
+    for (const o of items) {
+      const title = o.titel || o.beruf || '';
+      const company = o.arbeitgeber || 'Bundesagentur';
+      const aort = o.arbeitsort || {};
+      const location = [aort.ort, aort.region].filter(Boolean).join(', ') || 'Deutschland';
+      const isRemote = /\b(remote|homeoffice|home office|fernarbeit)\b/i.test(`${title}`);
+      if (isRemote) { skipped++; continue; }
+      const row = await buildRow({
+        source: 'bundesagentur',
+        externalId: o.refnr,
+        title,
+        company,
+        location,
+        country: 'DE',
+        description: '', // BA v4 search no devuelve description completa, sólo en /jobdetails/{refnr}
+        url: o.externeUrl || `https://www.arbeitsagentur.de/jobsuche/jobdetail/${encodeURIComponent(o.refnr || '')}`,
+        postedAt: o.aktuelleVeroeffentlichungsdatum || o.eintrittsdatum,
+        salaryMin: null,
+        salaryMax: null,
+        salaryCurrency: 'EUR',
+      });
+      const r2 = await jobApis.insertJob(row);
+      if (r2.inserted) inserted++; else skipped++;
+    }
+    return { source: 'bundesagentur', configured: true, fetched: items.length, inserted, skipped };
+  } catch (err) {
+    return { source: 'bundesagentur', configured: true, error: err.message };
+  }
 }
 
 // ════════════════════════════════════════════════════════════
