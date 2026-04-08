@@ -68,3 +68,34 @@ CREATE INDEX IF NOT EXISTS idx_wm_focal_points_last_seen
   ON wm_focal_points (last_seen DESC);
 CREATE INDEX IF NOT EXISTS idx_wm_focal_points_entity_type
   ON wm_focal_points (entity_type);
+
+-- ─── Step 3: country instability scores ─────────────────────
+-- Mirrors src/worldmonitor/services/country-instability.ts → CountryScore.
+-- One row per ISO country code. Refreshed hourly: upsert by code, bumps
+-- last_seen + updated_at. change_24h is the diff vs the previous run held
+-- in the in-memory previousScores map of country-instability.ts.
+CREATE TABLE IF NOT EXISTS wm_country_scores (
+  id                      SERIAL PRIMARY KEY,
+  code                    TEXT NOT NULL UNIQUE,
+  name                    TEXT NOT NULL,
+  score                   INTEGER NOT NULL DEFAULT 0,
+  level                   TEXT NOT NULL CHECK (level IN ('low','normal','elevated','high','critical')),
+  trend                   TEXT NOT NULL CHECK (trend IN ('rising','stable','falling')),
+  change_24h              NUMERIC(6,2) NOT NULL DEFAULT 0,
+  component_unrest        INTEGER NOT NULL DEFAULT 0,
+  component_conflict      INTEGER NOT NULL DEFAULT 0,
+  component_security      INTEGER NOT NULL DEFAULT 0,
+  component_information   INTEGER NOT NULL DEFAULT 0,
+  raw                     JSONB,
+  first_seen              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_country_scores_score
+  ON wm_country_scores (score DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_country_scores_level
+  ON wm_country_scores (level)
+  WHERE level IN ('elevated','high','critical');
+CREATE INDEX IF NOT EXISTS idx_wm_country_scores_last_seen
+  ON wm_country_scores (last_seen DESC);

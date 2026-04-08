@@ -8,10 +8,11 @@
 //  vía tsx + tsconfig.json (paths @/* → ./src/worldmonitor/*).
 //
 //  Phase 2 jobs cableados:
-//   1. runClusteringJob   — rss_articles → clustering.ts → wm_clusters
-//   2. runFocalPointJob   — clusters → focal-point-detector.ts → wm_focal_points
+//   1. runClusteringJob          — rss_articles → clustering.ts → wm_clusters
+//   2. runFocalPointJob          — clusters → focal-point-detector.ts → wm_focal_points
+//   3. runCountryInstabilityJob  — clusters → country-instability.ts → wm_country_scores
 //
-//  Otros bridges (country-instability, signal-aggregator real, etc.) vendrán
+//  Otros bridges (signal-aggregator real, conflict ingestion, etc.) vendrán
 //  en commits separados a medida que se cableen.
 // ════════════════════════════════════════════════════════════
 
@@ -33,6 +34,14 @@ function loadFocalPoint() {
     focalPointMod = require('./worldmonitor/services/focal-point-detector');
   }
   return focalPointMod;
+}
+
+let ciiMod = null;
+function loadCII() {
+  if (!ciiMod) {
+    ciiMod = require('./worldmonitor/services/country-instability');
+  }
+  return ciiMod;
 }
 
 /**
@@ -294,10 +303,147 @@ async function runFocalPointJob({ lookbackHours = 24, limit = 1000 } = {}) {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 2 — Job 3: country-instability (CII)
+//
+//  Pipeline:
+//    rss_articles (24h) → clusterNews() → focalPointDetector.analyze()
+//      → ingestNewsForCII(clusters) → calculateCII() → wm_country_scores
+//
+//  Por qué corremos focal-point ANTES dentro del mismo job:
+//    country-instability.ts línea 614 hace
+//      const focalUrgencies = focalPointDetector.getCountryUrgencyMap();
+//    El detector es un singleton con estado lastSummary. Si nadie ha
+//    llamado a analyze() antes, el map está vacío y el focalBoost siempre
+//    es 0. El cron wm-focal-points dispara a :40 y este a :50 — entre
+//    medias el singleton ya tiene state, pero arrancamos analyze() de
+//    nuevo aquí dentro del mismo proceso para garantizar que el state
+//    está fresco si el orden cambia o el engine se reinicia entre runs.
+//
+//  Por qué llamamos clearCountryData() antes de cada run:
+//    countryDataMap es estado in-memory acumulativo. Sin clear, las
+//    noticias del run anterior se suman a las del nuevo run y los
+//    contadores explotan con el tiempo. clearCountryData() lo resetea
+//    a {}. Las previousScores (para change_24h) NO se borran — están
+//    en otro Map y se preservan entre runs como diseñado.
+//
+//  Modo news-only:
+//    Sin protests/military/conflicts/displacement/climate ingerido
+//    todavía, los componentes unrest/conflict/security son 0 y solo
+//    information+baselineRisk+focalBoost contribuyen al score. Igual
+//    que con focal-point: cuando los feeds reales se cableen, esos
+//    ingest* se llaman aquí dentro y el resto del pipeline sigue igual.
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Persiste country scores. Idempotente vía code (UNIQUE):
+ * cuando el mismo país reaparece, hace UPDATE de score/level/trend/
+ * change_24h/components y bumpea last_seen.
+ */
+async function persistCountryScores(scores) {
+  let inserted = 0, updated = 0;
+  for (const s of scores) {
+    const r = await db.queryOne(
+      `INSERT INTO wm_country_scores
+         (code, name, score, level, trend, change_24h,
+          component_unrest, component_conflict,
+          component_security, component_information,
+          raw, first_seen, last_seen)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
+       ON CONFLICT (code) DO UPDATE SET
+         name                  = EXCLUDED.name,
+         score                 = EXCLUDED.score,
+         level                 = EXCLUDED.level,
+         trend                 = EXCLUDED.trend,
+         change_24h            = EXCLUDED.change_24h,
+         component_unrest      = EXCLUDED.component_unrest,
+         component_conflict    = EXCLUDED.component_conflict,
+         component_security    = EXCLUDED.component_security,
+         component_information = EXCLUDED.component_information,
+         raw                   = EXCLUDED.raw,
+         last_seen             = NOW(),
+         updated_at            = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        String(s.code).slice(0, 10),
+        String(s.name || s.code).slice(0, 100),
+        Number.isFinite(s.score) ? Math.round(s.score) : 0,
+        ['low','normal','elevated','high','critical'].includes(s.level) ? s.level : 'low',
+        ['rising','stable','falling'].includes(s.trend) ? s.trend : 'stable',
+        Number.isFinite(s.change24h) ? s.change24h : 0,
+        Number.isFinite(s.components?.unrest) ? Math.round(s.components.unrest) : 0,
+        Number.isFinite(s.components?.conflict) ? Math.round(s.components.conflict) : 0,
+        Number.isFinite(s.components?.security) ? Math.round(s.components.security) : 0,
+        Number.isFinite(s.components?.information) ? Math.round(s.components.information) : 0,
+        JSON.stringify({ components: s.components, change24h: s.change24h }),
+      ]
+    );
+    if (r?.inserted) inserted++;
+    else updated++;
+  }
+  return { inserted, updated };
+}
+
+/**
+ * Job principal CII: pull articles → cluster → focal-point → ingest news →
+ * calculateCII → persist.
+ *
+ * Devuelve { articlesScanned, clustersUsed, countriesScored, byLevel,
+ *            inserted, updated, durationMs }.
+ */
+async function runCountryInstabilityJob({ lookbackHours = 24, limit = 1000 } = {}) {
+  const t0 = Date.now();
+  const articles = await fetchRecentArticles({ lookbackHours, limit });
+  if (!articles.length) {
+    return {
+      articlesScanned: 0, clustersUsed: 0, countriesScored: 0,
+      byLevel: { low: 0, normal: 0, elevated: 0, high: 0, critical: 0 },
+      inserted: 0, updated: 0, durationMs: Date.now() - t0,
+    };
+  }
+
+  const { clusterNews } = loadClustering();
+  const clusters = clusterNews(articles);
+
+  // Refresh focal-point singleton state so getCountryUrgencyMap() is current
+  const { focalPointDetector } = loadFocalPoint();
+  focalPointDetector.analyze(clusters || [], EMPTY_SIGNAL_SUMMARY);
+
+  const cii = loadCII();
+  // Bypass learning mode (15min warmup is for fresh cold-start UIs, not crons)
+  cii.setHasCachedScores(true);
+  cii.clearCountryData();
+  cii.ingestNewsForCII(clusters || []);
+  // Future: cii.ingestProtestsForCII(...), ingestMilitaryForCII(...),
+  //         ingestConflictsForCII(...), ingestOutagesForCII(...) cuando
+  //         los feeds reales estén cableados.
+
+  const scores = cii.calculateCII();
+
+  const byLevel = { low: 0, normal: 0, elevated: 0, high: 0, critical: 0 };
+  for (const s of scores) {
+    if (byLevel[s.level] !== undefined) byLevel[s.level]++;
+  }
+
+  const persistResult = await persistCountryScores(scores);
+
+  return {
+    articlesScanned: articles.length,
+    clustersUsed: clusters?.length || 0,
+    countriesScored: scores.length,
+    byLevel,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
-  fetchRecentArticles,  // exported for testing
-  persistClusters,      // exported for testing
-  persistFocalPoints,   // exported for testing
+  runCountryInstabilityJob,
+  fetchRecentArticles,    // exported for testing
+  persistClusters,        // exported for testing
+  persistFocalPoints,     // exported for testing
+  persistCountryScores,   // exported for testing
 };

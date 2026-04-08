@@ -432,6 +432,21 @@ function init() {
     'Cada hora :40 — Focal-point detector sobre clusters de las últimas 24h vía worldmonitor/services/focal-point-detector.ts → wm_focal_points'
   );
 
+  // ─── P1 WM Phase 2 step 3: country instability → wm_country_scores cada hora :50 ──
+  register(
+    'wm-country-scores',
+    '50 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runCountryInstabilityJob({ lookbackHours: 24, limit: 1000 });
+        const lvl = r.byLevel;
+        console.log(`🌍 wm-country-scores: scanned=${r.articlesScanned} clusters=${r.clustersUsed} countries=${r.countriesScored} crit=${lvl.critical} high=${lvl.high} elev=${lvl.elevated} norm=${lvl.normal} low=${lvl.low} inserted=${r.inserted} updated=${r.updated} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-country-scores:', err.message); }
+    },
+    'Cada hora :50 — Country instability scoring sobre clusters de las últimas 24h vía worldmonitor/services/country-instability.ts → wm_country_scores'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',
