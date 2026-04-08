@@ -41,6 +41,12 @@ services:
         condition: service_healthy
     ports:
       - "80:3000"
+    # env_file expone TODAS las API keys del .env (Currents, Newsdata, YouTube,
+    # USAJobs, Wise, Akahu, OCM, USDA, etc) sin tener que listarlas una a una.
+    # Las del bloque environment: sobreescriben/añaden sólo las que necesitan
+    # default o transformación.
+    env_file:
+      - .env
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -68,6 +74,10 @@ services:
       PUPPETEER_BASE_URL: http://puppeteer:3000
       FIREFLY_BASE_URL: http://firefly_iii:8080
       FIREFLY_PERSONAL_TOKEN: ${FIREFLY_PERSONAL_TOKEN:-}
+      ACLED_EMAIL: ${ACLED_EMAIL:-}
+      ACLED_PASSWORD: ${ACLED_PASSWORD:-}
+      FRANCE_TRAVAIL_CLIENT_ID: ${FRANCE_TRAVAIL_CLIENT_ID:-}
+      FRANCE_TRAVAIL_CLIENT_SECRET: ${FRANCE_TRAVAIL_CLIENT_SECRET:-}
     volumes:
       - engine_uploads:/app/uploads
       - /root/ultra-system/agent_bus.json:/data/agent_bus.json

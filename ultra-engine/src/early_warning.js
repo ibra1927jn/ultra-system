@@ -134,15 +134,52 @@ async function fetchWHODons() {
 }
 
 // ════════════════════════════════════════════════════════════
-//  ACLED — Conflict events (requires free API key)
+//  ACLED — Conflict events (OAuth password grant, 2024+)
+//  ACLED migró del esquema legacy ?key=&email= a OAuth: el usuario
+//  se registra con email+password en acleddata.com y obtiene un
+//  bearer token vía POST /oauth/token (grant_type=password,
+//  client_id=acled). Ese token se usa como Authorization en /acled/read.
 // ════════════════════════════════════════════════════════════
-async function fetchACLED({ days = 7, countries = ['DZ', 'TN', 'MA'] } = {}) {
-  const apiKey = process.env.ACLED_API_KEY;
+let _acledTokenCache = { token: null, expiresAt: 0 };
+
+async function _getAcledToken() {
+  const now = Date.now();
+  if (_acledTokenCache.token && _acledTokenCache.expiresAt > now + 60000) {
+    return _acledTokenCache.token;
+  }
   const email = process.env.ACLED_EMAIL;
-  if (!apiKey || !email) {
+  const password = process.env.ACLED_PASSWORD;
+  if (!email || !password) throw new Error('ACLED_EMAIL + ACLED_PASSWORD no configurados');
+  const body = new URLSearchParams({
+    username: email,
+    password,
+    grant_type: 'password',
+    client_id: 'acled',
+  });
+  const r = await fetch('https://acleddata.com/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(() => '');
+    throw new Error(`ACLED oauth ${r.status}: ${txt.slice(0, 200)}`);
+  }
+  const j = await r.json();
+  if (!j.access_token) throw new Error('ACLED oauth: no access_token in response');
+  _acledTokenCache = {
+    token: j.access_token,
+    expiresAt: now + ((j.expires_in || 3600) * 1000),
+  };
+  return j.access_token;
+}
+
+async function fetchACLED({ days = 7, countries = ['DZ', 'TN', 'MA'] } = {}) {
+  if (!process.env.ACLED_EMAIL || !process.env.ACLED_PASSWORD) {
     return {
       source: 'acled', configured: false,
-      reason: 'ACLED_API_KEY + ACLED_EMAIL no configurados (registro free en acleddata.com)',
+      reason: 'ACLED_EMAIL + ACLED_PASSWORD no configurados (registro free en acleddata.com)',
     };
   }
 
@@ -150,11 +187,21 @@ async function fetchACLED({ days = 7, countries = ['DZ', 'TN', 'MA'] } = {}) {
   const isoToCountry = { DZ: 'Algeria', TN: 'Tunisia', MA: 'Morocco', LY: 'Libya', EG: 'Egypt' };
   const cnames = countries.map(c => isoToCountry[c]).filter(Boolean).join('|');
 
-  const url = `https://api.acleddata.com/acled/read?key=${apiKey}&email=${email}&country=${encodeURIComponent(cnames)}&event_date=${dateFrom}|${new Date().toISOString().split('T')[0]}&event_date_where=BETWEEN&limit=200`;
+  // Post-2024 ACLED migró el host: api.acleddata.com → acleddata.com/api/acled/read.
+  // El bearer token se reconoce pero la cuenta debe tener "data access" aprobado
+  // (registro separado del email confirmation; manual review 24-48h). Sin eso → 403.
+  const url = `https://acleddata.com/api/acled/read?country=${encodeURIComponent(cnames)}&event_date=${dateFrom}|${new Date().toISOString().split('T')[0]}&event_date_where=BETWEEN&limit=200`;
 
   try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`ACLED ${r.status}`);
+    const token = await _getAcledToken();
+    const r = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      throw new Error(`ACLED ${r.status}: ${txt.slice(0, 200)}`);
+    }
     const data = await r.json();
     let inserted = 0;
     for (const ev of (data.data || [])) {

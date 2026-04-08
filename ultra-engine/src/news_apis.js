@@ -332,7 +332,8 @@ async function fetchFinlight() {
     return { newCount: 0, highScoreArticles: [], skipped: 'FINLIGHT_API_KEY no configurada' };
   }
   try {
-    const url = `https://api.finlight.me/v2/articles?language=en&pageSize=50`;
+    // Finlight API: v2 devuelve 404, v1 es el endpoint actual (verificado 2026-04-08)
+    const url = `https://api.finlight.me/v1/articles?language=en&pageSize=50`;
     const r = await fetch(url, {
       headers: { 'X-API-KEY': key, Accept: 'application/json' },
       signal: AbortSignal.timeout(20000),

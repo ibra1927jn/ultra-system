@@ -174,11 +174,96 @@ async function fetchNAV() {
 // ════════════════════════════════════════════════════════════
 //  STUBS: France Travail + Bundesagentur + EURES + Job Bank CA
 // ════════════════════════════════════════════════════════════
-async function fetchFranceTravail() {
-  if (!process.env.FRANCETRAVAIL_CLIENT_ID || !process.env.FRANCETRAVAIL_CLIENT_SECRET) {
-    return { source: 'france_travail', configured: false, reason: 'Requiere OAuth client en api.francetravail.io' };
+// France Travail (ex-Pôle Emploi) — OAuth client_credentials + Offres d'emploi v2.
+// Token endpoint: entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire
+// API: api.francetravail.io/partenaire/offresdemploi/v2/offres/search
+let _ftTokenCache = { token: null, expiresAt: 0 };
+
+async function _getFranceTravailToken() {
+  const now = Date.now();
+  if (_ftTokenCache.token && _ftTokenCache.expiresAt > now + 60000) {
+    return _ftTokenCache.token;
   }
-  return { source: 'france_travail', configured: true, todo: true };
+  const id = process.env.FRANCE_TRAVAIL_CLIENT_ID;
+  const secret = process.env.FRANCE_TRAVAIL_CLIENT_SECRET;
+  if (!id || !secret) throw new Error('FRANCE_TRAVAIL_CLIENT_ID/SECRET no configurados');
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: id,
+    client_secret: secret,
+    scope: 'api_offresdemploiv2 o2dsoffre',
+  });
+  const r = await fetch(
+    'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      signal: AbortSignal.timeout(20000),
+    }
+  );
+  if (!r.ok) {
+    const txt = await r.text().catch(() => '');
+    throw new Error(`France Travail oauth ${r.status}: ${txt.slice(0, 300)}`);
+  }
+  const j = await r.json();
+  if (!j.access_token) throw new Error('France Travail oauth: no access_token');
+  _ftTokenCache = { token: j.access_token, expiresAt: now + ((j.expires_in || 1500) * 1000) };
+  return j.access_token;
+}
+
+async function fetchFranceTravail({ keyword = '', range = '0-49' } = {}) {
+  if (!process.env.FRANCE_TRAVAIL_CLIENT_ID || !process.env.FRANCE_TRAVAIL_CLIENT_SECRET) {
+    return { source: 'france_travail', configured: false, reason: 'Requiere FRANCE_TRAVAIL_CLIENT_ID/SECRET (api.francetravail.io)' };
+  }
+  try {
+    const token = await _getFranceTravailToken();
+    const params = new URLSearchParams({ range });
+    if (keyword) params.set('motsCles', keyword);
+    const url = `https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search?${params}`;
+    const r = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    // 200 = full result, 206 = partial content (rango devuelto). Ambos OK.
+    if (r.status !== 200 && r.status !== 206) {
+      const txt = await r.text().catch(() => '');
+      throw new Error(`France Travail HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    }
+    const data = await r.json();
+    const items = data.resultats || [];
+    let inserted = 0, skipped = 0;
+    for (const o of items) {
+      const title = o.intitule || '';
+      const company = o.entreprise?.nom || 'France Travail';
+      const location = o.lieuTravail?.libelle || 'France';
+      const isRemote = /\b(remote|télétravail|teletravail)\b/i.test(`${title} ${o.description || ''}`);
+      if (isRemote) { skipped++; continue; }
+      const sal = o.salaire || {};
+      const row = await buildRow({
+        source: 'france_travail',
+        externalId: o.id,
+        title,
+        company,
+        location,
+        country: 'FR',
+        description: (o.description || '').slice(0, 3000),
+        url: o.origineOffre?.urlOrigine || `https://candidat.francetravail.fr/offres/recherche/detail/${o.id}`,
+        postedAt: o.dateCreation,
+        salaryMin: null,
+        salaryMax: null,
+        salaryCurrency: 'EUR',
+        // salaire viene como string libre ("Annuel de 30000 a 40000 Euros") — no parseamos
+      });
+      // adjuntar salaire raw al description si existe
+      if (sal.libelle) row.description = `[${sal.libelle}] ${row.description}`;
+      const r2 = await jobApis.insertJob(row);
+      if (r2.inserted) inserted++; else skipped++;
+    }
+    return { source: 'france_travail', configured: true, fetched: items.length, inserted, skipped };
+  } catch (err) {
+    return { source: 'france_travail', configured: true, error: err.message };
+  }
 }
 
 async function fetchBundesagentur() {
