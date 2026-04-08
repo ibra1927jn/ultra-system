@@ -649,6 +649,51 @@ function init() {
     'Cada 15 min :08 — Hotspot dynamic escalation → wm_hotspot_escalation'
   );
 
+  // ─── WM Phase 3 Bloque 1 step 14: market quotes (Yahoo v8 chart) ──
+  // ~46 symbols del catálogo (12 sectors + 6 commodities + 28 stocks +
+  // major indices + ^VIX). Yahoo v8 chart endpoint, no auth, ~5-7s wall
+  // clock. Snapshot append-only en wm_market_quotes. Solo durante NY
+  // market hours (UTC 13:30-21:00 ≈ 9:30-16:00 ET, lun-vie). Cleanup
+  // retention 90 días en el primer tick de cada hora.
+  register(
+    'wm-market-quotes',
+    '*/15 13-21 * * 1-5',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runMarketQuotesJob();
+        if (r.error) {
+          console.error(`❌ wm-market-quotes: ${r.error}`);
+        } else {
+          console.log(`📈 wm-market-quotes: fetched=${r.fetched} inserted=${r.inserted} deleted=${r.deleted} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-market-quotes:', err.message); }
+    },
+    'Cada 15 min UTC 13-21 lun-vie — Yahoo v8 chart snapshots → wm_market_quotes'
+  );
+
+  // ─── WM Phase 3 Bloque 1 step 15: crypto quotes (CoinGecko) ──
+  // BTC / ETH / SOL / XRP + global market cap + BTC dominance vía
+  // CoinGecko public API (sin auth, 2 calls por tick). Snapshot
+  // append-only en wm_crypto_quotes. 24/7 cada 5 min. Cleanup retention
+  // 90 días una vez por hora.
+  register(
+    'wm-crypto-quotes',
+    '*/5 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runCryptoQuotesJob();
+        if (r.error) {
+          console.error(`❌ wm-crypto-quotes: ${r.error}`);
+        } else {
+          console.log(`🪙 wm-crypto-quotes: fetched=${r.fetched} inserted=${r.inserted} deleted=${r.deleted} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-crypto-quotes:', err.message); }
+    },
+    'Cada 5 min 24/7 — CoinGecko top4 + global → wm_crypto_quotes'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',

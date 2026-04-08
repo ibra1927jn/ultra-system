@@ -20,6 +20,9 @@
 //  10. runEarthquakesJob         — earthquakes.ts (USGS GeoJSON direct) → wm_earthquakes
 //  11. runSatelliteFiresJob      — wildfires/index.ts (NASA FIRMS direct) → wm_satellite_fires
 //  12. runWmGdeltIntelJob        — wm_gdelt_intel.js (24 topics, retry/stagger) → wm_intel_articles
+//  --- Phase 3 (commodities/market verticals, Bloque 1) ---
+//  14. runMarketQuotesJob        — Yahoo v8 chart direct → wm_market_quotes
+//  15. runCryptoQuotesJob        — CoinGecko public API → wm_crypto_quotes
 //
 //  Otros bridges (internet outages, ACLED protests, etc.) vendrán en
 //  commits separados.
@@ -99,6 +102,22 @@ function loadWildfires() {
     wildfiresMod = require('./worldmonitor/services/wildfires');
   }
   return wildfiresMod;
+}
+
+let marketQuotesMod = null;
+function loadMarketQuotes() {
+  if (!marketQuotesMod) {
+    marketQuotesMod = require('./worldmonitor/services/market-quotes');
+  }
+  return marketQuotesMod;
+}
+
+let cryptoQuotesMod = null;
+function loadCryptoQuotes() {
+  if (!cryptoQuotesMod) {
+    cryptoQuotesMod = require('./worldmonitor/services/crypto-quotes');
+  }
+  return cryptoQuotesMod;
 }
 
 let trendingMod = null;
@@ -1984,6 +2003,178 @@ async function runWmHotspotEscalationJob() {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 3 — Bloque 1: market quotes + crypto quotes
+//
+//  Tablas wm_market_quotes y wm_crypto_quotes (db/wm_phase3.sql).
+//  Append-only time-series. Bounded retention 90 días via cleanup.
+// ════════════════════════════════════════════════════════════
+
+const MARKET_QUOTES_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.MARKET_QUOTES_RETENTION_DAYS || '90', 10) || 90
+);
+const CRYPTO_QUOTES_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.CRYPTO_QUOTES_RETENTION_DAYS || '90', 10) || 90
+);
+
+async function persistMarketQuotes(quotes, observedAt) {
+  let inserted = 0;
+  for (const q of quotes) {
+    if (!q || typeof q.price !== 'number' || !Number.isFinite(q.price)) continue;
+    const r = await db.queryOne(
+      `INSERT INTO wm_market_quotes
+         (symbol, display, name, category, price, previous_close,
+          change_abs, change_pct, day_high, day_low, volume,
+          currency, exchange, market_state, observed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       RETURNING id`,
+      [
+        String(q.symbol).slice(0, 30),
+        q.display ? String(q.display).slice(0, 30) : null,
+        q.name ? String(q.name).slice(0, 100) : null,
+        String(q.category).slice(0, 20),
+        Number(q.price),
+        Number.isFinite(q.previousClose) ? Number(q.previousClose) : null,
+        Number.isFinite(q.changeAbs) ? Number(q.changeAbs) : null,
+        Number.isFinite(q.changePct) ? Number(q.changePct) : null,
+        Number.isFinite(q.dayHigh) ? Number(q.dayHigh) : null,
+        Number.isFinite(q.dayLow) ? Number(q.dayLow) : null,
+        Number.isFinite(q.volume) ? Number(q.volume) : null,
+        q.currency ? String(q.currency).slice(0, 10) : null,
+        q.exchange ? String(q.exchange).slice(0, 60) : null,
+        q.marketState ? String(q.marketState).slice(0, 20) : null,
+        observedAt,
+      ]
+    );
+    if (r?.id) inserted++;
+  }
+  return { inserted };
+}
+
+async function persistCryptoQuotes(quotes, observedAt) {
+  let inserted = 0;
+  for (const q of quotes) {
+    if (!q || typeof q.priceUsd !== 'number' || !Number.isFinite(q.priceUsd)) continue;
+    const r = await db.queryOne(
+      `INSERT INTO wm_crypto_quotes
+         (coin_id, symbol, name, price_usd, market_cap_usd, volume_24h_usd,
+          change_1h_pct, change_24h_pct, change_7d_pct,
+          ath_usd, ath_change_pct, circulating_supply,
+          global_market_cap_usd, btc_dominance_pct, active_cryptocurrencies,
+          observed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       RETURNING id`,
+      [
+        String(q.coinId).slice(0, 50),
+        String(q.symbol).slice(0, 20),
+        String(q.name).slice(0, 100),
+        Number(q.priceUsd),
+        Number.isFinite(q.marketCapUsd) ? Number(q.marketCapUsd) : null,
+        Number.isFinite(q.volume24hUsd) ? Number(q.volume24hUsd) : null,
+        Number.isFinite(q.change1hPct) ? Number(q.change1hPct) : null,
+        Number.isFinite(q.change24hPct) ? Number(q.change24hPct) : null,
+        Number.isFinite(q.change7dPct) ? Number(q.change7dPct) : null,
+        Number.isFinite(q.athUsd) ? Number(q.athUsd) : null,
+        Number.isFinite(q.athChangePct) ? Number(q.athChangePct) : null,
+        Number.isFinite(q.circulatingSupply) ? Number(q.circulatingSupply) : null,
+        Number.isFinite(q.globalMarketCapUsd) ? Number(q.globalMarketCapUsd) : null,
+        Number.isFinite(q.btcDominancePct) ? Number(q.btcDominancePct) : null,
+        Number.isFinite(q.activeCryptocurrencies) ? Number(q.activeCryptocurrencies) : null,
+        observedAt,
+      ]
+    );
+    if (r?.id) inserted++;
+  }
+  return { inserted };
+}
+
+async function cleanupOldMarketQuotes(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_market_quotes
+                  WHERE observed_at < NOW() - ($1::int * INTERVAL '1 day')
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+async function cleanupOldCryptoQuotes(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_crypto_quotes
+                  WHERE observed_at < NOW() - ($1::int * INTERVAL '1 day')
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+async function runMarketQuotesJob() {
+  const t0 = Date.now();
+  const observedAt = new Date();
+  const mq = loadMarketQuotes();
+  let quotes = [];
+  try {
+    quotes = await mq.fetchAllMarketQuotes();
+  } catch (err) {
+    return {
+      fetched: 0,
+      inserted: 0,
+      deleted: 0,
+      durationMs: Date.now() - t0,
+      error: err.message,
+    };
+  }
+  const persistResult = await persistMarketQuotes(quotes, observedAt);
+  // Cleanup runs sparingly — only on the top-of-hour tick to avoid hot-path
+  // overhead. We approximate "top of hour" by checking minute < 15 (the
+  // job runs */15 13-21 * * 1-5 → first tick of an hour is :00 / :15 / :30 / :45,
+  // so :00 is the only minute under 15).
+  let deleted = 0;
+  if (observedAt.getUTCMinutes() < 15) {
+    deleted = await cleanupOldMarketQuotes(MARKET_QUOTES_RETENTION_DAYS);
+  }
+  return {
+    fetched: quotes.length,
+    inserted: persistResult.inserted,
+    deleted,
+    durationMs: Date.now() - t0,
+  };
+}
+
+async function runCryptoQuotesJob() {
+  const t0 = Date.now();
+  const observedAt = new Date();
+  const cq = loadCryptoQuotes();
+  let quotes = [];
+  try {
+    quotes = await cq.fetchAllCryptoQuotes();
+  } catch (err) {
+    return {
+      fetched: 0,
+      inserted: 0,
+      deleted: 0,
+      durationMs: Date.now() - t0,
+      error: err.message,
+    };
+  }
+  const persistResult = await persistCryptoQuotes(quotes, observedAt);
+  // Cleanup once per hour at the top-of-hour 5min tick.
+  let deleted = 0;
+  if (observedAt.getUTCMinutes() < 5) {
+    deleted = await cleanupOldCryptoQuotes(CRYPTO_QUOTES_RETENTION_DAYS);
+  }
+  return {
+    fetched: quotes.length,
+    inserted: persistResult.inserted,
+    deleted,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
@@ -1998,6 +2189,8 @@ module.exports = {
   runSatelliteFiresJob,
   runWmGdeltIntelJob,
   runWmHotspotEscalationJob,
+  runMarketQuotesJob,
+  runCryptoQuotesJob,
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing
@@ -2018,6 +2211,10 @@ module.exports = {
   cleanupOldSatelliteFires,    // exported for testing
   persistIntelArticles,        // exported for testing
   cleanupOldIntelArticles,     // exported for testing
+  persistMarketQuotes,         // exported for testing
+  persistCryptoQuotes,         // exported for testing
+  cleanupOldMarketQuotes,      // exported for testing
+  cleanupOldCryptoQuotes,      // exported for testing
   getRecentMilitaryFlights,    // exported for testing
   getCurrentSignalSummary,     // exported for testing
   getRecentEarthquakeAnomalies,// exported for testing
