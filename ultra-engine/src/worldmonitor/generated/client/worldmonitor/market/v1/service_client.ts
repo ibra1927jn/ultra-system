@@ -1,0 +1,10 @@
+import { makeStubServiceClient, ApiError } from '../../../_stub_helpers';
+export const MarketServiceClient = makeStubServiceClient('Market');
+export { ApiError };
+export type GetCountryStockIndexResponse = any;
+export type GetSectorSummaryResponse = any;
+export type ListCommodityQuotesResponse = any;
+export type ListCryptoQuotesResponse = any;
+export type ListEtfFlowsResponse = any;
+export type ListMarketQuotesResponse = any;
+export type ListStablecoinMarketsResponse = any;

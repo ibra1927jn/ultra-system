@@ -23,11 +23,13 @@
     "node-telegram-bot-api": "^0.66.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.13.0",
+    "fast-xml-parser": "^4.5.0",
     "rss-parser": "^3.13.0",
     "tesseract.js": "^5.1.1",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
+    "@types/geojson": "^7946.0.15",
     "typescript": "^5.7.2",
     "vitest": "^4.1.2"
   }

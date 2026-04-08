@@ -6,8 +6,9 @@
 import { detectMLCapabilities, type MLCapabilities } from './ml-capabilities';
 import { ML_THRESHOLDS, MODEL_CONFIGS } from '@/config/ml-config';
 
-// Import worker using Vite's worker syntax
-import MLWorkerClass from '@/workers/ml.worker?worker';
+// Phase 1 absorption: stripped Vite ?worker suffix — see workers/ml.worker.ts
+// stub no-op (sync main-thread fallback). Phase 2+ replace con worker_threads si CPU bottleneck.
+import MLWorkerClass from '@/workers/ml.worker';
 
 interface PendingRequest<T> {
   resolve: (value: T) => void;

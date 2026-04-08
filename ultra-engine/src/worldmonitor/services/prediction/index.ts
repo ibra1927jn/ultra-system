@@ -38,7 +38,7 @@ interface PolymarketEvent {
 const GAMMA_API = 'https://gamma-api.polymarket.com';
 
 // Railway relay URL for Polymarket proxy (Cloudflare JA3 blocks Vercel)
-const wsRelayUrl = import.meta.env.VITE_WS_RELAY_URL || '';
+const wsRelayUrl = (typeof process !== 'undefined' ? process.env : ({} as any)).VITE_WS_RELAY_URL || '';
 const RAILWAY_POLY_URL = wsRelayUrl
   ? wsRelayUrl.replace('wss://', 'https://').replace('ws://', 'http://').replace(/\/$/, '') + '/polymarket'
   : '';

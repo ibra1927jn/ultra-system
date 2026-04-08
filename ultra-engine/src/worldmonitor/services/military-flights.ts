@@ -15,7 +15,7 @@ import {
 import { isFeatureAvailable } from './runtime-config';
 
 // OpenSky Network API - use Railway relay (Vercel is blocked by OpenSky)
-const wsRelayUrl = import.meta.env.VITE_WS_RELAY_URL || '';
+const wsRelayUrl = (typeof process !== 'undefined' ? process.env : ({} as any)).VITE_WS_RELAY_URL || '';
 const OPENSKY_BASE_URL = wsRelayUrl
   ? wsRelayUrl.replace('wss://', 'https://').replace('ws://', 'http://').replace(/\/$/, '') + '/opensky'
   : '';

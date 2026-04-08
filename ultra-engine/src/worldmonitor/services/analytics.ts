@@ -133,9 +133,9 @@ type PostHogInstance = {
 let posthogInstance: PostHogInstance | null = null;
 let initPromise: Promise<void> | null = null;
 
-const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY as string | undefined;
+const POSTHOG_KEY = (typeof process !== 'undefined' ? process.env : ({} as any)).VITE_POSTHOG_KEY as string | undefined;
 const POSTHOG_HOST = isDesktopRuntime()
-  ? ((import.meta.env.VITE_POSTHOG_HOST as string | undefined) || 'https://us.i.posthog.com')
+  ? (((typeof process !== 'undefined' ? process.env : ({} as any)).VITE_POSTHOG_HOST as string | undefined) || 'https://us.i.posthog.com')
   : '/ingest'; // Reverse proxy through own domain to bypass ad blockers
 
 // ── Public API ──

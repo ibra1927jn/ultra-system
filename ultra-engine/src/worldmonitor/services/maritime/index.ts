@@ -59,7 +59,7 @@ function toDensityZone(proto: ProtoDensityZone): AisDensityZone {
 // ---- Feature Gating ----
 
 const isClientRuntime = typeof window !== 'undefined';
-const aisConfigured = isClientRuntime && import.meta.env.VITE_ENABLE_AIS !== 'false';
+const aisConfigured = isClientRuntime && (typeof process !== 'undefined' ? process.env : ({} as any)).VITE_ENABLE_AIS !== 'false';
 
 export function isAisConfigured(): boolean {
   return aisConfigured && isFeatureAvailable('aisRelay');
@@ -134,7 +134,7 @@ const MAX_CALLBACK_TRACKED_VESSELS = 20000;
 
 // ---- Raw Relay URL (for candidate reports path) ----
 
-const wsRelayUrl = import.meta.env.VITE_WS_RELAY_URL || '';
+const wsRelayUrl = (typeof process !== 'undefined' ? process.env : ({} as any)).VITE_WS_RELAY_URL || '';
 const RAILWAY_SNAPSHOT_URL = wsRelayUrl
   ? wsRelayUrl.replace('wss://', 'https://').replace('ws://', 'http://').replace(/\/$/, '') + '/ais/snapshot'
   : '';

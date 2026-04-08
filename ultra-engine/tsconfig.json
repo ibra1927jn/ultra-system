@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/worldmonitor/*"],
+      "@/config": ["./src/worldmonitor/config/index"],
+      "@/config/*": ["./src/worldmonitor/config/*"],
+      "@/types": ["./src/worldmonitor/types/index"],
+      "@/types/*": ["./src/worldmonitor/types/*"],
+      "@/utils": ["./src/worldmonitor/utils/index"],
+      "@/utils/*": ["./src/worldmonitor/utils/*"],
+      "@/services": ["./src/worldmonitor/services/index"],
+      "@/services/*": ["./src/worldmonitor/services/*"]
+    }
+  },
+  "include": [
+    "src/worldmonitor/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/worldmonitor/PHASE0_IMPORTS_AUDIT.md"
+  ]
+}

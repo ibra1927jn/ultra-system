@@ -8,8 +8,9 @@ import type { PredictionMarket } from '@/services/prediction';
 import type { CorrelationSignal } from './correlation';
 import { SOURCE_TIERS, SOURCE_TYPES, type SourceType } from '@/config/feeds';
 
-// Import worker using Vite's worker syntax
-import AnalysisWorker from '@/workers/analysis.worker?worker';
+// Phase 1 absorption: stripped Vite ?worker suffix — see workers/analysis.worker.ts
+// stub no-op (sync main-thread fallback). Phase 2+ replace con worker_threads si CPU bottleneck.
+import AnalysisWorker from '@/workers/analysis.worker';
 
 interface PendingRequest<T> {
   resolve: (value: T) => void;
