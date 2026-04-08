@@ -154,7 +154,7 @@ function init() {
     'paperless-ocr-sync',
     '40 */6 * * *',
     syncPaperlessOcr,
-    'Cada 6h :40 — Extract expiry dates de OCR text → document_alerts'
+    'Cada 6h :40 — Sync Paperless → bur_documents + extract expiry dates → document_alerts'
   );
 
   // ─── P7 Fase 4: Wearable raw → bio_checks aggregation — diario 23:50 ───
@@ -346,7 +346,7 @@ function init() {
     async () => {
       const le = require('./logistics_extras');
       try {
-        const r = await le.fetchPark4Night({ batchSize: 30 });
+        const r = await le.fetchPark4Night({ batchSize: 100 });
         if (r.error || r.skipped) {
           console.log(`🏕️ p4n crawl: ${r.error || r.skipped}`);
         } else {
@@ -354,7 +354,7 @@ function init() {
         }
       } catch (err) { console.error('park4night-crawl err:', err.message); }
     },
-    'Cada 2h — Park4Night sitemap crawl (30/batch via Puppeteer)'
+    'Cada 2h — Park4Night sitemap crawl (100/batch via Puppeteer, ~7.5min/run)'
   );
 
   // ─── P6 R4 Tier A: Overpass essentials POIs — mensual día 1 a las 03:00 ──
@@ -386,6 +386,22 @@ function init() {
       console.log('🩺 bio-extras:', results.map(r => `${r.source || '?'}=${r.skipped ? 'skip' : (r.error ? 'err' : 'ok')}`).join(' '));
     },
     'Cada 6h — OpenUV/Fitbit/Oura/Withings (skipped si no hay credenciales)'
+  );
+
+  // ─── P7 Tier A: wger workout sessions → bio_journal cada 6h ──
+  register(
+    'wger-workouts-sync',
+    '20 */6 * * *',
+    async () => {
+      try {
+        const wger = require('./wger');
+        const r = await wger.syncWorkoutSessions({ limit: 50 });
+        if (r.skipped) console.log('💪 wger-workouts-sync skip:', r.skipped);
+        else if (r.error) console.warn('💪 wger-workouts-sync err:', r.error);
+        else if (r.inserted > 0) console.log(`💪 wger-workouts-sync: ${r.inserted} new sessions → bio_journal (${r.skipped} dup, ${r.total} total)`);
+      } catch (err) { console.error('❌ wger-workouts-sync:', err.message); }
+    },
+    'Cada 6h :20 — Sync wger workoutsession → bio_journal (requires WGER_API_TOKEN)'
   );
 
   // ─── P1 Tier A: News API stubs poll cada 4h ──
@@ -1324,9 +1340,15 @@ async function aggregateWearableMetrics() {
 async function syncPaperlessOcr() {
   try {
     const paperless = require('./paperless');
-    const r = await paperless.syncOcrExtractions({ limit: 100 });
-    if (r.ok && r.updated > 0) {
-      console.log(`📂 paperless-ocr-sync: scanned=${r.scanned} updated=${r.updated}`);
+    // 1. Sync nuevos docs Paperless → bur_documents (insert/update)
+    const sync = await paperless.syncPaperlessToBurDocuments({ limit: 100 });
+    if (sync.ok && (sync.inserted || sync.updated)) {
+      console.log(`📂 paperless→bur_documents: scanned=${sync.scanned} inserted=${sync.inserted} updated=${sync.updated}`);
+    }
+    // 2. Enrich document_alerts existentes con expiry dates extraídas
+    const ocr = await paperless.syncOcrExtractions({ limit: 100 });
+    if (ocr.ok && ocr.updated > 0) {
+      console.log(`📂 paperless-ocr enrich: scanned=${ocr.scanned} updated=${ocr.updated}`);
     }
   } catch (err) {
     console.error('❌ paperless-ocr-sync error:', err.message);

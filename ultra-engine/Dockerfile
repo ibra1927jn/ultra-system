@@ -31,5 +31,8 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
 
-# Iniciar
-CMD ["node", "server.js"]
+# Iniciar — --require tsx/cjs registra el require hook antes de cargar
+# server.js, permitiendo que cualquier require('./worldmonitor/...ts')
+# se compile al vuelo (necesario para los servicios de WorldMonitor
+# absorbidos en src/worldmonitor/, todos en TypeScript).
+CMD ["node", "--require", "tsx/cjs", "server.js"]

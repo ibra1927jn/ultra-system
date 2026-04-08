@@ -262,6 +262,91 @@ async function syncOcrExtractions({ limit = 50 } = {}) {
   return { ok: true, scanned, updated };
 }
 
+/**
+ * Sync paperless documents → bur_documents.
+ *
+ * Para cada doc en paperless que NO esté ya linkeado en bur_documents
+ * (verificamos via metadata->>'paperless_id'), inserta una row con los
+ * campos básicos. doc_type se infiere de tags/title (default 'other').
+ * El OCR text completo va a ocr_text, el inferred expiry_date a expiry_date.
+ *
+ * Idempotente: si paperless_id ya existe en metadata, hace UPDATE en vez de INSERT.
+ *
+ * Esta función cubre el gap descubierto 2026-04-08: el cron paperless-ocr-sync
+ * solo enriquecía document_alerts existentes, nunca poblaba bur_documents.
+ */
+async function syncPaperlessToBurDocuments({ limit = 100 } = {}) {
+  if (!(await isReachable())) return { ok: false, error: 'paperless no reachable' };
+
+  const data = await listDocuments({ page: 1, page_size: limit });
+  let inserted = 0, updated = 0, scanned = 0;
+
+  for (const doc of (data.results || [])) {
+    scanned++;
+
+    // Buscar si ya existe link via metadata->>paperless_id
+    const existing = await db.queryOne(
+      `SELECT id FROM bur_documents WHERE metadata->>'paperless_id' = $1`,
+      [String(doc.id)]
+    );
+
+    // Inferir doc_type del título/tags
+    const titleLower = (doc.title || '').toLowerCase();
+    let doc_type = 'other';
+    if (/passport|pasaporte/.test(titleLower)) doc_type = 'passport';
+    else if (/visa|visado/.test(titleLower)) doc_type = 'visa';
+    else if (/license|licencia|permiso/.test(titleLower)) doc_type = 'license';
+    else if (/insurance|seguro/.test(titleLower)) doc_type = 'insurance';
+    else if (/contract|contrato/.test(titleLower)) doc_type = 'contract';
+    else if (/invoice|factura|recibo/.test(titleLower)) doc_type = 'invoice';
+    else if (/cert|certificate|certificado/.test(titleLower)) doc_type = 'certificate';
+    else if (/tax|impuesto|hacienda/.test(titleLower)) doc_type = 'tax';
+
+    const expiry = doc.content ? inferExpiryDate(doc.content) : null;
+    const metadata = {
+      paperless_id: doc.id,
+      paperless_created: doc.created || null,
+      paperless_modified: doc.modified || null,
+      archived_file_name: doc.archived_file_name || null,
+      ocr_extracted_at: new Date().toISOString(),
+    };
+
+    if (existing) {
+      await db.query(
+        `UPDATE bur_documents SET
+           title = $1,
+           ocr_text = $2,
+           expiry_date = COALESCE(expiry_date, $3),
+           metadata = metadata || $4::jsonb
+         WHERE id = $5`,
+        [
+          (doc.title || `Paperless #${doc.id}`).slice(0, 500),
+          doc.content || null,
+          expiry?.date || null,
+          JSON.stringify(metadata),
+          existing.id,
+        ]
+      );
+      updated++;
+    } else {
+      await db.query(
+        `INSERT INTO bur_documents (title, doc_type, ocr_text, expiry_date, metadata, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [
+          (doc.title || `Paperless #${doc.id}`).slice(0, 500),
+          doc_type,
+          doc.content || null,
+          expiry?.date || null,
+          JSON.stringify(metadata),
+        ]
+      );
+      inserted++;
+    }
+  }
+
+  return { ok: true, scanned, inserted, updated };
+}
+
 async function getStats() {
   try {
     const headers = await authHeaders();
@@ -284,4 +369,5 @@ module.exports = {
   extractDates,
   inferExpiryDate,
   syncOcrExtractions,
+  syncPaperlessToBurDocuments,
 };

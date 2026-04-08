@@ -1,0 +1,69 @@
+# GITHUB REPOS FROM SECTION 25 - Status Audit
+
+## 25A. Job Boards & Remote Work
+remoteintech/remote-jobs
+lukasz-madon/awesome-remote-job
+poteto/hiring-without-whiteboards
+tramcar/awesome-job-boards
+j-delaney/easy-application
+remote-es/remotes
+
+## 25B. Job Scraping & Aggregation
+speedyapply/JobSpy
+alpharomercoma/ts-jobspy
+PaulMcInnis/JobFunnel
+feder-cr/Auto_Jobs_Applier_AIHawk
+Gsync/jobsync
+wodsuz/EasyApplyJobsBot
+
+## 25C. Bug Bounty Tools
+projectdiscovery/nuclei
+nahamsec/Resources-for-Beginner-Bug-Bounty-Hunters
+EdOverflow/bugbounty-cheatsheet
+KathanP19/HowToHunt
+yogeshojha/rengine
+six2dez/reconftw
+
+## 25D. Open Source / Grants / Funding
+nayafia/lemonade-stand
+nayafia/microgrants
+ossfriendly/open-source-supporters
+ralphtheninja/open-funding
+opensource-observer/oss-funding
+FreeCodeCamp/how-to-contribute-to-open-source
+weecology/ogrants
+deacs11/CrewAI_Grant_Funding_Finder
+sustainers/awesome-oss-funding
+
+## 25E. Indie / Passive Income
+mezod/awesome-indie
+PayDevs/awesome-oss-monetization
+255kb/stack-on-a-budget
+johackim/awesome-indiehackers
+yourincomehome/awesome-passive-income
+awesomelistsio/awesome-blogging-monetization
+thomasbnt/awesome-web-monetization
+PaulleDemon/awesome-landing-pages
+polarsource/polar
+
+## 25F. Crypto
+ccxt/ccxt
+freqtrade/freqtrade
+hummingbot/hummingbot
+DeFiHackLabs/Web3-Security-Library
+
+## 25G. Freelance Tools
+midday-ai/midday
+solidtime-io/solidtime
+kimai/kimai
+engineerapart/TheRemoteFreelancer
+
+## 25H. SaaS Boilerplates
+async-labs/saas
+ixartz/SaaS-Boilerplate
+apptension/saas-boilerplate
+smirnov-am/awesome-saas-boilerplates
+
+## 25I. Content/Education Tools
+classroomio/classroomio
+p2pu/course-in-a-box

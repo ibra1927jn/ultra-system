@@ -1,0 +1,43 @@
+PILLAR 6 LOGISTICS - COMPREHENSIVE AUDIT TABLE
+
+Lines from PILLAR6_LOGISTICS_COMPLETE.md where each tool appears:
+- gtoselli/park4night-api: 151
+- mwiede/camping-poi: 200
+- cory-evans/gaspy: 226
+- VROOM-Project/vroom: 296
+- Project-OSRM/osrm-backend: 1297
+- graphhopper/graphhopper: 1298
+- valhalla/valhalla: 1299
+- GIScience/openrouteservice: 1300
+- pgRouting/pgrouting: 1301
+- protomaps/PMTiles: 1303
+- maptiler/tileserver-gl: 1304
+- mauriceboe/TREK: 1310
+- seanmorley15/AdventureLog: 1311
+- traccar/traccar: 1312
+- giggls/opencampsitemap: 1318
+- GpxFeed/campgrounds: 1319
+- broadtoad/Flight_Tracker: 1328
+- jeancsil/flight-spy: 1329
+- kcelebi/flight-analysis: 1330
+- Arthraj/Flight-Price-Tracker: 1331
+- 2BAD/ryanair: 1332
+- projectivemotion/wizzair-scraper: 1333
+- AWeirdDev/flights: 1334
+- pazguille/offline-first: 1340
+- allartk/leaflet.offline: 1342
+- lukem512/freecycle: 1348
+- emileswarts/freestuffly: 1349
+- robmsmt/freecyclescraper: 1350
+- scrapehero-code/booking-hotel-scraper: 1351
+- arrrlo/BlaBlaCar-Client-Api: 1352
+- jessehanley/nomadlist-gem: 1353
+- cbovis/awesome-digital-nomads: 1359
+- awesomelistsio/awesome-digital-nomads: 1360
+- Couchers-org/couchers: 1361
+- juliuste/flix: 1367
+- mealie-recipes/mealie: 1372
+- mitchellciupak/auto-kitchen: 1373
+- Hitchwiki/hitchhiking-data: 1381
+- fawazahmed0/exchange-api: 1393
+- chargeprice/chargeprice-api-docs: 1399

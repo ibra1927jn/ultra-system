@@ -95,50 +95,66 @@ function makeFingerprint(company, title, locationRaw) {
   return crypto.createHash('sha256').update(data).digest('hex').substring(0, 32);
 }
 
-// ─── Insert con dedup por fingerprint ──
+// ─── Insert con dedup por fingerprint y url ──
+// Hay 2 UNIQUE constraints en job_listings: (fingerprint) y (url). PG solo
+// permite mencionar una en ON CONFLICT, así que cubrimos fingerprint en el
+// INSERT y atrapamos la violation de URL via try/catch. Sin esto, re-runs
+// con URLs estables pero fingerprint cambiado (e.g. cambio de location)
+// rompían el batch entero (descubierto 2026-04-08 al re-correr ats-fetch
+// para Stripe/Rocket Lab/Cresta).
 async function insertJob(row) {
   // CRÍTICO: si is_remote=true, descartar (lo cubre P5/opp_fetchers)
   if (row.is_remote) return { skipped: 'remote' };
 
-  const r = await db.queryOne(
-    `INSERT INTO job_listings
-       (title, url, region, category, status, company, company_url,
-        location_country, location_city, location_raw, sector, job_type,
-        is_remote, salary_min, salary_max, salary_currency, visa_sponsorship,
-        description, posted_at, scraped_at,
-        match_score, speed_score, difficulty_score, total_score,
-        fingerprint, source_type, external_id)
-     VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9, $10, $11, FALSE,
-             $12, $13, $14, $15, $16, $17, NOW(),
-             $18, $19, $20, $21, $22, 'api', $23)
-     ON CONFLICT (fingerprint) WHERE fingerprint IS NOT NULL DO UPDATE SET
-       scraped_at = NOW(),
-       total_score = GREATEST(job_listings.total_score, EXCLUDED.total_score)
-     RETURNING (xmax = 0) AS inserted`,
-    [
-      (row.title || '').substring(0, 500),
-      row.url,
-      row.region || row.location_country,
-      row.category || 'tech',
-      row.company,
-      row.company_url || null,
-      row.location_country || null,
-      row.location_city || null,
-      (row.location_raw || '').substring(0, 255),
-      row.sector || null,
-      row.job_type || null,
-      row.salary_min || null,
-      row.salary_max || null,
-      row.salary_currency || null,
-      row.visa_sponsorship || null,
-      (row.description || '').substring(0, 3000),
-      row.posted_at || null,
-      row.matchScore, row.speedScore, row.difficultyScore, row.totalScore,
-      row.fingerprint,
-      row.external_id || null,
-    ]
-  );
-  return r?.inserted ? { inserted: true } : { duplicate: true };
+  try {
+    const r = await db.queryOne(
+      `INSERT INTO job_listings
+         (title, url, region, category, status, company, company_url,
+          location_country, location_city, location_raw, sector, job_type,
+          is_remote, salary_min, salary_max, salary_currency, visa_sponsorship,
+          description, posted_at, scraped_at,
+          match_score, speed_score, difficulty_score, total_score,
+          fingerprint, source_type, external_id)
+       VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9, $10, $11, FALSE,
+               $12, $13, $14, $15, $16, $17, NOW(),
+               $18, $19, $20, $21, $22, 'api', $23)
+       ON CONFLICT (fingerprint) WHERE fingerprint IS NOT NULL DO UPDATE SET
+         scraped_at = NOW(),
+         total_score = GREATEST(job_listings.total_score, EXCLUDED.total_score)
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        (row.title || '').substring(0, 500),
+        row.url,
+        row.region || row.location_country,
+        row.category || 'tech',
+        row.company,
+        row.company_url || null,
+        row.location_country || null,
+        row.location_city || null,
+        (row.location_raw || '').substring(0, 255),
+        row.sector || null,
+        row.job_type || null,
+        row.salary_min || null,
+        row.salary_max || null,
+        row.salary_currency || null,
+        row.visa_sponsorship || null,
+        (row.description || '').substring(0, 3000),
+        row.posted_at || null,
+        row.matchScore, row.speedScore, row.difficultyScore, row.totalScore,
+        row.fingerprint,
+        row.external_id || null,
+      ]
+    );
+    return r?.inserted ? { inserted: true } : { duplicate: true };
+  } catch (err) {
+    // job_listings_url_key colisiona cuando URL ya existe pero fingerprint
+    // cambió (ej. mismo job re-publicado con location distinta). Tratamos
+    // como duplicate normal para no romper el batch.
+    if (err.code === '23505' && err.constraint === 'job_listings_url_key') {
+      return { duplicate: true };
+    }
+    throw err;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
