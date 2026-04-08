@@ -631,6 +631,24 @@ function init() {
   register('wm-gdelt-intel-e', '42 * * * *', wmGdeltGroupHandler('e'), 'HH:42 — GDELT E (diplomacy, trade, finance, disasters)');
   register('wm-gdelt-intel-f', '52 * * * *', wmGdeltGroupHandler('f'), 'HH:52 — GDELT F (human_rights, food_security, water, ai_policy) + retention cleanup');
 
+  // ─── P1 WM Phase 2 step 13: hotspot dynamic escalation ──
+  // Calcula score 1.0–5.0 para los 27 INTEL_HOTSPOTS combinando
+  // newsActivity (wm_clusters keyword match), CII (wm_country_scores),
+  // geoConvergence (wm_signal_summary) y militaryActivity (proximidad
+  // wm_military_flights+vessels). Solo SQL local — sin llamadas externas.
+  register(
+    'wm-hotspot-escalation',
+    '8,23,38,53 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runWmHotspotEscalationJob();
+        console.log(`🎯 wm-hotspot-escalation: ${r.hotspotsProcessed} hotspots (ins=${r.inserted} upd=${r.updated}) escalating=${r.escalating} critical≥4.0=${r.critical} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-hotspot-escalation:', err.message); }
+    },
+    'Cada 15 min :08 — Hotspot dynamic escalation → wm_hotspot_escalation'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',

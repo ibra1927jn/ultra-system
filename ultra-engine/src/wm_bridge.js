@@ -1742,6 +1742,248 @@ async function runWmGdeltIntelJob({ group = 'a' } = {}) {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 2 — Job 13: wm-hotspot-escalation
+//
+//  Calcula score dinámico de escalación 1.0–5.0 para los 27
+//  INTEL_HOTSPOTS combinando 4 componentes desde tablas WM ya
+//  pobladas (cero llamadas externas):
+//   - newsActivity (35%) — wm_clusters keyword matches en 6h
+//   - ciiContribution (25%) — wm_country_scores max para países mapeados
+//   - geoConvergence (25%) — wm_signal_summary convergence_zones cercanas
+//   - militaryActivity (15%) — wm_military_flights+vessels en 200km
+//
+//  Persiste en wm_hotspot_escalation (PRIMARY KEY hotspot_id, UPSERT)
+//  preservando prev_combined_score para derivar trend.
+// ════════════════════════════════════════════════════════════
+
+let wmHotspotEscMod = null;
+function loadWmHotspotEsc() {
+  if (!wmHotspotEscMod) {
+    wmHotspotEscMod = require('./wm_hotspot_escalation');
+  }
+  return wmHotspotEscMod;
+}
+
+async function fetchNewsMatchesForHotspot(hotspot, windowHours) {
+  // ILIKE OR over keywords. wm_clusters has no country field, so
+  // keyword match against primary_title is our only signal.
+  if (!hotspot.keywords || hotspot.keywords.length === 0) return 0;
+  const ilikeClauses = hotspot.keywords
+    .map((_, i) => `primary_title ILIKE $${i + 1}`)
+    .join(' OR ');
+  const params = hotspot.keywords.map(k => `%${k}%`);
+  params.push(windowHours);
+  const r = await db.queryOne(
+    `SELECT COUNT(*)::int AS n
+       FROM wm_clusters
+      WHERE last_seen > NOW() - ($${params.length}::int * INTERVAL '1 hour')
+        AND (${ilikeClauses})`,
+    params
+  );
+  return r?.n || 0;
+}
+
+async function fetchCIIForHotspot(hotspot) {
+  if (!hotspot.countries || hotspot.countries.length === 0) return null;
+  const placeholders = hotspot.countries.map((_, i) => `$${i + 1}`).join(',');
+  const r = await db.queryOne(
+    `SELECT MAX(score)::int AS s
+       FROM wm_country_scores
+      WHERE code IN (${placeholders})`,
+    hotspot.countries
+  );
+  return r?.s ?? null;
+}
+
+async function fetchMilitaryNearHotspot(hotspot, radiusKm, windowHours) {
+  const wmhe = loadWmHotspotEsc();
+  const bb = wmhe.boundingBox(hotspot.lat, hotspot.lon, radiusKm);
+
+  // Bounding-box prefilter pulls a small candidate set, then we
+  // refine with haversine in JS for accuracy at the edges.
+  const flights = await db.queryAll(
+    `SELECT lat, lon FROM wm_military_flights
+      WHERE observed_at > NOW() - ($1::int * INTERVAL '1 hour')
+        AND lat BETWEEN $2 AND $3
+        AND lon BETWEEN $4 AND $5`,
+    [windowHours, bb.minLat, bb.maxLat, bb.minLon, bb.maxLon]
+  );
+  const vessels = await db.queryAll(
+    `SELECT lat, lon FROM wm_military_vessels
+      WHERE observed_at > NOW() - ($1::int * INTERVAL '1 hour')
+        AND lat BETWEEN $2 AND $3
+        AND lon BETWEEN $4 AND $5`,
+    [windowHours, bb.minLat, bb.maxLat, bb.minLon, bb.maxLon]
+  );
+
+  const flightCount = flights.filter(
+    f => wmhe.haversineKm(hotspot.lat, hotspot.lon, f.lat, f.lon) <= radiusKm
+  ).length;
+  const vesselCount = vessels.filter(
+    v => wmhe.haversineKm(hotspot.lat, hotspot.lon, v.lat, v.lon) <= radiusKm
+  ).length;
+  return { flights: flightCount, vessels: vesselCount };
+}
+
+async function fetchGeoConvergenceForHotspot(hotspot, _radiusKm) {
+  // wm_signal_summary stores aggregated convergence zones as JSONB.
+  // Each zone is { region, countries: [ISO2…], signalTypes, totalSignals }.
+  // Match-by-country: a hotspot is "near" a zone iff at least one of
+  // its mapped country codes appears in the zone.countries array.
+  // Intensity is derived from totalSignals (saturating around 100).
+  const r = await db.queryOne(
+    `SELECT convergence_zones FROM wm_signal_summary
+      ORDER BY observed_at DESC LIMIT 1`
+  );
+  if (!r || !r.convergence_zones) return { zonesNearby: 0, maxIntensity: 0 };
+  let raw = r.convergence_zones;
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { raw = []; }
+  }
+  if (!Array.isArray(raw)) return { zonesNearby: 0, maxIntensity: 0 };
+  if (!Array.isArray(hotspot.countries) || hotspot.countries.length === 0) {
+    return { zonesNearby: 0, maxIntensity: 0 };
+  }
+  const hotspotCountrySet = new Set(hotspot.countries);
+
+  let zonesNearby = 0;
+  let maxIntensity = 0;
+  for (const z of raw) {
+    const zoneCountries = Array.isArray(z?.countries) ? z.countries : [];
+    const hit = zoneCountries.some(c => hotspotCountrySet.has(c));
+    if (!hit) continue;
+    zonesNearby++;
+    // Saturate intensity contribution at 10 (multiplied by 10 in normalize → cap at 100).
+    const totalSignals = Number(z.totalSignals || 0);
+    const intensity = Math.min(10, Math.ceil(totalSignals / 10));
+    if (intensity > maxIntensity) maxIntensity = intensity;
+  }
+  return { zonesNearby, maxIntensity };
+}
+
+async function fetchPrevHotspotScores() {
+  const rows = await db.queryAll(
+    `SELECT hotspot_id, combined_score FROM wm_hotspot_escalation`
+  );
+  const map = new Map();
+  for (const r of rows) map.set(r.hotspot_id, Number(r.combined_score));
+  return map;
+}
+
+async function persistHotspotEscalation(records) {
+  let inserted = 0;
+  let updated = 0;
+  for (const rec of records) {
+    const r = await db.queryOne(
+      `INSERT INTO wm_hotspot_escalation
+         (hotspot_id, static_baseline, dynamic_score, combined_score, trend,
+          component_news, component_cii, component_geo, component_military,
+          news_matches, cii_score, geo_zones_nearby,
+          flights_nearby, vessels_nearby, prev_combined_score, computed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
+       ON CONFLICT (hotspot_id) DO UPDATE SET
+         static_baseline = EXCLUDED.static_baseline,
+         dynamic_score = EXCLUDED.dynamic_score,
+         combined_score = EXCLUDED.combined_score,
+         trend = EXCLUDED.trend,
+         component_news = EXCLUDED.component_news,
+         component_cii = EXCLUDED.component_cii,
+         component_geo = EXCLUDED.component_geo,
+         component_military = EXCLUDED.component_military,
+         news_matches = EXCLUDED.news_matches,
+         cii_score = EXCLUDED.cii_score,
+         geo_zones_nearby = EXCLUDED.geo_zones_nearby,
+         flights_nearby = EXCLUDED.flights_nearby,
+         vessels_nearby = EXCLUDED.vessels_nearby,
+         prev_combined_score = EXCLUDED.prev_combined_score,
+         computed_at = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        rec.hotspot_id,
+        rec.static_baseline,
+        rec.dynamic_score,
+        rec.combined_score,
+        rec.trend,
+        rec.component_news,
+        rec.component_cii,
+        rec.component_geo,
+        rec.component_military,
+        rec.news_matches,
+        rec.cii_score,
+        rec.geo_zones_nearby,
+        rec.flights_nearby,
+        rec.vessels_nearby,
+        rec.prev_combined_score,
+      ]
+    );
+    if (r?.inserted) inserted++;
+    else updated++;
+  }
+  return { inserted, updated };
+}
+
+async function runWmHotspotEscalationJob() {
+  const t0 = Date.now();
+  const wmhe = loadWmHotspotEsc();
+  const hotspots = wmhe.getHotspots();
+  const prev = await fetchPrevHotspotScores();
+  const records = [];
+
+  for (const h of hotspots) {
+    const newsMatches = await fetchNewsMatchesForHotspot(h, wmhe.NEWS_WINDOW_HOURS);
+    const ciiScore = await fetchCIIForHotspot(h);
+    const military = await fetchMilitaryNearHotspot(
+      h, wmhe.PROXIMITY_RADIUS_KM, wmhe.MILITARY_WINDOW_HOURS
+    );
+    const geo = await fetchGeoConvergenceForHotspot(h, wmhe.PROXIMITY_RADIUS_KM);
+
+    const components = {
+      news_activity:     wmhe.normalizeNews(newsMatches),
+      cii_contribution:  wmhe.normalizeCII(ciiScore),
+      geo_convergence:   wmhe.normalizeGeo(geo.zonesNearby, geo.maxIntensity),
+      military_activity: wmhe.normalizeMilitary(military.flights, military.vessels),
+    };
+    const dynamicRaw = wmhe.combinedRaw(components);
+    const dynamicScore = wmhe.rawToScore(dynamicRaw);
+    const combinedScore = wmhe.blendScores(h.baseline, dynamicScore);
+    const prevScore = prev.has(h.id) ? prev.get(h.id) : null;
+    const delta = prevScore != null ? combinedScore - prevScore : 0;
+    const trend = wmhe.trendFromDelta(delta);
+
+    records.push({
+      hotspot_id: h.id,
+      static_baseline: Number(h.baseline.toFixed(1)),
+      dynamic_score: Number(dynamicScore.toFixed(1)),
+      combined_score: Number(combinedScore.toFixed(1)),
+      trend,
+      component_news: Number(components.news_activity.toFixed(2)),
+      component_cii: Number(components.cii_contribution.toFixed(2)),
+      component_geo: Number(components.geo_convergence.toFixed(2)),
+      component_military: Number(components.military_activity.toFixed(2)),
+      news_matches: newsMatches,
+      cii_score: ciiScore,
+      geo_zones_nearby: geo.zonesNearby,
+      flights_nearby: military.flights,
+      vessels_nearby: military.vessels,
+      prev_combined_score: prevScore != null ? Number(prevScore.toFixed(1)) : null,
+    });
+  }
+
+  const persistResult = await persistHotspotEscalation(records);
+  const escalating = records.filter(r => r.trend === 'escalating').length;
+  const critical = records.filter(r => r.combined_score >= 4.0).length;
+
+  return {
+    hotspotsProcessed: records.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    escalating,
+    critical,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
@@ -1755,6 +1997,7 @@ module.exports = {
   runEarthquakesJob,
   runSatelliteFiresJob,
   runWmGdeltIntelJob,
+  runWmHotspotEscalationJob,
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing

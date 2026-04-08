@@ -454,3 +454,40 @@ CREATE INDEX IF NOT EXISTS idx_wm_intel_fetched
 CREATE INDEX IF NOT EXISTS idx_wm_intel_high_tone
   ON wm_intel_articles (topic_id, ABS(tone) DESC, seendate DESC)
   WHERE tone IS NOT NULL;
+
+-- ─── Step 13: Hotspot dynamic escalation scoring ─────────────
+-- Computes a 1.0–5.0 escalation score per INTEL_HOTSPOT (27 total)
+-- combining 4 components from already-populated WM tables:
+--   newsActivity (35%) — wm_clusters keyword matches in 6h window
+--   ciiContribution (25%) — wm_country_scores max for mapped countries
+--   geoConvergence (25%) — wm_signal_summary convergence_zones nearby
+--   militaryActivity (15%) — wm_military_flights+vessels in 200km radius
+-- Blended with static baseline (escalationScore from TS catalog) at
+-- 30/70 weights. Trend derived from delta vs ~24h ago.
+--
+-- One row per hotspot — UPSERT every cron run keeps the table compact.
+-- A separate history table is intentionally NOT created here; the
+-- 24h trend logic only needs the previous combined_score, which we
+-- read from this table itself before overwriting.
+CREATE TABLE IF NOT EXISTS wm_hotspot_escalation (
+  hotspot_id           TEXT PRIMARY KEY,
+  static_baseline      NUMERIC(3,1) NOT NULL,
+  dynamic_score        NUMERIC(3,1) NOT NULL,
+  combined_score       NUMERIC(3,1) NOT NULL,
+  trend                TEXT NOT NULL,
+  component_news       NUMERIC(5,2) NOT NULL DEFAULT 0,
+  component_cii        NUMERIC(5,2) NOT NULL DEFAULT 0,
+  component_geo        NUMERIC(5,2) NOT NULL DEFAULT 0,
+  component_military   NUMERIC(5,2) NOT NULL DEFAULT 0,
+  news_matches         INTEGER NOT NULL DEFAULT 0,
+  cii_score            INTEGER,
+  geo_zones_nearby     INTEGER NOT NULL DEFAULT 0,
+  flights_nearby       INTEGER NOT NULL DEFAULT 0,
+  vessels_nearby       INTEGER NOT NULL DEFAULT 0,
+  prev_combined_score  NUMERIC(3,1),
+  computed_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_hotspot_combined
+  ON wm_hotspot_escalation (combined_score DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_hotspot_trend
+  ON wm_hotspot_escalation (trend, combined_score DESC);
