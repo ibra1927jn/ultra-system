@@ -8,9 +8,13 @@
 --    docker compose exec -T db psql -U $POSTGRES_USER -d $POSTGRES_DB \
 --      < /root/ultra-system/db/wm_phase3.sql
 --
---  Bloque 1 (this commit):
+--  Bloque 1:
 --   - wm_market_quotes  → wm-market-quotes cron (Yahoo v8 chart)
 --   - wm_crypto_quotes  → wm-crypto-quotes cron (CoinGecko public API)
+--
+--  Bloque 2 (this commit):
+--   - wm_energy_inventories → wm-energy-inventories cron (EIA v2 seriesid)
+--   - wm_fx_rates           → wm-fx-rates cron (Frankfurter ECB ref rates)
 -- ════════════════════════════════════════════════════════════
 
 -- ─── Step 14: Market quotes (stocks/sectors/indices/commodities) ──
@@ -89,3 +93,71 @@ CREATE INDEX IF NOT EXISTS idx_wm_crypto_quotes_observed
 CREATE INDEX IF NOT EXISTS idx_wm_crypto_quotes_movers
   ON wm_crypto_quotes (observed_at DESC, change_24h_pct)
   WHERE change_24h_pct IS NOT NULL AND ABS(change_24h_pct) >= 5;
+
+-- ─── Bloque 2 step 16: Energy inventories (EIA v2 seriesid) ────────
+-- Weekly U.S. petroleum + natural gas storage levels. EIA publishes:
+--   - Crude / Gasoline / Distillate: every Wed ~10:30 ET (post-holiday Thu)
+--   - Natural gas working storage: every Thu ~10:30 ET
+-- We poll daily 21:00 UTC; UPSERT (series_id, period) makes re-runs cheap
+-- and idempotent — if today's report isn't out yet, the cron simply
+-- re-confirms last week's values.
+--
+-- 4 series tracked (configurable in code):
+--   PET.WCESTUS1.W            crude (excl. SPR)        — thousand barrels
+--   PET.WGTSTUS1.W            total gasoline           — thousand barrels
+--   PET.WDISTUS1.W            distillate fuel oil      — thousand barrels
+--   NG.NW2_EPG0_SWO_R48_BCF.W natural gas Lower 48     — billion cubic feet
+--
+-- Storage: ~4 series × ~52 weeks/year = ~200 rows/year. No retention
+-- pruning — full history fits trivially.
+CREATE TABLE IF NOT EXISTS wm_energy_inventories (
+  id              BIGSERIAL PRIMARY KEY,
+  series_id       TEXT NOT NULL,                   -- 'PET.WCESTUS1.W'
+  category        TEXT NOT NULL,                   -- 'crude' | 'gasoline' | 'distillate' | 'natgas'
+  display         TEXT NOT NULL,                   -- short label
+  description     TEXT,                            -- EIA series-description
+  period          DATE NOT NULL,                   -- week-ending date from EIA
+  value           NUMERIC(18,4) NOT NULL,          -- inventory level
+  unit            TEXT NOT NULL,                   -- 'MBBL' | 'BCF'
+  prev_value      NUMERIC(18,4),                   -- previous week
+  change_abs      NUMERIC(18,4),
+  change_pct      NUMERIC(8,4),
+  fetched_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_energy_inv_uniq UNIQUE (series_id, period)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_energy_inv_series_period
+  ON wm_energy_inventories (series_id, period DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_energy_inv_category_period
+  ON wm_energy_inventories (category, period DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_energy_inv_period
+  ON wm_energy_inventories (period DESC);
+
+-- ─── Bloque 2 step 17: FX rates (Frankfurter / ECB ref rates) ──────
+-- Daily ECB reference rates against USD base. Frankfurter is a free
+-- public mirror of ECB Statistical Data Warehouse — no auth, no key.
+-- Pulls 18 majors. UPSERT (base, quote, rate_date) keeps one row per
+-- pair per day; re-runs on the same day are no-ops. Cleanup retention
+-- 730 días en wm_bridge.js para mantener tabla bounded.
+--
+-- Storage: 18 pairs × 365 days/year ≈ 6.6K rows/year → ~13K rows over
+-- 2 años de retention. Trivial.
+CREATE TABLE IF NOT EXISTS wm_fx_rates (
+  id              BIGSERIAL PRIMARY KEY,
+  base            TEXT NOT NULL,                   -- 'USD'
+  quote           TEXT NOT NULL,                   -- 'EUR' / 'GBP' / ...
+  rate            NUMERIC(20,8) NOT NULL,          -- units of quote per 1 base
+  rate_date       DATE NOT NULL,                   -- ECB publication date
+  prev_rate       NUMERIC(20,8),                   -- last known prior rate
+  prev_date       DATE,                            -- date of prev_rate
+  change_abs      NUMERIC(20,8),
+  change_pct      NUMERIC(8,4),
+  fetched_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_fx_rates_uniq UNIQUE (base, quote, rate_date)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_fx_rates_pair_date
+  ON wm_fx_rates (base, quote, rate_date DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_fx_rates_date
+  ON wm_fx_rates (rate_date DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_fx_rates_movers
+  ON wm_fx_rates (rate_date DESC, change_pct)
+  WHERE change_pct IS NOT NULL AND ABS(change_pct) >= 1;

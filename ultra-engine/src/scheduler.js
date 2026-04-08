@@ -694,6 +694,51 @@ function init() {
     'Cada 5 min 24/7 — CoinGecko top4 + global → wm_crypto_quotes'
   );
 
+  // ─── WM Phase 3 Bloque 2 step 16: energy inventories (EIA) ──
+  // 4 weekly U.S. inventory series (crude/gasoline/distillate/natgas)
+  // via EIA v2 seriesid. UPSERT por (series_id, period) → re-runs son
+  // no-ops si EIA no ha publicado todavía. Cron diario 21:00 UTC
+  // (~17:00 ET) para captar tanto la publicación de petróleo (mié)
+  // como la de gas natural (jue) sin lógica de día semana.
+  register(
+    'wm-energy-inventories',
+    '0 21 * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runEnergyInventoriesJob();
+        if (r.error) {
+          console.error(`❌ wm-energy-inventories: ${r.error}`);
+        } else {
+          console.log(`🛢️  wm-energy-inventories: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-energy-inventories:', err.message); }
+    },
+    'Diario 21:00 UTC — EIA crude/gasoline/distillate/natgas → wm_energy_inventories'
+  );
+
+  // ─── WM Phase 3 Bloque 2 step 17: FX rates (Frankfurter) ──
+  // 18 majors USD-base via Frankfurter (ECB ref rates). UPSERT por
+  // (base, quote, rate_date). ECB publica ~16:00 CET en días
+  // hábiles; cron 06:00 UTC siguiente día garantiza que ya está.
+  // Retention 730 días via cleanupOldFxRates en cada tick.
+  register(
+    'wm-fx-rates',
+    '0 6 * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runFxRatesJob();
+        if (r.error) {
+          console.error(`❌ wm-fx-rates: ${r.error}`);
+        } else {
+          console.log(`💱 wm-fx-rates: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} deleted=${r.deleted} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-fx-rates:', err.message); }
+    },
+    'Diario 06:00 UTC — Frankfurter ECB ref rates 18 majors → wm_fx_rates'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',

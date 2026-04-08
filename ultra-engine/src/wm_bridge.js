@@ -23,6 +23,9 @@
 //  --- Phase 3 (commodities/market verticals, Bloque 1) ---
 //  14. runMarketQuotesJob        — Yahoo v8 chart direct → wm_market_quotes
 //  15. runCryptoQuotesJob        — CoinGecko public API → wm_crypto_quotes
+//  --- Phase 3 (commodities/market verticals, Bloque 2) ---
+//  16. runEnergyInventoriesJob   — EIA v2 seriesid (4 weekly series) → wm_energy_inventories
+//  17. runFxRatesJob             — Frankfurter ECB ref rates → wm_fx_rates
 //
 //  Otros bridges (internet outages, ACLED protests, etc.) vendrán en
 //  commits separados.
@@ -118,6 +121,22 @@ function loadCryptoQuotes() {
     cryptoQuotesMod = require('./worldmonitor/services/crypto-quotes');
   }
   return cryptoQuotesMod;
+}
+
+let energyInventoriesMod = null;
+function loadEnergyInventories() {
+  if (!energyInventoriesMod) {
+    energyInventoriesMod = require('./worldmonitor/services/energy-inventories');
+  }
+  return energyInventoriesMod;
+}
+
+let fxRatesMod = null;
+function loadFxRates() {
+  if (!fxRatesMod) {
+    fxRatesMod = require('./worldmonitor/services/fx-rates');
+  }
+  return fxRatesMod;
 }
 
 let trendingMod = null;
@@ -2175,6 +2194,152 @@ async function runCryptoQuotesJob() {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 3 — Bloque 2: energy inventories + FX rates
+//
+//  Tablas wm_energy_inventories y wm_fx_rates (db/wm_phase3.sql).
+//  Energy: UPSERT (series_id, period). Sin retention pruning, dataset
+//  pequeño (~200 rows/año total).
+//  FX: UPSERT (base, quote, rate_date). Retention 730 días para
+//  mantener bounded.
+// ════════════════════════════════════════════════════════════
+
+const FX_RATES_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.FX_RATES_RETENTION_DAYS || '730', 10) || 730
+);
+
+async function persistEnergyInventories(rows) {
+  let inserted = 0, updated = 0;
+  for (const r of rows) {
+    if (!r || typeof r.value !== 'number' || !Number.isFinite(r.value)) continue;
+    const res = await db.queryOne(
+      `INSERT INTO wm_energy_inventories
+         (series_id, category, display, description, period, value, unit,
+          prev_value, change_abs, change_pct, fetched_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+       ON CONFLICT (series_id, period) DO UPDATE SET
+         category    = EXCLUDED.category,
+         display     = EXCLUDED.display,
+         description = EXCLUDED.description,
+         value       = EXCLUDED.value,
+         unit        = EXCLUDED.unit,
+         prev_value  = EXCLUDED.prev_value,
+         change_abs  = EXCLUDED.change_abs,
+         change_pct  = EXCLUDED.change_pct,
+         fetched_at  = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        String(r.seriesId).slice(0, 60),
+        String(r.category).slice(0, 20),
+        String(r.display).slice(0, 120),
+        r.description ? String(r.description).slice(0, 300) : null,
+        r.period,                                           // YYYY-MM-DD string OK for DATE
+        Number(r.value),
+        String(r.unit || '').slice(0, 20),
+        Number.isFinite(r.prevValue) ? Number(r.prevValue) : null,
+        Number.isFinite(r.changeAbs) ? Number(r.changeAbs) : null,
+        Number.isFinite(r.changePct) ? Number(r.changePct) : null,
+      ]
+    );
+    if (res?.inserted === true) inserted++;
+    else if (res) updated++;
+  }
+  return { inserted, updated };
+}
+
+async function persistFxRates(rows) {
+  let inserted = 0, updated = 0;
+  for (const r of rows) {
+    if (!r || typeof r.rate !== 'number' || !Number.isFinite(r.rate)) continue;
+    const res = await db.queryOne(
+      `INSERT INTO wm_fx_rates
+         (base, quote, rate, rate_date, prev_rate, prev_date,
+          change_abs, change_pct, fetched_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+       ON CONFLICT (base, quote, rate_date) DO UPDATE SET
+         rate       = EXCLUDED.rate,
+         prev_rate  = EXCLUDED.prev_rate,
+         prev_date  = EXCLUDED.prev_date,
+         change_abs = EXCLUDED.change_abs,
+         change_pct = EXCLUDED.change_pct,
+         fetched_at = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        String(r.base).slice(0, 10),
+        String(r.quote).slice(0, 10),
+        Number(r.rate),
+        r.rateDate,
+        Number.isFinite(r.prevRate) ? Number(r.prevRate) : null,
+        r.prevDate || null,
+        Number.isFinite(r.changeAbs) ? Number(r.changeAbs) : null,
+        Number.isFinite(r.changePct) ? Number(r.changePct) : null,
+      ]
+    );
+    if (res?.inserted === true) inserted++;
+    else if (res) updated++;
+  }
+  return { inserted, updated };
+}
+
+async function cleanupOldFxRates(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_fx_rates
+                  WHERE rate_date < (CURRENT_DATE - ($1::int))
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+async function runEnergyInventoriesJob() {
+  const t0 = Date.now();
+  const apiKey = process.env.EIA_API_KEY || '';
+  if (!apiKey) {
+    return { fetched: 0, inserted: 0, updated: 0, durationMs: Date.now() - t0, error: 'EIA_API_KEY missing' };
+  }
+  const ei = loadEnergyInventories();
+  let rows = [];
+  try {
+    rows = await ei.fetchAllEnergyInventories(apiKey);
+  } catch (err) {
+    return { fetched: 0, inserted: 0, updated: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistEnergyInventories(rows);
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    durationMs: Date.now() - t0,
+  };
+}
+
+async function runFxRatesJob() {
+  const t0 = Date.now();
+  const fx = loadFxRates();
+  let rows = [];
+  try {
+    rows = await fx.fetchAllFxRates();
+  } catch (err) {
+    return { fetched: 0, inserted: 0, updated: 0, deleted: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistFxRates(rows);
+  let deleted = 0;
+  try {
+    deleted = await cleanupOldFxRates(FX_RATES_RETENTION_DAYS);
+  } catch (err) {
+    console.warn('[fx-rates] cleanup failed:', err.message);
+  }
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    deleted,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
@@ -2191,6 +2356,8 @@ module.exports = {
   runWmHotspotEscalationJob,
   runMarketQuotesJob,
   runCryptoQuotesJob,
+  runEnergyInventoriesJob,
+  runFxRatesJob,
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing
@@ -2215,6 +2382,9 @@ module.exports = {
   persistCryptoQuotes,         // exported for testing
   cleanupOldMarketQuotes,      // exported for testing
   cleanupOldCryptoQuotes,      // exported for testing
+  persistEnergyInventories,    // exported for testing
+  persistFxRates,              // exported for testing
+  cleanupOldFxRates,           // exported for testing
   getRecentMilitaryFlights,    // exported for testing
   getCurrentSignalSummary,     // exported for testing
   getRecentEarthquakeAnomalies,// exported for testing
