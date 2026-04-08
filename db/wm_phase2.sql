@@ -183,3 +183,94 @@ CREATE INDEX IF NOT EXISTS idx_wm_mil_flights_hotspot
 CREATE INDEX IF NOT EXISTS idx_wm_mil_flights_interesting
   ON wm_military_flights (observed_at DESC)
   WHERE is_interesting = TRUE;
+
+-- ─── Step 6: USNI Fleet Tracker reports (HTML scraping) ─────
+-- ONE ROW PER weekly USNI report. UNIQUE on article_url so a re-run on
+-- the same article is an UPDATE (refreshes parsed_at + vessels jsonb).
+-- vessels jsonb is the full parsed array per report — kept inline rather
+-- than normalized into a child table because the access pattern is
+-- "show me the latest report" / "show me reports over time", not
+-- "find every appearance of USS George Washington across history".
+-- If/when normalized vessel queries become useful, we can derive a view.
+CREATE TABLE IF NOT EXISTS wm_usni_fleet (
+  id                    SERIAL PRIMARY KEY,
+  article_url           TEXT NOT NULL UNIQUE,
+  article_title         TEXT NOT NULL,
+  article_date          DATE,
+  total_battle_force    INTEGER,
+  total_uss             INTEGER,
+  total_usns            INTEGER,
+  deployed              INTEGER,
+  deployed_uss          INTEGER,
+  deployed_usns         INTEGER,
+  fdnf                  INTEGER,
+  rotational            INTEGER,
+  underway              INTEGER,
+  underway_deployed     INTEGER,
+  underway_local        INTEGER,
+  vessel_count          INTEGER NOT NULL DEFAULT 0,
+  region_count          INTEGER NOT NULL DEFAULT 0,
+  vessels               JSONB,
+  regions               JSONB,
+  raw_battle_force      JSONB,
+  parsed_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  first_seen            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_usni_article_date
+  ON wm_usni_fleet (article_date DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_usni_last_seen
+  ON wm_usni_fleet (last_seen DESC);
+
+-- ─── Step 7: military vessels (AISstream WebSocket subscriber) ──
+-- Mirrors src/worldmonitor/types/index.ts → MilitaryVessel.
+-- ONE ROW PER (mmsi, observed_at) — historical snapshots, same shape as
+-- wm_military_flights. The aisstream_subscriber.js maintains a live
+-- in-memory Map of military-detected vessels (filtered via WM helpers
+-- analyzeMmsi + matchKnownVessel) and the cron job runMilitaryVesselsJob
+-- snapshots that Map every 5 minutes.
+--
+-- Storage budget: ~50-200 tracked vessels (chokepoint bboxes) × 12 cron
+-- runs/h × 24h ≈ 60K rows/day max. Retention 30 days like flights →
+-- ~1.8M rows max. Cleanup runs at the end of every cycle.
+CREATE TABLE IF NOT EXISTS wm_military_vessels (
+  id                  BIGSERIAL PRIMARY KEY,
+  mmsi                TEXT NOT NULL,
+  vessel_name         TEXT,
+  vessel_type         TEXT,
+  operator            TEXT,
+  operator_country    TEXT,
+  hull_number         TEXT,
+  lat                 DOUBLE PRECISION NOT NULL,
+  lon                 DOUBLE PRECISION NOT NULL,
+  heading_deg         NUMERIC(6,2),
+  speed_kt            NUMERIC(6,2),
+  course_deg          NUMERIC(6,2),
+  ais_ship_type       INTEGER,
+  ais_ship_type_name  TEXT,
+  is_dark             BOOLEAN NOT NULL DEFAULT FALSE,
+  ais_gap_minutes     INTEGER,
+  near_chokepoint     TEXT,
+  near_base           TEXT,
+  near_hotspot        TEXT,
+  confidence          TEXT NOT NULL CHECK (confidence IN ('high','medium','low')),
+  raw                 JSONB,
+  observed_at         TIMESTAMPTZ NOT NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_military_vessels_obs_unique UNIQUE (mmsi, observed_at)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_mil_vessels_observed
+  ON wm_military_vessels (observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_mil_vessels_mmsi_observed
+  ON wm_military_vessels (mmsi, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_mil_vessels_operator
+  ON wm_military_vessels (operator)
+  WHERE operator IS NOT NULL AND operator <> 'other';
+CREATE INDEX IF NOT EXISTS idx_wm_mil_vessels_chokepoint
+  ON wm_military_vessels (near_chokepoint, observed_at DESC)
+  WHERE near_chokepoint IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_wm_mil_vessels_dark
+  ON wm_military_vessels (observed_at DESC)
+  WHERE is_dark = TRUE;

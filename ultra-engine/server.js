@@ -22,6 +22,7 @@ const db = require('./src/db');
 const telegram = require('./src/telegram');
 const scheduler = require('./src/scheduler');
 const bridges = require('./src/bridges');
+const aisstream = require('./src/aisstream_subscriber');
 const { apiKeyAuth } = require('./src/middleware/auth');
 const { requireAuth } = require('./src/middleware/jwt-auth');
 
@@ -164,6 +165,13 @@ async function start() {
 
   // 3b. Iniciar bridges P3↔P5/P6 (event subscribers)
   bridges.init();
+
+  // 3c. Iniciar AISstream WebSocket subscriber (P1 WM Phase 2 step 7).
+  // Persistent connection to wss://stream.aisstream.io feeding
+  // processAisPosition() of military-vessels.ts. No-op if
+  // AISSTREAM_API_KEY is missing. Reconnect + duty cycle handled
+  // internally by the subscriber.
+  aisstream.start();
 
   // 4. Iniciar servidor HTTP
   app.listen(PORT, '0.0.0.0', () => {

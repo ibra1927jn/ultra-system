@@ -485,6 +485,54 @@ function init() {
     'Cada 5 min — Military flight tracking via OpenSky direct OAuth2 sobre 4 hotspots → wm_military_flights'
   );
 
+  // ─── P1 WM Phase 2 step 6: USNI Fleet Tracker → wm_usni_fleet diario 06:30 ──
+  // USNI publica un fleet tracker semanal. Daily scrape como safety net:
+  // si el cron del miércoles falla, el del jueves recoge. Idempotente
+  // por article_url, así que múltiples runs sobre el mismo article son
+  // UPDATE no INSERT.
+  register(
+    'wm-usni-fleet',
+    '30 6 * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runUSNIFleetJob();
+        console.log(`⚓ wm-usni-fleet: ${r.articleDate || 'unknown'} vessels=${r.vesselCount} regions=${r.regionCount} battle=${r.totalBattleForce} deployed=${r.deployed} underway=${r.underway} inserted=${r.inserted} updated=${r.updated} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-usni-fleet:', err.message); }
+    },
+    'Diario 06:30 — USNI Fleet Tracker scraping vía puppeteer → wm_usni_fleet'
+  );
+
+  // ─── P1 WM Phase 2 step 7: military vessels snapshot → wm_military_vessels cada 5 min ──
+  // Reads the in-memory tracked vessels Map maintained by the
+  // aisstream_subscriber.js (started at engine boot in server.js) via
+  // processAisPosition() in military-vessels.ts. Snapshot is persisted
+  // as one row per (mmsi, observed_at), historical pattern. Cleanup of
+  // rows older than MILITARY_VESSELS_RETENTION_DAYS at end of cycle.
+  register(
+    'wm-military-vessels',
+    '*/5 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runMilitaryVesselsJob();
+        const ops = Object.entries(r.byOperator)
+          .filter(([k]) => k !== 'other')
+          .sort((a,b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(([k,v]) => `${k}=${v}`)
+          .join(' ');
+        const cps = Object.entries(r.byChokepoint)
+          .sort((a,b) => b[1] - a[1])
+          .slice(0, 4)
+          .map(([k,v]) => `${k}=${v}`)
+          .join(' ');
+        console.log(`🚢 wm-military-vessels: tracked=${r.tracked} inserted=${r.inserted} deleted=${r.deleted} [${ops || 'no-confirmed-ops'}] {${cps || 'no-chokepoints'}} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-military-vessels:', err.message); }
+    },
+    'Cada 5 min — Snapshot del Map in-memory de military vessels mantenido por aisstream_subscriber → wm_military_vessels'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',

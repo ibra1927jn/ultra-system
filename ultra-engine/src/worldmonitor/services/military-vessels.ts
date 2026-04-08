@@ -317,10 +317,16 @@ function getNearbyChokepoint(lat: number, lon: number): string | undefined {
 }
 
 /**
- * Process incoming AIS position report for military vessel detection
- * Called via callback from shared AIS stream
+ * Process incoming AIS position report for military vessel detection.
+ *
+ * Originally called via the shared AIS stream callback system from
+ * maritime/index.ts. Now ALSO callable directly from the JS-land
+ * aisstream_subscriber.js (ultra-engine direct WebSocket path), which
+ * decodes aisstream.io messages, maps them to AisPositionData, and
+ * invokes this function per vessel. Module-level state (trackedVessels,
+ * vesselHistory, messageCount) is shared regardless of caller.
  */
-function processAisPosition(data: AisPositionData): void {
+export function processAisPosition(data: AisPositionData): void {
   const mmsi = data.mmsi;
   const name = data.name || '';
   const lat = data.lat;
@@ -538,6 +544,28 @@ export function getMilitaryVesselStatus(): { connected: boolean; vessels: number
     vessels: trackedVessels.size,
     messages: messageCount,
   };
+}
+
+/**
+ * Snapshot of all currently-tracked military vessels.
+ *
+ * Returns a copy of the in-memory trackedVessels Map values. Safe to call
+ * from anywhere without affecting the live tracking state. Used by the
+ * ultra-engine bridge runMilitaryVesselsJob to persist a periodic point-
+ * in-time snapshot to wm_military_vessels.
+ */
+export function getTrackedMilitaryVessels(): MilitaryVessel[] {
+  return Array.from(trackedVessels.values());
+}
+
+/**
+ * Convenience: mark the engine as actively tracking even when we are not
+ * using the maritime service callback system. The aisstream_subscriber.js
+ * direct path calls this on first connect so getMilitaryVesselStatus()
+ * reports connected=true.
+ */
+export function markMilitaryVesselTrackingActive(): void {
+  isTracking = true;
 }
 
 // Cache TTL

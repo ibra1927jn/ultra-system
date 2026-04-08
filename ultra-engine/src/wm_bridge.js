@@ -13,9 +13,10 @@
 //   3. runCountryInstabilityJob  — clusters → country-instability.ts → wm_country_scores
 //   4. runTrendingKeywordsJob    — articles → trending-keywords.ts → wm_trending_keywords
 //   5. runMilitaryFlightsJob     — OpenSky direct OAuth2 → military-flights.ts → wm_military_flights
+//   6. runUSNIFleetJob           — usni_scraper.js (puppeteer HTML) → wm_usni_fleet
+//   7. runMilitaryVesselsJob     — aisstream_subscriber.js (WebSocket) → wm_military_vessels
 //
-//  Otros bridges (AIS vessels, internet outages, etc.) vendrán en commits
-//  separados a medida que se cableen.
+//  Otros bridges (internet outages, etc.) vendrán en commits separados.
 // ════════════════════════════════════════════════════════════
 
 const db = require('./db');
@@ -52,6 +53,14 @@ function loadMilitaryFlights() {
     militaryFlightsMod = require('./worldmonitor/services/military-flights');
   }
   return militaryFlightsMod;
+}
+
+let usniMod = null;
+function loadUsni() {
+  if (!usniMod) {
+    usniMod = require('./usni_scraper');
+  }
+  return usniMod;
 }
 
 let trendingMod = null;
@@ -754,12 +763,233 @@ async function runMilitaryFlightsJob() {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 2 — Job 6: USNI Fleet Tracker (HTML scraping via puppeteer)
+//
+//  Pipeline:
+//    usni_scraper.scrapeLatestFleetReport()
+//      → battle force totals + regions + vessels (~30-50 per report)
+//      → upsert into wm_usni_fleet by article_url
+//
+//  Why HTML scraping instead of the WM gRPC client:
+//    The WM-original usni-fleet.ts uses MilitaryServiceClient which is a
+//    Phase 1 stub without backend. Scraping the public USNI page directly
+//    is the only viable path until that gRPC service is implemented.
+//
+//  Cadence: weekly USNI publishes, but we run daily as a safety net so
+//  the latest report is in DB within 24h of publication. Idempotent —
+//  same article URL = UPDATE not INSERT.
+// ════════════════════════════════════════════════════════════
+
+async function persistUSNIReport(report) {
+  const bf = report.battleForce || {};
+  const r = await db.queryOne(
+    `INSERT INTO wm_usni_fleet
+       (article_url, article_title, article_date,
+        total_battle_force, total_uss, total_usns,
+        deployed, deployed_uss, deployed_usns, fdnf, rotational,
+        underway, underway_deployed, underway_local,
+        vessel_count, region_count,
+        vessels, regions, raw_battle_force, parsed_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+     ON CONFLICT (article_url) DO UPDATE SET
+       article_title       = EXCLUDED.article_title,
+       article_date        = EXCLUDED.article_date,
+       total_battle_force  = EXCLUDED.total_battle_force,
+       total_uss           = EXCLUDED.total_uss,
+       total_usns          = EXCLUDED.total_usns,
+       deployed            = EXCLUDED.deployed,
+       deployed_uss        = EXCLUDED.deployed_uss,
+       deployed_usns       = EXCLUDED.deployed_usns,
+       fdnf                = EXCLUDED.fdnf,
+       rotational          = EXCLUDED.rotational,
+       underway            = EXCLUDED.underway,
+       underway_deployed   = EXCLUDED.underway_deployed,
+       underway_local      = EXCLUDED.underway_local,
+       vessel_count        = EXCLUDED.vessel_count,
+       region_count        = EXCLUDED.region_count,
+       vessels             = EXCLUDED.vessels,
+       regions             = EXCLUDED.regions,
+       raw_battle_force    = EXCLUDED.raw_battle_force,
+       parsed_at           = NOW(),
+       last_seen           = NOW(),
+       updated_at          = NOW()
+     RETURNING (xmax = 0) AS inserted`,
+    [
+      String(report.articleUrl).slice(0, 500),
+      String(report.articleTitle || 'Unknown').slice(0, 300),
+      report.articleDate || null,
+      bf.totalBattleForce, bf.totalUss, bf.totalUsns,
+      bf.deployed, bf.deployedUss, bf.deployedUsns, bf.fdnf, bf.rotational,
+      bf.underway, bf.underwayDeployed, bf.underwayLocal,
+      report.vessels?.length || 0,
+      report.regions?.length || 0,
+      JSON.stringify(report.vessels || []),
+      JSON.stringify(report.regions || []),
+      JSON.stringify(bf),
+    ]
+  );
+  return { inserted: r?.inserted ? 1 : 0, updated: r?.inserted ? 0 : 1 };
+}
+
+/**
+ * Job principal USNI: scrape latest weekly report → persist (idempotent
+ * by article_url). Returns stats for the cron logger.
+ */
+async function runUSNIFleetJob() {
+  const t0 = Date.now();
+  const usni = loadUsni();
+
+  const report = await usni.scrapeLatestFleetReport();
+  const persistResult = await persistUSNIReport(report);
+
+  return {
+    articleUrl: report.articleUrl,
+    articleDate: report.articleDate,
+    vesselCount: report.vessels?.length || 0,
+    regionCount: report.regions?.length || 0,
+    totalBattleForce: report.battleForce?.totalBattleForce,
+    deployed: report.battleForce?.deployed,
+    underway: report.battleForce?.underway,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    durationMs: Date.now() - t0,
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  Phase 2 — Job 7: military vessels via AISstream WebSocket subscriber
+//
+//  Pipeline:
+//    aisstream_subscriber.js   ← started at engine boot in server.js
+//      WebSocket → processAisPosition() per message → trackedVessels Map
+//      [persistent in-memory state in worldmonitor/services/military-vessels.ts]
+//    runMilitaryVesselsJob (cron */5 min)
+//      → getTrackedMilitaryVessels() snapshot
+//      → INSERT into wm_military_vessels (mmsi, observed_at) UNIQUE
+//      → cleanup of rows older than MILITARY_VESSELS_RETENTION_DAYS
+//
+//  Same historical-snapshot pattern as wm_military_flights.
+//  Storage budget: ~10-100 tracked vessels × 12 cron runs/h × 24h ≈
+//  3K-30K rows/day. With retention 30d → ~100K-1M rows max.
+// ════════════════════════════════════════════════════════════
+
+const MILITARY_VESSELS_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.MILITARY_VESSELS_RETENTION_DAYS || '30', 10) || 30
+);
+
+let militaryVesselsMod = null;
+function loadMilitaryVesselsTs() {
+  if (!militaryVesselsMod) {
+    militaryVesselsMod = require('./worldmonitor/services/military-vessels');
+  }
+  return militaryVesselsMod;
+}
+
+async function persistMilitaryVessels(vessels, observedAt) {
+  let inserted = 0;
+  for (const v of vessels) {
+    const r = await db.queryOne(
+      `INSERT INTO wm_military_vessels
+         (mmsi, vessel_name, vessel_type, operator, operator_country,
+          hull_number, lat, lon, heading_deg, speed_kt, course_deg,
+          ais_ship_type, ais_ship_type_name,
+          is_dark, ais_gap_minutes,
+          near_chokepoint, near_base, near_hotspot,
+          confidence, raw, observed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+       ON CONFLICT (mmsi, observed_at) DO NOTHING
+       RETURNING id`,
+      [
+        String(v.mmsi || '').slice(0, 20),
+        v.name ? String(v.name).slice(0, 100) : null,
+        v.vesselType || null,
+        v.operator || 'other',
+        v.operatorCountry || 'Unknown',
+        v.hullNumber || null,
+        Number(v.lat),
+        Number(v.lon),
+        Number.isFinite(v.heading) ? v.heading : null,
+        Number.isFinite(v.speed) ? v.speed : null,
+        Number.isFinite(v.course) ? v.course : null,
+        Number.isFinite(v.aisShipType) ? v.aisShipType : null,
+        v.aisShipTypeName || null,
+        Boolean(v.isDark),
+        Number.isFinite(v.aisGapMinutes) ? Math.round(v.aisGapMinutes) : null,
+        v.nearChokepoint || null,
+        v.nearBase || null,
+        v.nearHotspot || null,
+        ['high','medium','low'].includes(v.confidence) ? v.confidence : 'low',
+        JSON.stringify({
+          id: v.id,
+          firstSeen: v.firstSeen,
+          lastSeen: v.lastSeen,
+        }),
+        observedAt,
+      ]
+    );
+    if (r?.id) inserted++;
+  }
+  return { inserted };
+}
+
+async function cleanupOldVessels(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (
+       DELETE FROM wm_military_vessels
+       WHERE observed_at < NOW() - ($1::int * INTERVAL '1 day')
+       RETURNING id
+     )
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+/**
+ * Job principal military vessels: snapshot in-memory tracked vessels →
+ * persist → cleanup. Devuelve { tracked, inserted, deleted, byOperator,
+ * byChokepoint, durationMs }.
+ */
+async function runMilitaryVesselsJob() {
+  const t0 = Date.now();
+  const observedAt = new Date();
+
+  const mil = loadMilitaryVesselsTs();
+  const vessels = mil.getTrackedMilitaryVessels();
+
+  const persistResult = await persistMilitaryVessels(vessels, observedAt);
+  const deleted = await cleanupOldVessels(MILITARY_VESSELS_RETENTION_DAYS);
+
+  const byOperator = {};
+  const byChokepoint = {};
+  for (const v of vessels) {
+    const op = v.operator || 'other';
+    byOperator[op] = (byOperator[op] || 0) + 1;
+    if (v.nearChokepoint) {
+      byChokepoint[v.nearChokepoint] = (byChokepoint[v.nearChokepoint] || 0) + 1;
+    }
+  }
+
+  return {
+    tracked: vessels.length,
+    inserted: persistResult.inserted,
+    deleted,
+    byOperator,
+    byChokepoint,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
   runCountryInstabilityJob,
   runTrendingKeywordsJob,
   runMilitaryFlightsJob,
+  runUSNIFleetJob,
+  runMilitaryVesselsJob,
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing
@@ -767,4 +997,7 @@ module.exports = {
   persistTrendingSignals,      // exported for testing
   persistMilitaryFlights,      // exported for testing
   cleanupOldFlights,           // exported for testing
+  persistUSNIReport,           // exported for testing
+  persistMilitaryVessels,      // exported for testing
+  cleanupOldVessels,           // exported for testing
 };
