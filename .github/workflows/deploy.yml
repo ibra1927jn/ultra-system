@@ -4,6 +4,15 @@ on:
   push:
     branches: [main, master]
 
+# Serialize deploys: if a job is already running, queue the new one instead
+# of running both in parallel (which previously caused engine container
+# overlap kills — see commit history for the wm-phase-2 incidents).
+# cancel-in-progress is intentionally false so an in-flight build finishes
+# cleanly before the next one starts.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -34,14 +43,23 @@ jobs:
           ssh-keyscan -H "$HETZNER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
           # Deploy
+          # Build stage is separate from up so that if the build fails the
+          # currently-running engine container is left untouched.
+          # Post-deploy health check fails the GitHub Action job loud if the
+          # new container does not respond — that way we hear about it
+          # instead of silently leaving production in a half-deployed state.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$HETZNER_HOST" '
+            set -euo pipefail
             cd /root/ultra-system &&
             git config pull.ff only 2>/dev/null || true &&
             git fetch origin master &&
             git reset --hard origin/master &&
-            docker compose up -d --build &&
+            docker compose build engine spacy &&
+            docker compose up -d engine spacy &&
             sleep 10 &&
             docker ps --format "table {{.Names}}\t{{.Status}}" &&
+            curl -fsS http://localhost:3000/api/health > /dev/null \
+              || (echo "POST-DEPLOY HEALTH FAIL — engine /api/health did not respond" && exit 1) &&
             echo "Deploy completed at $(date)"
           '
 

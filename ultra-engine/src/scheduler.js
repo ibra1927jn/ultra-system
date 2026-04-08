@@ -461,6 +461,30 @@ function init() {
     'Cada hora :55 — Trending keyword spike detection sobre artículos de las últimas 24h vía worldmonitor/services/trending-keywords.ts → wm_trending_keywords'
   );
 
+  // ─── P1 WM Phase 2 step 5: military flights → wm_military_flights cada 5 min ──
+  // Uses OpenSky Network OAuth2 client_credentials direct path. 4 hotspot
+  // bbox queries per run (INDO-PACIFIC, CENTCOM, EUCOM, ARCTIC). Cleanup
+  // of rows older than MILITARY_FLIGHTS_RETENTION_DAYS (default 30) is run
+  // at the end of every cycle.
+  register(
+    'wm-military-flights',
+    '*/5 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runMilitaryFlightsJob();
+        const ops = Object.entries(r.byOperator)
+          .filter(([k]) => k !== 'other')
+          .sort((a,b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(([k,v]) => `${k}=${v}`)
+          .join(' ');
+        console.log(`✈️  wm-military-flights: fetched=${r.flightsFetched} clusters=${r.clustersFound} inserted=${r.inserted} deleted=${r.deleted} [${ops}] ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-military-flights:', err.message); }
+    },
+    'Cada 5 min — Military flight tracking via OpenSky direct OAuth2 sobre 4 hotspots → wm_military_flights'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',

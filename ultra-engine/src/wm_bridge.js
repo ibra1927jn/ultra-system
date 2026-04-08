@@ -12,9 +12,10 @@
 //   2. runFocalPointJob          — clusters → focal-point-detector.ts → wm_focal_points
 //   3. runCountryInstabilityJob  — clusters → country-instability.ts → wm_country_scores
 //   4. runTrendingKeywordsJob    — articles → trending-keywords.ts → wm_trending_keywords
+//   5. runMilitaryFlightsJob     — OpenSky direct OAuth2 → military-flights.ts → wm_military_flights
 //
-//  Otros bridges (signal-aggregator real, conflict ingestion, etc.) vendrán
-//  en commits separados a medida que se cableen.
+//  Otros bridges (AIS vessels, internet outages, etc.) vendrán en commits
+//  separados a medida que se cableen.
 // ════════════════════════════════════════════════════════════
 
 const db = require('./db');
@@ -43,6 +44,14 @@ function loadCII() {
     ciiMod = require('./worldmonitor/services/country-instability');
   }
   return ciiMod;
+}
+
+let militaryFlightsMod = null;
+function loadMilitaryFlights() {
+  if (!militaryFlightsMod) {
+    militaryFlightsMod = require('./worldmonitor/services/military-flights');
+  }
+  return militaryFlightsMod;
 }
 
 let trendingMod = null;
@@ -599,14 +608,163 @@ async function runTrendingKeywordsJob({ lookbackHours = 24, limit = 1000 } = {})
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 2 — Job 5: military flights tracking via OpenSky direct OAuth2
+//
+//  Pipeline:
+//    fetchMilitaryFlights() → 4 hotspot bbox queries with OAuth2 Bearer
+//      → parseOpenSkyResponse → isMilitaryFlight filter
+//      → persist as one row per (icao24, observed_at) snapshot
+//
+//  Why we persist HISTORICAL snapshots (not upsert by icao24):
+//    User decision 2026-04-08 "lo más completo posible". Each cron run
+//    is a fresh point-in-time snapshot of every detected military flight.
+//    Allows trail/track reconstruction, time-of-day analysis, persistent
+//    presence detection per region. Wm_military_flights grows ~216K
+//    rows/day at 5min cadence with ~750 aircraft/run.
+//
+//  Retention:
+//    The job calls cleanupOldFlights() at the end of each run to drop
+//    rows older than RETENTION_DAYS (default 30). Bounded growth around
+//    ~6.5M rows max. Adjustable via env MILITARY_FLIGHTS_RETENTION_DAYS.
+// ════════════════════════════════════════════════════════════
+
+const MILITARY_FLIGHTS_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.MILITARY_FLIGHTS_RETENTION_DAYS || '30', 10) || 30
+);
+
+/**
+ * Persist a snapshot of MilitaryFlight[] as new rows in wm_military_flights.
+ * Each row is a unique (icao24, observed_at) point. ON CONFLICT DO NOTHING
+ * because the unique constraint prevents accidental duplicate inserts when
+ * a flight is matched by multiple overlapping bbox queries (the upstream
+ * `fetchFromOpenSky` already de-dupes by hexCode but we keep the safety).
+ */
+async function persistMilitaryFlights(flights, observedAt) {
+  let inserted = 0;
+  for (const f of flights) {
+    // Extract hotspot from note ("Near INDO-PACIFIC" → "INDO-PACIFIC")
+    let hotspot = null;
+    if (typeof f.note === 'string' && f.note.startsWith('Near ')) {
+      hotspot = f.note.slice(5);
+    }
+
+    const r = await db.queryOne(
+      `INSERT INTO wm_military_flights
+         (icao24, callsign, aircraft_type, aircraft_model,
+          operator, operator_country,
+          lat, lon, altitude_ft, heading_deg, speed_kt,
+          vertical_rate_fpm, on_ground, squawk,
+          confidence, is_interesting, hotspot, note,
+          enriched, raw, observed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+       ON CONFLICT (icao24, observed_at) DO NOTHING
+       RETURNING id`,
+      [
+        String(f.hexCode || '').toLowerCase().slice(0, 10),
+        String(f.callsign || '').slice(0, 30) || null,
+        String(f.aircraftType || 'unknown').slice(0, 30),
+        f.aircraftModel ? String(f.aircraftModel).slice(0, 50) : null,
+        String(f.operator || 'other').slice(0, 20),
+        String(f.operatorCountry || 'Unknown').slice(0, 60),
+        Number(f.lat),
+        Number(f.lon),
+        Number.isFinite(f.altitude) ? Math.round(f.altitude) : null,
+        Number.isFinite(f.heading) ? f.heading : null,
+        Number.isFinite(f.speed) ? Math.round(f.speed) : null,
+        Number.isFinite(f.verticalRate) ? Math.round(f.verticalRate) : null,
+        Boolean(f.onGround),
+        f.squawk ? String(f.squawk).slice(0, 10) : null,
+        ['high','medium','low'].includes(f.confidence) ? f.confidence : 'low',
+        Boolean(f.isInteresting),
+        hotspot,
+        f.note ? String(f.note).slice(0, 200) : null,
+        f.enriched ? JSON.stringify(f.enriched) : null,
+        JSON.stringify({
+          id: f.id,
+          registration: f.registration,
+          origin: f.origin,
+          destination: f.destination,
+        }),
+        observedAt,
+      ]
+    );
+    if (r?.id) inserted++;
+  }
+  return { inserted };
+}
+
+/**
+ * Drop wm_military_flights rows older than the retention window.
+ * Returns number of rows deleted.
+ */
+async function cleanupOldFlights(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (
+       DELETE FROM wm_military_flights
+       WHERE observed_at < NOW() - ($1::int * INTERVAL '1 day')
+       RETURNING id
+     )
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+/**
+ * Job principal military flights: fetch via OpenSky OAuth2 → persist snapshot
+ *  → cleanup old rows.
+ *
+ * Devuelve { flightsFetched, clustersFound, inserted, deleted, byOperator,
+ *            byHotspot, durationMs }.
+ */
+async function runMilitaryFlightsJob() {
+  const t0 = Date.now();
+  const observedAt = new Date();
+
+  const mil = loadMilitaryFlights();
+  const result = await mil.fetchMilitaryFlights();
+  const flights = result?.flights || [];
+  const clusters = result?.clusters || [];
+
+  const persistResult = await persistMilitaryFlights(flights, observedAt);
+  const deleted = await cleanupOldFlights(MILITARY_FLIGHTS_RETENTION_DAYS);
+
+  // Quick aggregate stats for the cron logger
+  const byOperator = {};
+  const byHotspot = {};
+  for (const f of flights) {
+    const op = f.operator || 'other';
+    byOperator[op] = (byOperator[op] || 0) + 1;
+    if (typeof f.note === 'string' && f.note.startsWith('Near ')) {
+      const h = f.note.slice(5);
+      byHotspot[h] = (byHotspot[h] || 0) + 1;
+    }
+  }
+
+  return {
+    flightsFetched: flights.length,
+    clustersFound: clusters.length,
+    inserted: persistResult.inserted,
+    deleted,
+    byOperator,
+    byHotspot,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
   runCountryInstabilityJob,
   runTrendingKeywordsJob,
+  runMilitaryFlightsJob,
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing
   persistCountryScores,        // exported for testing
   persistTrendingSignals,      // exported for testing
+  persistMilitaryFlights,      // exported for testing
+  cleanupOldFlights,           // exported for testing
 };

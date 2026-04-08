@@ -14,11 +14,69 @@ import {
 } from './wingbits';
 import { isFeatureAvailable } from './runtime-config';
 
-// OpenSky Network API - use Railway relay (Vercel is blocked by OpenSky)
+// OpenSky Network API access — two paths supported:
+//
+//  1. Direct OAuth2 client_credentials (preferred, used by ultra-engine
+//     on Hetzner where the IP is not blocked by OpenSky). Activated when
+//     OPENSKY_CLIENT_ID + OPENSKY_CLIENT_SECRET are present in env.
+//     Token is cached in-memory and refreshed ~1 min before expiry.
+//
+//  2. Railway relay (legacy, kept for the original WM Vercel deployment
+//     which was IP-blocked by OpenSky). Activated by VITE_WS_RELAY_URL.
+//
+// Both paths hit the same /api/states/all bbox endpoint and feed into
+// parseOpenSkyResponse() unchanged.
 const wsRelayUrl = (typeof process !== 'undefined' ? process.env : ({} as any)).VITE_WS_RELAY_URL || '';
 const OPENSKY_BASE_URL = wsRelayUrl
   ? wsRelayUrl.replace('wss://', 'https://').replace('ws://', 'http://').replace(/\/$/, '') + '/opensky'
   : '';
+
+const OPENSKY_CLIENT_ID = (typeof process !== 'undefined' ? process.env : ({} as any)).OPENSKY_CLIENT_ID || '';
+const OPENSKY_CLIENT_SECRET = (typeof process !== 'undefined' ? process.env : ({} as any)).OPENSKY_CLIENT_SECRET || '';
+const OPENSKY_DIRECT_URL = 'https://opensky-network.org/api/states/all';
+const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
+
+let cachedOAuthToken: { token: string; expiresAt: number } | null = null;
+
+/**
+ * Fetch (and cache) an OAuth2 access token from OpenSky Keycloak.
+ * Returns null when credentials are not configured — callers fall back
+ * to the relay path in that case.
+ */
+async function getOpenSkyOAuthToken(): Promise<string | null> {
+  if (!OPENSKY_CLIENT_ID || !OPENSKY_CLIENT_SECRET) return null;
+
+  // Reuse cached token if it has at least 60s of life left
+  if (cachedOAuthToken && Date.now() < cachedOAuthToken.expiresAt - 60_000) {
+    return cachedOAuthToken.token;
+  }
+
+  try {
+    const body = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: OPENSKY_CLIENT_ID,
+      client_secret: OPENSKY_CLIENT_SECRET,
+    });
+    const resp = await fetch(OPENSKY_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    if (!resp.ok) {
+      console.warn(`[Military Flights] OAuth2 token fetch failed: HTTP ${resp.status}`);
+      return null;
+    }
+    const data = await resp.json() as { access_token: string; expires_in: number };
+    cachedOAuthToken = {
+      token: data.access_token,
+      expiresAt: Date.now() + data.expires_in * 1000,
+    };
+    return cachedOAuthToken.token;
+  } catch (err) {
+    console.warn('[Military Flights] OAuth2 token fetch error:', (err as Error).message);
+    return null;
+  }
+}
 
 // Cache configuration
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes - match refresh interval
@@ -255,29 +313,59 @@ function parseOpenSkyResponse(data: OpenSkyResponse): MilitaryFlight[] {
 }
 
 /**
- * Fetch flights for a single hotspot region
+ * Fetch flights for a single hotspot region.
+ *
+ * Tries the direct OAuth2 path first (preferred). If credentials are not
+ * configured, falls back to the legacy relay path. Returns [] on any error
+ * — the caller aggregates results from all hotspots and the circuit breaker
+ * decides whether the overall fetch counts as a failure.
  */
 async function fetchHotspotRegion(hotspot: typeof MILITARY_HOTSPOTS[number]): Promise<MilitaryFlight[]> {
   try {
-    if (!OPENSKY_BASE_URL) return [];
-
     const lamin = hotspot.lat - hotspot.radius;
     const lamax = hotspot.lat + hotspot.radius;
     const lomin = hotspot.lon - hotspot.radius;
     const lomax = hotspot.lon + hotspot.radius;
+    const bboxQuery = `?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
 
+    // Path 1: Direct OAuth2 (preferred)
+    const token = await getOpenSkyOAuthToken();
+    if (token) {
+      const response = await fetch(`${OPENSKY_DIRECT_URL}${bboxQuery}`, {
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        if (response.status === 429) {
+          console.warn(`[Military Flights] Rate limited (OAuth) for ${hotspot.name}`);
+        } else if (response.status === 401) {
+          // Token expired despite our cache margin — invalidate so the
+          // next call refreshes it
+          cachedOAuthToken = null;
+          console.warn(`[Military Flights] OAuth 401 for ${hotspot.name}, token cache invalidated`);
+        } else {
+          console.warn(`[Military Flights] OAuth path HTTP ${response.status} for ${hotspot.name}`);
+        }
+        return [];
+      }
+      const data: OpenSkyResponse = await response.json();
+      return parseOpenSkyResponse(data);
+    }
+
+    // Path 2: Legacy relay fallback
+    if (!OPENSKY_BASE_URL) return [];
     const response = await fetch(
-      `${OPENSKY_BASE_URL}?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`,
+      `${OPENSKY_BASE_URL}${bboxQuery}`,
       { headers: { 'Accept': 'application/json' } }
     );
-
     if (!response.ok) {
       if (response.status === 429) {
-        console.warn(`[Military Flights] Rate limited for ${hotspot.name}`);
+        console.warn(`[Military Flights] Rate limited (relay) for ${hotspot.name}`);
       }
       return [];
     }
-
     const data: OpenSkyResponse = await response.json();
     return parseOpenSkyResponse(data);
   } catch {
@@ -497,7 +585,10 @@ export async function fetchMilitaryFlights(): Promise<{
   flights: MilitaryFlight[];
   clusters: MilitaryFlightCluster[];
 }> {
-  if (!isFeatureAvailable('openskyRelay')) {
+  // Direct OAuth2 path bypasses the relay feature toggle: if we have
+  // OpenSky credentials, run regardless of openskyRelay being enabled.
+  // If neither path is available, short-circuit.
+  if (!OPENSKY_CLIENT_ID && !isFeatureAvailable('openskyRelay')) {
     return { flights: [], clusters: [] };
   }
 

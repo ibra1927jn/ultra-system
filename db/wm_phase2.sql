@@ -132,3 +132,54 @@ CREATE INDEX IF NOT EXISTS idx_wm_trending_last_seen
 CREATE INDEX IF NOT EXISTS idx_wm_trending_multiplier
   ON wm_trending_keywords (multiplier DESC)
   WHERE multiplier > 0;
+
+-- ─── Step 5: military flight tracking (OpenSky direct OAuth2) ───
+-- Mirrors src/worldmonitor/types/index.ts → MilitaryFlight, plus a few
+-- DB-level columns. ONE ROW PER (icao24, observed_at) — that is, every
+-- cron run inserts a fresh snapshot of every aircraft seen in any of the
+-- 4 MILITARY_HOTSPOTS bbox queries. This is intentional historical
+-- tracking (per user decision 2026-04-08): "lo más completo posible".
+--
+-- Storage budget: ~750 aircraft × 12 cron runs/h × 24h ≈ 216K rows/day.
+-- A retention cleanup is run inside runMilitaryFlightsJob each cycle to
+-- drop rows older than 30 days, keeping the table bounded around ~6M
+-- rows max.
+CREATE TABLE IF NOT EXISTS wm_military_flights (
+  id                  BIGSERIAL PRIMARY KEY,
+  icao24              TEXT NOT NULL,
+  callsign            TEXT,
+  aircraft_type       TEXT,
+  aircraft_model      TEXT,
+  operator            TEXT,
+  operator_country    TEXT,
+  lat                 DOUBLE PRECISION NOT NULL,
+  lon                 DOUBLE PRECISION NOT NULL,
+  altitude_ft         INTEGER,
+  heading_deg         NUMERIC(6,2),
+  speed_kt            INTEGER,
+  vertical_rate_fpm   INTEGER,
+  on_ground           BOOLEAN NOT NULL DEFAULT FALSE,
+  squawk              TEXT,
+  confidence          TEXT NOT NULL CHECK (confidence IN ('high','medium','low')),
+  is_interesting      BOOLEAN NOT NULL DEFAULT FALSE,
+  hotspot             TEXT,
+  note                TEXT,
+  enriched            JSONB,
+  raw                 JSONB,
+  observed_at         TIMESTAMPTZ NOT NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_military_flights_obs_unique UNIQUE (icao24, observed_at)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_mil_flights_observed
+  ON wm_military_flights (observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_mil_flights_icao24_observed
+  ON wm_military_flights (icao24, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_mil_flights_operator
+  ON wm_military_flights (operator)
+  WHERE operator IS NOT NULL AND operator <> 'other';
+CREATE INDEX IF NOT EXISTS idx_wm_mil_flights_hotspot
+  ON wm_military_flights (hotspot, observed_at DESC)
+  WHERE hotspot IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_wm_mil_flights_interesting
+  ON wm_military_flights (observed_at DESC)
+  WHERE is_interesting = TRUE;
