@@ -739,6 +739,51 @@ function init() {
     'Diario 06:00 UTC — Frankfurter ECB ref rates 18 majors → wm_fx_rates'
   );
 
+  // ─── WM Phase 3 Bloque 3 step 18: macro indicators (FRED + WB) ──
+  // 12 series FRED (rates / yield curve / inflation / liquidity /
+  // recession / credit) + 3 indicadores anuales World Bank (growth /
+  // inflación / unemployment a nivel WLD). UPSERT por (source,
+  // indicator_id, area, period). Cada 6h captura ticks daily de FRED
+  // sin sobrecargar al endpoint.
+  register(
+    'wm-macro-indicators',
+    '0 */6 * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runMacroIndicatorsJob();
+        if (r.error) {
+          console.error(`❌ wm-macro-indicators: ${r.error}`);
+        } else {
+          console.log(`📊 wm-macro-indicators: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-macro-indicators:', err.message); }
+    },
+    'Cada 6h — FRED 12 series + World Bank 3 series → wm_macro_indicators'
+  );
+
+  // ─── WM Phase 3 Bloque 3 step 19: agri commodities (USDA NASS) ──
+  // 5 anchor crops US NATIONAL annual production (CORN/SOYBEANS/
+  // WHEAT/COTTON/RICE) via Quick Stats API. UPSERT por (commodity,
+  // metric, area, period). USDA publica estimaciones anuales unas
+  // pocas veces al año — semanal lun 10:00 UTC es no-op casi siempre.
+  register(
+    'wm-agri-commodities',
+    '0 10 * * 1',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runAgriCommoditiesJob();
+        if (r.error) {
+          console.error(`❌ wm-agri-commodities: ${r.error}`);
+        } else {
+          console.log(`🌾 wm-agri-commodities: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-agri-commodities:', err.message); }
+    },
+    'Semanal lun 10:00 UTC — USDA NASS Quick Stats 5 crops → wm_agri_commodities'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',

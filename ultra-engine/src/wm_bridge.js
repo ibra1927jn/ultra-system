@@ -26,6 +26,9 @@
 //  --- Phase 3 (commodities/market verticals, Bloque 2) ---
 //  16. runEnergyInventoriesJob   — EIA v2 seriesid (4 weekly series) → wm_energy_inventories
 //  17. runFxRatesJob             — Frankfurter ECB ref rates → wm_fx_rates
+//  --- Phase 3 (commodities/market verticals, Bloque 3) ---
+//  18. runMacroIndicatorsJob     — FRED (12 series) + World Bank (3 series) → wm_macro_indicators
+//  19. runAgriCommoditiesJob     — USDA NASS Quick Stats (5 crops) → wm_agri_commodities
 //
 //  Otros bridges (internet outages, ACLED protests, etc.) vendrán en
 //  commits separados.
@@ -137,6 +140,22 @@ function loadFxRates() {
     fxRatesMod = require('./worldmonitor/services/fx-rates');
   }
   return fxRatesMod;
+}
+
+let macroIndicatorsMod = null;
+function loadMacroIndicators() {
+  if (!macroIndicatorsMod) {
+    macroIndicatorsMod = require('./worldmonitor/services/macro-indicators');
+  }
+  return macroIndicatorsMod;
+}
+
+let agriCommoditiesMod = null;
+function loadAgriCommodities() {
+  if (!agriCommoditiesMod) {
+    agriCommoditiesMod = require('./worldmonitor/services/agri-commodities');
+  }
+  return agriCommoditiesMod;
 }
 
 let trendingMod = null;
@@ -2340,6 +2359,149 @@ async function runFxRatesJob() {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 3 — Bloque 3: macro indicators + agri commodities
+//
+//  Tablas wm_macro_indicators y wm_agri_commodities (db/wm_phase3.sql).
+//  Ambas UPSERT idempotentes; sin retention pruning (datasets pequeños).
+// ════════════════════════════════════════════════════════════
+
+async function persistMacroIndicators(rows) {
+  let inserted = 0, updated = 0;
+  for (const r of rows) {
+    if (!r || typeof r.value !== 'number' || !Number.isFinite(r.value)) continue;
+    const res = await db.queryOne(
+      `INSERT INTO wm_macro_indicators
+         (source, indicator_id, display, category, area, frequency,
+          period, value, unit, prev_value, prev_period,
+          change_abs, change_pct, fetched_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())
+       ON CONFLICT (source, indicator_id, area, period) DO UPDATE SET
+         display     = EXCLUDED.display,
+         category    = EXCLUDED.category,
+         frequency   = EXCLUDED.frequency,
+         value       = EXCLUDED.value,
+         unit        = EXCLUDED.unit,
+         prev_value  = EXCLUDED.prev_value,
+         prev_period = EXCLUDED.prev_period,
+         change_abs  = EXCLUDED.change_abs,
+         change_pct  = EXCLUDED.change_pct,
+         fetched_at  = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        String(r.source).slice(0, 20),
+        String(r.indicatorId).slice(0, 60),
+        String(r.display).slice(0, 200),
+        String(r.category).slice(0, 30),
+        String(r.area).slice(0, 10),
+        String(r.frequency).slice(0, 20),
+        r.period,
+        Number(r.value),
+        r.unit ? String(r.unit).slice(0, 30) : null,
+        Number.isFinite(r.prevValue) ? Number(r.prevValue) : null,
+        r.prevPeriod || null,
+        Number.isFinite(r.changeAbs) ? Number(r.changeAbs) : null,
+        Number.isFinite(r.changePct) ? Number(r.changePct) : null,
+      ]
+    );
+    if (res?.inserted === true) inserted++;
+    else if (res) updated++;
+  }
+  return { inserted, updated };
+}
+
+async function persistAgriCommodities(rows) {
+  let inserted = 0, updated = 0;
+  for (const r of rows) {
+    if (!r || typeof r.value !== 'number' || !Number.isFinite(r.value)) continue;
+    const res = await db.queryOne(
+      `INSERT INTO wm_agri_commodities
+         (commodity, category, metric, display, short_desc, area,
+          period, reference, value, unit, prev_value, prev_period,
+          change_abs, change_pct, load_time, fetched_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
+       ON CONFLICT (commodity, metric, area, period) DO UPDATE SET
+         category    = EXCLUDED.category,
+         display     = EXCLUDED.display,
+         short_desc  = EXCLUDED.short_desc,
+         reference   = EXCLUDED.reference,
+         value       = EXCLUDED.value,
+         unit        = EXCLUDED.unit,
+         prev_value  = EXCLUDED.prev_value,
+         prev_period = EXCLUDED.prev_period,
+         change_abs  = EXCLUDED.change_abs,
+         change_pct  = EXCLUDED.change_pct,
+         load_time   = EXCLUDED.load_time,
+         fetched_at  = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        String(r.commodity).slice(0, 50),
+        String(r.category).slice(0, 30),
+        String(r.metric).slice(0, 30),
+        String(r.display).slice(0, 200),
+        r.shortDesc ? String(r.shortDesc).slice(0, 200) : null,
+        String(r.area).slice(0, 20),
+        r.period,
+        r.reference ? String(r.reference).slice(0, 60) : null,
+        Number(r.value),
+        String(r.unit).slice(0, 30),
+        Number.isFinite(r.prevValue) ? Number(r.prevValue) : null,
+        r.prevPeriod || null,
+        Number.isFinite(r.changeAbs) ? Number(r.changeAbs) : null,
+        Number.isFinite(r.changePct) ? Number(r.changePct) : null,
+        r.loadTime || null,
+      ]
+    );
+    if (res?.inserted === true) inserted++;
+    else if (res) updated++;
+  }
+  return { inserted, updated };
+}
+
+async function runMacroIndicatorsJob() {
+  const t0 = Date.now();
+  const fredKey = process.env.FRED_API_KEY || '';
+  if (!fredKey) {
+    return { fetched: 0, inserted: 0, updated: 0, durationMs: Date.now() - t0, error: 'FRED_API_KEY missing' };
+  }
+  const mi = loadMacroIndicators();
+  let rows = [];
+  try {
+    rows = await mi.fetchAllMacroIndicators(fredKey);
+  } catch (err) {
+    return { fetched: 0, inserted: 0, updated: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistMacroIndicators(rows);
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    durationMs: Date.now() - t0,
+  };
+}
+
+async function runAgriCommoditiesJob() {
+  const t0 = Date.now();
+  const usdaKey = process.env.USDA_API_KEY || '';
+  if (!usdaKey) {
+    return { fetched: 0, inserted: 0, updated: 0, durationMs: Date.now() - t0, error: 'USDA_API_KEY missing' };
+  }
+  const ag = loadAgriCommodities();
+  let rows = [];
+  try {
+    rows = await ag.fetchAllAgriCommodities(usdaKey);
+  } catch (err) {
+    return { fetched: 0, inserted: 0, updated: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistAgriCommodities(rows);
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
@@ -2358,6 +2520,8 @@ module.exports = {
   runCryptoQuotesJob,
   runEnergyInventoriesJob,
   runFxRatesJob,
+  runMacroIndicatorsJob,
+  runAgriCommoditiesJob,
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing
@@ -2385,6 +2549,8 @@ module.exports = {
   persistEnergyInventories,    // exported for testing
   persistFxRates,              // exported for testing
   cleanupOldFxRates,           // exported for testing
+  persistMacroIndicators,      // exported for testing
+  persistAgriCommodities,      // exported for testing
   getRecentMilitaryFlights,    // exported for testing
   getCurrentSignalSummary,     // exported for testing
   getRecentEarthquakeAnomalies,// exported for testing

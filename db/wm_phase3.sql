@@ -12,9 +12,13 @@
 --   - wm_market_quotes  → wm-market-quotes cron (Yahoo v8 chart)
 --   - wm_crypto_quotes  → wm-crypto-quotes cron (CoinGecko public API)
 --
---  Bloque 2 (this commit):
+--  Bloque 2:
 --   - wm_energy_inventories → wm-energy-inventories cron (EIA v2 seriesid)
 --   - wm_fx_rates           → wm-fx-rates cron (Frankfurter ECB ref rates)
+--
+--  Bloque 3 (this commit):
+--   - wm_macro_indicators   → wm-macro-indicators cron (FRED + World Bank)
+--   - wm_agri_commodities   → wm-agri-commodities cron (USDA Quick Stats)
 -- ════════════════════════════════════════════════════════════
 
 -- ─── Step 14: Market quotes (stocks/sectors/indices/commodities) ──
@@ -161,3 +165,88 @@ CREATE INDEX IF NOT EXISTS idx_wm_fx_rates_date
 CREATE INDEX IF NOT EXISTS idx_wm_fx_rates_movers
   ON wm_fx_rates (rate_date DESC, change_pct)
   WHERE change_pct IS NOT NULL AND ABS(change_pct) >= 1;
+
+-- ─── Bloque 3 step 18: Macro indicators (FRED + World Bank) ────────
+-- Unified time-series store across two macro data sources:
+--   - FRED (api.stlouisfed.org): US daily/weekly/monthly time-series
+--     covering rates, yield curve, inflation, liquidity, credit, recession
+--   - World Bank (api.worldbank.org): annual world/country indicators
+--     for slow-moving structural context (GDP growth, inflation, unemployment)
+--
+-- One row per (source, indicator_id, area, period). UPSERT idempotent —
+-- the cron can re-fetch the same observations without duplicating. Each
+-- row precomputes prev_value / change_abs / change_pct vs the prior
+-- observation in the same series so consumers don't need window functions.
+--
+-- Storage: ~15 series × ~50 obs/year = ~750 rows/year. Sin retention.
+CREATE TABLE IF NOT EXISTS wm_macro_indicators (
+  id              BIGSERIAL PRIMARY KEY,
+  source          TEXT NOT NULL,                   -- 'FRED' | 'WORLD_BANK'
+  indicator_id    TEXT NOT NULL,                   -- 'DFF' / 'NY.GDP.MKTP.KD.ZG'
+  display         TEXT NOT NULL,                   -- short label
+  category        TEXT NOT NULL,                   -- rates|inflation|employment|liquidity|recession|growth|credit
+  area            TEXT NOT NULL,                   -- 'US' | 'WLD'
+  frequency       TEXT NOT NULL,                   -- daily|weekly|monthly|quarterly|annual
+  period          DATE NOT NULL,                   -- observation date
+  value           NUMERIC(22,6) NOT NULL,
+  unit            TEXT,                            -- '%' / 'index' / 'USD' / 'BCF' ...
+  prev_value      NUMERIC(22,6),
+  prev_period     DATE,
+  change_abs      NUMERIC(22,6),
+  change_pct      NUMERIC(12,4),
+  fetched_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_macro_uniq UNIQUE (source, indicator_id, area, period)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_macro_indicator_period
+  ON wm_macro_indicators (indicator_id, period DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_macro_category_period
+  ON wm_macro_indicators (category, period DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_macro_period
+  ON wm_macro_indicators (period DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_macro_source_area
+  ON wm_macro_indicators (source, area);
+
+-- ─── Bloque 3 step 19: Agri commodities (USDA Quick Stats / NASS) ──
+-- US National annual production for the 5 anchor crops. USDA NASS
+-- Quick Stats API. v1 tracks annual PRODUCTION in physical unit only;
+-- weekly crop progress and monthly stocks come in a future expansion.
+--
+-- Tracked commodities (commodity / unit):
+--   CORN     — BU            (filter unit_desc=BU + util_practice_desc=GRAIN)
+--   SOYBEANS — BU            (filter unit_desc=BU)
+--   WHEAT    — BU            (filter unit_desc=BU)
+--   COTTON   — 480 LB BALES  (filter unit_desc='480 LB BALES')
+--   RICE     — CWT           (filter unit_desc=CWT)
+--
+-- USDA returns multiple rows per (commodity, year): we filter to the
+-- "ALL CLASSES" + reference_period_desc='YEAR' final value in the
+-- canonical unit. UPSERT por (commodity, metric, area, period) —
+-- cron weekly is essentially a re-confirm in most weeks.
+--
+-- Storage: ~5 commodities × ~10 years history = ~50 rows total. Trivial.
+CREATE TABLE IF NOT EXISTS wm_agri_commodities (
+  id              BIGSERIAL PRIMARY KEY,
+  commodity       TEXT NOT NULL,                   -- 'CORN'
+  category        TEXT NOT NULL,                   -- 'grain'|'oilseed'|'fiber'
+  metric          TEXT NOT NULL,                   -- 'PRODUCTION'
+  display         TEXT NOT NULL,                   -- 'US Corn Production'
+  short_desc      TEXT,                            -- USDA short_desc
+  area            TEXT NOT NULL,                   -- 'US'
+  period          DATE NOT NULL,                   -- year as YYYY-12-31
+  reference       TEXT,                            -- USDA reference_period_desc
+  value           NUMERIC(24,4) NOT NULL,
+  unit            TEXT NOT NULL,                   -- 'BU' | 'CWT' | '480 LB BALES'
+  prev_value      NUMERIC(24,4),
+  prev_period     DATE,
+  change_abs      NUMERIC(24,4),
+  change_pct      NUMERIC(10,4),
+  load_time       TIMESTAMPTZ,                     -- USDA load_time
+  fetched_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_agri_uniq UNIQUE (commodity, metric, area, period)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_agri_commodity_period
+  ON wm_agri_commodities (commodity, period DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_agri_category_period
+  ON wm_agri_commodities (category, period DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_agri_period
+  ON wm_agri_commodities (period DESC);
