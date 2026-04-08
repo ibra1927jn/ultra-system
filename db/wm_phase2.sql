@@ -274,3 +274,28 @@ CREATE INDEX IF NOT EXISTS idx_wm_mil_vessels_chokepoint
 CREATE INDEX IF NOT EXISTS idx_wm_mil_vessels_dark
   ON wm_military_vessels (observed_at DESC)
   WHERE is_dark = TRUE;
+
+-- ─── Step 8: signal-aggregator output snapshots ─────────────
+-- Mirrors src/worldmonitor/services/signal-aggregator.ts → SignalSummary.
+-- One row per cron run (historical), so we can see how the geographic
+-- signal landscape evolves over time. The aggregator itself is a
+-- singleton in-memory; this table is the persisted observability layer.
+--
+-- Storage: 1 row per 5min cron = 288 rows/day = ~8.6K rows/month.
+-- Trivial. Retention 30 days handled by cron cleanup inside the job.
+CREATE TABLE IF NOT EXISTS wm_signal_summary (
+  id                  BIGSERIAL PRIMARY KEY,
+  total_signals       INTEGER NOT NULL DEFAULT 0,
+  by_type             JSONB NOT NULL,
+  top_countries       JSONB,
+  convergence_zones   JSONB,
+  ai_context          TEXT,
+  flights_ingested    INTEGER NOT NULL DEFAULT 0,
+  vessels_ingested    INTEGER NOT NULL DEFAULT 0,
+  observed_at         TIMESTAMPTZ NOT NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_signal_summary_observed
+  ON wm_signal_summary (observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_signal_summary_total
+  ON wm_signal_summary (total_signals DESC, observed_at DESC);

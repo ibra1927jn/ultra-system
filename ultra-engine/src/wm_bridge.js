@@ -15,6 +15,7 @@
 //   5. runMilitaryFlightsJob     — OpenSky direct OAuth2 → military-flights.ts → wm_military_flights
 //   6. runUSNIFleetJob           — usni_scraper.js (puppeteer HTML) → wm_usni_fleet
 //   7. runMilitaryVesselsJob     — aisstream_subscriber.js (WebSocket) → wm_military_vessels
+//   8. runSignalAggregatorJob    — flights+vessels → signal-aggregator.ts singleton → wm_signal_summary
 //
 //  Otros bridges (internet outages, etc.) vendrán en commits separados.
 // ════════════════════════════════════════════════════════════
@@ -61,6 +62,14 @@ function loadUsni() {
     usniMod = require('./usni_scraper');
   }
   return usniMod;
+}
+
+let signalAggregatorMod = null;
+function loadSignalAggregator() {
+  if (!signalAggregatorMod) {
+    signalAggregatorMod = require('./worldmonitor/services/signal-aggregator');
+  }
+  return signalAggregatorMod;
 }
 
 let trendingMod = null;
@@ -245,6 +254,85 @@ const EMPTY_SIGNAL_SUMMARY = Object.freeze({
 });
 
 /**
+ * Get the current SignalSummary from the signal-aggregator singleton.
+ *
+ * Returns the live aggregated state if the aggregator has any signals
+ * (typically populated by the most recent runSignalAggregatorJob run),
+ * or EMPTY_SIGNAL_SUMMARY if the aggregator is cold (engine just booted,
+ * no signal-aggregator cron has fired yet).
+ *
+ * Used by runFocalPointJob and runCountryInstabilityJob to feed the
+ * downstream services with REAL signal data instead of an empty summary.
+ * That activates urgencies elevated/critical in focal-point-detector and
+ * the security component in country-instability.
+ */
+function getCurrentSignalSummary() {
+  try {
+    const sa = loadSignalAggregator();
+    if (sa.signalAggregator.getSignalCount() === 0) {
+      return EMPTY_SIGNAL_SUMMARY;
+    }
+    return sa.signalAggregator.getSummary();
+  } catch (err) {
+    console.warn('⚠️  getCurrentSignalSummary failed, falling back to empty:', err.message);
+    return EMPTY_SIGNAL_SUMMARY;
+  }
+}
+
+/**
+ * Pull recent military flight rows from wm_military_flights and reshape
+ * them as MilitaryFlight objects suitable for signalAggregator.ingestFlights
+ * and country-instability.ingestMilitaryForCII.
+ *
+ * Used inside runSignalAggregatorJob and runCountryInstabilityJob.
+ *
+ * Why pull from DB rather than calling fetchMilitaryFlights() again:
+ *  - DB already has the most recent snapshot from the wm-military-flights
+ *    cron (runs at *\/5)
+ *  - Avoids hitting OpenSky again (rate limit budget) and re-doing work
+ *  - Returns a deterministic snapshot based on observed_at, which is what
+ *    we want for signal aggregation
+ */
+async function getRecentMilitaryFlights({ lookbackMinutes = 10 } = {}) {
+  const rows = await db.queryAll(
+    `SELECT icao24, callsign, aircraft_type, aircraft_model,
+            operator, operator_country,
+            lat, lon, altitude_ft, heading_deg, speed_kt,
+            vertical_rate_fpm, on_ground, squawk,
+            confidence, is_interesting, hotspot, note,
+            observed_at
+     FROM wm_military_flights
+     WHERE observed_at >= NOW() - ($1::int * INTERVAL '1 minute')
+     ORDER BY observed_at DESC
+     LIMIT 5000`,
+    [lookbackMinutes]
+  );
+  // Reshape DB rows back into MilitaryFlight shape (camelCase, dates).
+  // Keeps the WM signal-aggregator code unchanged.
+  return rows.map(r => ({
+    id: `db-${r.icao24}-${new Date(r.observed_at).getTime()}`,
+    callsign: r.callsign || `UNK-${r.icao24}`,
+    hexCode: String(r.icao24).toUpperCase(),
+    aircraftType: r.aircraft_type || 'unknown',
+    aircraftModel: r.aircraft_model || undefined,
+    operator: r.operator || 'other',
+    operatorCountry: r.operator_country || 'Unknown',
+    lat: Number(r.lat),
+    lon: Number(r.lon),
+    altitude: Number(r.altitude_ft) || 0,
+    heading: Number(r.heading_deg) || 0,
+    speed: Number(r.speed_kt) || 0,
+    verticalRate: r.vertical_rate_fpm != null ? Number(r.vertical_rate_fpm) : undefined,
+    onGround: Boolean(r.on_ground),
+    squawk: r.squawk || undefined,
+    confidence: r.confidence || 'low',
+    isInteresting: Boolean(r.is_interesting),
+    note: r.note || undefined,
+    lastSeen: new Date(r.observed_at),
+  }));
+}
+
+/**
  * Persiste focal points. Idempotente vía entity_id (UNIQUE):
  * cuando el mismo entity reaparece en el run siguiente, hace UPDATE
  * de score/narrative/headlines y bumpea last_seen. first_seen solo se
@@ -324,7 +412,12 @@ async function runFocalPointJob({ lookbackHours = 24, limit = 1000 } = {}) {
   const clusters = clusterNews(articles);
 
   const { focalPointDetector } = loadFocalPoint();
-  const summary = focalPointDetector.analyze(clusters || [], EMPTY_SIGNAL_SUMMARY);
+  // Use the LIVE SignalSummary from the signal-aggregator singleton if it
+  // has data (populated by the wm-signal-aggregator cron). This is what
+  // unlocks urgencies elevated/critical in focal-point output. Falls back
+  // to EMPTY when the aggregator is cold (e.g. engine just rebooted).
+  const signalSummary = getCurrentSignalSummary();
+  const summary = focalPointDetector.analyze(clusters || [], signalSummary);
 
   const focalPoints = summary?.focalPoints || [];
   const criticalCount = focalPoints.filter(fp => fp.urgency === 'critical').length;
@@ -446,18 +539,31 @@ async function runCountryInstabilityJob({ lookbackHours = 24, limit = 1000 } = {
   const { clusterNews } = loadClustering();
   const clusters = clusterNews(articles);
 
-  // Refresh focal-point singleton state so getCountryUrgencyMap() is current
+  // Refresh focal-point singleton state so getCountryUrgencyMap() is current.
+  // Pass the live SignalSummary (from signal-aggregator) if available so
+  // urgencies elevated/critical propagate correctly to the focal map.
   const { focalPointDetector } = loadFocalPoint();
-  focalPointDetector.analyze(clusters || [], EMPTY_SIGNAL_SUMMARY);
+  const signalSummary = getCurrentSignalSummary();
+  focalPointDetector.analyze(clusters || [], signalSummary);
 
   const cii = loadCII();
   // Bypass learning mode (15min warmup is for fresh cold-start UIs, not crons)
   cii.setHasCachedScores(true);
   cii.clearCountryData();
   cii.ingestNewsForCII(clusters || []);
-  // Future: cii.ingestProtestsForCII(...), ingestMilitaryForCII(...),
-  //         ingestConflictsForCII(...), ingestOutagesForCII(...) cuando
-  //         los feeds reales estén cableados.
+
+  // Phase 2 step 8: pull recent military flights from DB and the live
+  // tracked vessels from the AISstream subscriber, feed them to CII so
+  // the security component reflects real military activity instead of 0.
+  try {
+    const flights = await getRecentMilitaryFlights({ lookbackMinutes: 10 });
+    const milVessels = loadMilitaryVesselsTs().getTrackedMilitaryVessels();
+    if (flights.length > 0 || milVessels.length > 0) {
+      cii.ingestMilitaryForCII(flights, milVessels);
+    }
+  } catch (err) {
+    console.warn('⚠️  CII military ingest failed (non-fatal):', err.message);
+  }
 
   const scores = cii.calculateCII();
 
@@ -982,6 +1088,125 @@ async function runMilitaryVesselsJob() {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 2 — Job 8: signal-aggregator (cross-feed correlation)
+//
+//  The signal-aggregator is a singleton in-memory aggregator that takes
+//  raw signal feeds (military flights, naval vessels, internet outages,
+//  protests, AIS disruptions, satellite fires, temporal anomalies) and
+//  produces a SignalSummary with country clusters + regional convergence
+//  + AI context. That SignalSummary is then consumed by:
+//
+//   - focal-point-detector → activates urgencies elevated/critical
+//   - country-instability  → security component becomes real
+//
+//  Pipeline:
+//    1. getRecentMilitaryFlights({lookback 10min}) ← from wm_military_flights
+//    2. getTrackedMilitaryVessels() ← in-memory from aisstream subscriber
+//    3. signalAggregator.ingestFlights(flights)
+//    4. signalAggregator.ingestVessels(vessels)
+//    5. signalAggregator.getSummary() → SignalSummary
+//    6. persist snapshot to wm_signal_summary
+//    7. cleanup rows > retention days
+//
+//  Other ingest methods (Outages, Protests, AisDisruptions, etc.) will
+//  be added when the corresponding feeds are wired in future steps.
+//  Each call clears its own signal type before pushing, so calling only
+//  ingestFlights+ingestVessels is safe — the others stay empty.
+//
+//  Cron cadence: every 5 min, offset +1 min from the flights/vessels
+//  jobs so they always run AFTER the data sources (`1-59/5 * * * *`).
+// ════════════════════════════════════════════════════════════
+
+const SIGNAL_SUMMARY_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.SIGNAL_SUMMARY_RETENTION_DAYS || '30', 10) || 30
+);
+
+async function persistSignalSummary(summary, flightsIngested, vesselsIngested, observedAt) {
+  const r = await db.queryOne(
+    `INSERT INTO wm_signal_summary
+       (total_signals, by_type, top_countries, convergence_zones,
+        ai_context, flights_ingested, vessels_ingested, observed_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     RETURNING id`,
+    [
+      Number.isFinite(summary.totalSignals) ? summary.totalSignals : 0,
+      JSON.stringify(summary.byType || {}),
+      // topCountries contains a Set in signalTypes — JSON.stringify drops
+      // Sets silently. Convert to array first so the shape persists.
+      JSON.stringify((summary.topCountries || []).map(c => ({
+        country: c.country,
+        countryName: c.countryName,
+        totalCount: c.totalCount,
+        highSeverityCount: c.highSeverityCount,
+        convergenceScore: c.convergenceScore,
+        signalTypes: Array.from(c.signalTypes || []),
+      }))),
+      JSON.stringify(summary.convergenceZones || []),
+      String(summary.aiContext || '').slice(0, 4000),
+      flightsIngested,
+      vesselsIngested,
+      observedAt,
+    ]
+  );
+  return { inserted: r?.id ? 1 : 0 };
+}
+
+async function cleanupOldSignalSummaries(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (
+       DELETE FROM wm_signal_summary
+       WHERE observed_at < NOW() - ($1::int * INTERVAL '1 day')
+       RETURNING id
+     )
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+/**
+ * Job principal signal-aggregator: pull flights from BD + vessels from
+ * memory → ingest into singleton → snapshot SignalSummary → persist.
+ */
+async function runSignalAggregatorJob() {
+  const t0 = Date.now();
+  const observedAt = new Date();
+
+  // 1. Pull data from upstream sources
+  const flights = await getRecentMilitaryFlights({ lookbackMinutes: 10 });
+  const vessels = loadMilitaryVesselsTs().getTrackedMilitaryVessels();
+
+  // 2. Ingest into the singleton aggregator. Each ingest clears its own
+  //    signal type first, so this acts like "replace flights signals,
+  //    replace vessel signals" — clean idempotent state per cron.
+  const sa = loadSignalAggregator();
+  sa.signalAggregator.ingestFlights(flights);
+  sa.signalAggregator.ingestVessels(vessels);
+
+  // 3. Snapshot the resulting SignalSummary
+  const summary = sa.signalAggregator.getSummary();
+
+  // 4. Persist + cleanup
+  const persistResult = await persistSignalSummary(
+    summary, flights.length, vessels.length, observedAt
+  );
+  const deleted = await cleanupOldSignalSummaries(SIGNAL_SUMMARY_RETENTION_DAYS);
+
+  return {
+    flights: flights.length,
+    vessels: vessels.length,
+    totalSignals: summary.totalSignals,
+    byType: summary.byType,
+    topCountriesCount: (summary.topCountries || []).length,
+    convergenceZonesCount: (summary.convergenceZones || []).length,
+    inserted: persistResult.inserted,
+    deleted,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
@@ -990,6 +1215,7 @@ module.exports = {
   runMilitaryFlightsJob,
   runUSNIFleetJob,
   runMilitaryVesselsJob,
+  runSignalAggregatorJob,
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing
@@ -1000,4 +1226,8 @@ module.exports = {
   persistUSNIReport,           // exported for testing
   persistMilitaryVessels,      // exported for testing
   cleanupOldVessels,           // exported for testing
+  persistSignalSummary,        // exported for testing
+  cleanupOldSignalSummaries,   // exported for testing
+  getRecentMilitaryFlights,    // exported for testing
+  getCurrentSignalSummary,     // exported for testing
 };

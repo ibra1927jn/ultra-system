@@ -533,6 +533,30 @@ function init() {
     'Cada 5 min — Snapshot del Map in-memory de military vessels mantenido por aisstream_subscriber → wm_military_vessels'
   );
 
+  // ─── P1 WM Phase 2 step 8: signal-aggregator → wm_signal_summary cada 5 min (offset +1) ──
+  // Combines military flights (from wm_military_flights last 10min) with
+  // tracked military vessels (in-memory from aisstream subscriber) into
+  // a single SignalSummary that downstream services consume. Activates
+  // focal-point urgencies elevated/critical and CII security component.
+  // Offset +1 min vs flights/vessels (which fire at *\/5 :00) so the
+  // aggregator always reads fresh data.
+  register(
+    'wm-signal-aggregator',
+    '1-59/5 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runSignalAggregatorJob();
+        const types = Object.entries(r.byType || {})
+          .filter(([, v]) => v > 0)
+          .map(([k,v]) => `${k}=${v}`)
+          .join(' ');
+        console.log(`📡 wm-signal-aggregator: flights=${r.flights} vessels=${r.vessels} signals=${r.totalSignals} [${types || 'none'}] countries=${r.topCountriesCount} convergence=${r.convergenceZonesCount} inserted=${r.inserted} deleted=${r.deleted} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-signal-aggregator:', err.message); }
+    },
+    'Cada 5 min :01 — Signal aggregator combina flights+vessels → singleton signalAggregator → wm_signal_summary'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',
