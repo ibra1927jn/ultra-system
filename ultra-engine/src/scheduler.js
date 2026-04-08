@@ -741,10 +741,11 @@ function init() {
 
   // ─── WM Phase 3 Bloque 3 step 18: macro indicators (FRED + WB) ──
   // 12 series FRED (rates / yield curve / inflation / liquidity /
-  // recession / credit) + 3 indicadores anuales World Bank (growth /
-  // inflación / unemployment a nivel WLD). UPSERT por (source,
-  // indicator_id, area, period). Cada 6h captura ticks daily de FRED
-  // sin sobrecargar al endpoint.
+  // recession / credit) + 2 indicadores anuales World Bank (GDP growth
+  // y unemployment a nivel WLD). NOTA 2026-04-08: WB no publica
+  // FP.CPI.TOTL.ZG para WLD (verificado vacío); inflación mundial se
+  // cubre vía FRED CPIAUCSL. UPSERT por (source, indicator_id, area,
+  // period). Cada 6h captura ticks daily de FRED sin sobrecargar el endpoint.
   register(
     'wm-macro-indicators',
     '0 */6 * * *',
@@ -759,7 +760,7 @@ function init() {
         }
       } catch (err) { console.error('❌ wm-macro-indicators:', err.message); }
     },
-    'Cada 6h — FRED 12 series + World Bank 3 series → wm_macro_indicators'
+    'Cada 6h — FRED 12 series + World Bank 2 series → wm_macro_indicators'
   );
 
   // ─── WM Phase 3 Bloque 3 step 19: agri commodities (USDA NASS) ──

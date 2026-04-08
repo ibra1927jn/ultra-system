@@ -27,7 +27,7 @@
 //  16. runEnergyInventoriesJob   — EIA v2 seriesid (4 weekly series) → wm_energy_inventories
 //  17. runFxRatesJob             — Frankfurter ECB ref rates → wm_fx_rates
 //  --- Phase 3 (commodities/market verticals, Bloque 3) ---
-//  18. runMacroIndicatorsJob     — FRED (12 series) + World Bank (3 series) → wm_macro_indicators
+//  18. runMacroIndicatorsJob     — FRED (12 series) + World Bank (2 series) → wm_macro_indicators
 //  19. runAgriCommoditiesJob     — USDA NASS Quick Stats (5 crops) → wm_agri_commodities
 //
 //  Otros bridges (internet outages, ACLED protests, etc.) vendrán en
