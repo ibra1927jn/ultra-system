@@ -38,6 +38,7 @@ const bioRouter = require('./src/routes/bio');
 const bureaucracyRouter = require('./src/routes/bureaucracy');
 const webhooksRouter = require('./src/routes/webhooks');
 const agentBusRouter = require("./src/routes/agentbus");
+const wmRouter = require('./src/routes/wm');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -64,6 +65,7 @@ app.use('/api/logistics', requireAuth, logisticsRouter);
 app.use('/api/bio', requireAuth, bioRouter);
 app.use('/api/bureaucracy', requireAuth, bureaucracyRouter);
 app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
+app.use('/api/wm', requireAuth, wmRouter);
 
 // ─── Webhooks (públicos, validados por shared secret) ────
 app.use('/webhooks', webhooksRouter);

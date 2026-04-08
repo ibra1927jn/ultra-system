@@ -64,6 +64,7 @@ function init() {
       '/ping — Verificar que el bot funciona',
       '',
       '📰 _P1 Noticias:_',
+      '/world — WorldMonitor snapshot (CII + focal + trending + clusters)',
       '/feeds — Ultimas noticias',
       '/gdelt — GDELT global recientes',
       '/bsky — Bluesky relevantes',
@@ -255,6 +256,118 @@ function init() {
       send(msg.chat.id, lines.join('\n'), 'Markdown');
     } catch (err) {
       send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P1: WorldMonitor — snapshot agregado de las 4 tablas wm_* ──
+  // Lee top países (CII), top focal points, top trending keywords y los
+  // multi-source clusters más activos de las últimas 6h. Producido por
+  // los crons wm-cluster-news, wm-focal-points, wm-country-scores,
+  // wm-trending-keywords (Phase 2 del WorldMonitor absorption).
+  bot.onText(/\/world/, async (msg) => {
+    try {
+      const limit = 5;
+      const clusterHours = 6;
+
+      const [countries, focalPoints, trending, clusters, totals] = await Promise.all([
+        db.queryAll(
+          `SELECT code, name, score, level, trend, change_24h
+           FROM wm_country_scores
+           ORDER BY score DESC, last_seen DESC
+           LIMIT $1`,
+          [limit]
+        ),
+        db.queryAll(
+          `SELECT entity_id, entity_type, display_name,
+                  news_mentions, focal_score, urgency
+           FROM wm_focal_points
+           ORDER BY focal_score DESC
+           LIMIT $1`,
+          [limit]
+        ),
+        db.queryAll(
+          `SELECT term, mention_count, unique_sources, multiplier
+           FROM wm_trending_keywords
+           ORDER BY mention_count DESC
+           LIMIT $1`,
+          [limit]
+        ),
+        db.queryAll(
+          `SELECT primary_title, primary_source, source_count, member_count
+           FROM wm_clusters
+           WHERE source_count > 1
+             AND last_seen >= NOW() - ($1::int * INTERVAL '1 hour')
+           ORDER BY source_count DESC, last_seen DESC
+           LIMIT $2`,
+          [clusterHours, limit]
+        ),
+        db.queryOne(
+          `SELECT
+             (SELECT COUNT(*) FROM wm_clusters)            AS clusters_total,
+             (SELECT COUNT(*) FROM wm_focal_points)        AS fp_total,
+             (SELECT COUNT(*) FROM wm_country_scores)      AS countries_total,
+             (SELECT COUNT(*) FROM wm_trending_keywords)   AS trending_total`
+        ),
+      ]);
+
+      const escMd = (s) => String(s || '').replace(/([_*`\[\]()])/g, '\\$1');
+      const trendIcon = (t) => t === 'rising' ? '📈' : t === 'falling' ? '📉' : '➡️';
+      const levelIcon = (l) => ({ critical: '🔴', high: '🟠', elevated: '🟡', normal: '🟢', low: '⚪️' }[l] || '⚪️');
+      const urgencyIcon = (u) => ({ critical: '🔴', elevated: '🟡', watch: '⚪️' }[u] || '⚪️');
+
+      const lines = [];
+      lines.push('🌎 *WorldMonitor — Snapshot*');
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      lines.push(`📊 \`clusters=${totals?.clusters_total || 0}  focal=${totals?.fp_total || 0}  countries=${totals?.countries_total || 0}  trending=${totals?.trending_total || 0}\``);
+      lines.push('');
+
+      lines.push('🌍 *Top países (CII)*');
+      if (!countries.length) {
+        lines.push('  _sin datos todavía_');
+      } else {
+        for (const c of countries) {
+          const change = c.change_24h > 0 ? `+${c.change_24h}` : `${c.change_24h}`;
+          lines.push(`${levelIcon(c.level)} ${trendIcon(c.trend)} *${escMd(c.name)}* ${c.score} (${change} 24h)`);
+        }
+      }
+      lines.push('');
+
+      lines.push('🎯 *Top focal points*');
+      if (!focalPoints.length) {
+        lines.push('  _sin datos todavía_');
+      } else {
+        for (const fp of focalPoints) {
+          lines.push(`${urgencyIcon(fp.urgency)} *${escMd(fp.display_name)}* score=${Number(fp.focal_score).toFixed(0)} · ${fp.news_mentions} news`);
+        }
+      }
+      lines.push('');
+
+      lines.push('🔥 *Trending keywords (2h)*');
+      if (!trending.length) {
+        lines.push('  _sin datos todavía_');
+      } else {
+        for (const t of trending) {
+          const mult = Number(t.multiplier) > 0 ? ` ${Number(t.multiplier).toFixed(1)}x` : '';
+          lines.push(`  • *${escMd(t.term)}* — ${t.mention_count} menciones / ${t.unique_sources} fuentes${mult}`);
+        }
+      }
+      lines.push('');
+
+      lines.push(`📰 *Multi-source clusters (${clusterHours}h)*`);
+      if (!clusters.length) {
+        lines.push('  _sin clusters multi-fuente recientes_');
+      } else {
+        for (const cl of clusters) {
+          const title = String(cl.primary_title || '').slice(0, 90);
+          lines.push(`  • [${cl.source_count}🔗] ${escMd(title)}`);
+        }
+      }
+
+      lines.push('');
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ /world error: ${err.message}`);
     }
   });
 
