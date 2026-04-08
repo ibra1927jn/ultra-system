@@ -173,14 +173,6 @@ function init() {
     'Cada 30 min — Buscar noticias + scoring keywords'
   );
 
-  // ─── P1: GDELT DOC 2.0 cada 2h (free, no auth) ───
-  register(
-    'gdelt-fetch',
-    '0 */2 * * *',
-    fetchGdelt,
-    'Cada 2h — GDELT global news + early warning'
-  );
-
   // ─── P1: Bluesky search cada 1h (free, no auth) ───
   register(
     'bsky-search',
@@ -608,6 +600,37 @@ function init() {
     'Cada 5 min :01 — Signal aggregator combina flights+vessels+fires+quakes → singleton signalAggregator → wm_signal_summary'
   );
 
+  // ─── P1 WM Phase 2 step 12: gdelt-intel multi-topic → wm_intel_articles ──
+  // Reemplaza el cron legacy `gdelt-fetch` (news_apis.fetchGdelt) que
+  // alternaba entre HTTP 429 y timeout. 24 topic queries cubriendo el
+  // espectro completo de GDELT DOC 2.0:
+  //   military, cyber, nuclear, sanctions, intelligence, maritime,
+  //   economy, climate, protests, terrorism, migration, energy,
+  //   health, technology, space, elections, diplomacy, trade, finance,
+  //   disasters, human_rights, food_security, water, ai_policy
+  //
+  // Split en 6 grupos de 4 topics cada 10 min (HH:02/12/22/32/42/52).
+  // 12s stagger + 2 attempts (20s/60s backoff) + 15s timeout → cada run
+  // ~50-90s en buen día. GDELT recibe ~9 min entre grupos para recover.
+  // Cobertura total: los 24 topics cada hora.
+  // Smoke (2026-04-08): grupos de 8 topics dieron 6/8 errors GDELT 429
+  // → reducidos a 4 topics × 6 grupos para distribuir mejor la carga.
+  // Cleanup retention 7d corre solo en grupo F (último del ciclo).
+  const wmGdeltGroupHandler = (group) => async () => {
+    try {
+      const wm = require('./wm_bridge');
+      const r = await wm.runWmGdeltIntelJob({ group });
+      const errs = r.errors ? ` errs=[${r.errors}]` : '';
+      console.log(`🌐 wm-gdelt-intel-${group}: topics=${r.topicsOk}/${r.topicsTotal} (empty=${r.topicsEmpty} err=${r.topicsErr}) fetched=${r.articlesFetched} inserted=${r.inserted} updated=${r.updated} deleted=${r.deleted}${errs} ${r.durationMs}ms`);
+    } catch (err) { console.error(`❌ wm-gdelt-intel-${group}:`, err.message); }
+  };
+  register('wm-gdelt-intel-a', '2 * * * *',  wmGdeltGroupHandler('a'), 'HH:02 — GDELT A (military, cyber, nuclear, sanctions)');
+  register('wm-gdelt-intel-b', '12 * * * *', wmGdeltGroupHandler('b'), 'HH:12 — GDELT B (intelligence, maritime, economy, climate)');
+  register('wm-gdelt-intel-c', '22 * * * *', wmGdeltGroupHandler('c'), 'HH:22 — GDELT C (protests, terrorism, migration, energy)');
+  register('wm-gdelt-intel-d', '32 * * * *', wmGdeltGroupHandler('d'), 'HH:32 — GDELT D (health, technology, space, elections)');
+  register('wm-gdelt-intel-e', '42 * * * *', wmGdeltGroupHandler('e'), 'HH:42 — GDELT E (diplomacy, trade, finance, disasters)');
+  register('wm-gdelt-intel-f', '52 * * * *', wmGdeltGroupHandler('f'), 'HH:52 — GDELT F (human_rights, food_security, water, ai_policy) + retention cleanup');
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',
@@ -903,27 +926,6 @@ async function fetchRssFeeds() {
     // Modulo P1 puede no estar listo
     console.warn('⚠️ RSS fetch falló:', err.message);
   }
-}
-
-/**
- * P1: GDELT DOC 2.0 — global news + early warning
- * Alerta via Telegram si hay artículos de alta relevancia
- */
-async function fetchGdelt() {
-  const { newCount, highScoreArticles } = await newsApis.fetchGdelt();
-  if (highScoreArticles.length > 0) {
-    const lines = ['🌐 *ULTRA SYSTEM — GDELT High-Score*', '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
-    for (const a of highScoreArticles.slice(0, 5)) {
-      lines.push(`⭐ *${a.title.substring(0, 120)}*`);
-      lines.push(`   📊 Score: ${a.score}`);
-      lines.push(`   🔗 ${a.url}`);
-      lines.push('');
-    }
-    if (highScoreArticles.length > 5) lines.push(`... y ${highScoreArticles.length - 5} más`);
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
-    await telegram.sendAlert(lines.join('\n'));
-  }
-  console.log(`🌐 GDELT: ${newCount} nuevos, ${highScoreArticles.length} alertados`);
 }
 
 /**

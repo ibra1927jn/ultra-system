@@ -416,3 +416,41 @@ CREATE INDEX IF NOT EXISTS idx_wm_sat_fires_high_intensity
 CREATE INDEX IF NOT EXISTS idx_wm_sat_fires_region
   ON wm_satellite_fires (region, observed_at DESC)
   WHERE region IS NOT NULL;
+
+-- ─── Step 12: GDELT DOC 2.0 multi-topic intelligence feed ────
+-- Replaces legacy gdelt-fetch (news_apis.fetchGdelt) which was alternating
+-- between HTTP 429 and timeouts. New service iterates ~24 GDELT topic
+-- queries (military, cyber, nuclear, sanctions, intelligence, maritime,
+-- economy, climate, protests, terrorism, migration, energy, health,
+-- technology, space, elections, diplomacy, trade, finance, disasters,
+-- human_rights, food_security, water, ai_policy) with stagger + retry
+-- backoff to stay under GDELT public rate limits.
+--
+-- One row per (topic_id, url). Same URL across topics keeps separate
+-- rows because the topic axis is what consumers query on.
+-- Retention 7 days — GDELT free tier window is 3 months but storage
+-- bloat from 24 topics × 20 articles × every 30 min adds up fast.
+CREATE TABLE IF NOT EXISTS wm_intel_articles (
+  id            BIGSERIAL PRIMARY KEY,
+  topic_id      TEXT NOT NULL,
+  topic_name    TEXT NOT NULL,
+  topic_icon    TEXT,
+  title         TEXT NOT NULL,
+  url           TEXT NOT NULL,
+  source        TEXT,
+  seendate      TIMESTAMPTZ,
+  language      TEXT,
+  tone          NUMERIC(6,2),
+  image         TEXT,
+  fetched_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_intel_articles_unique UNIQUE (topic_id, url)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_intel_topic
+  ON wm_intel_articles (topic_id, seendate DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_wm_intel_seendate
+  ON wm_intel_articles (seendate DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_wm_intel_fetched
+  ON wm_intel_articles (fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_intel_high_tone
+  ON wm_intel_articles (topic_id, ABS(tone) DESC, seendate DESC)
+  WHERE tone IS NOT NULL;

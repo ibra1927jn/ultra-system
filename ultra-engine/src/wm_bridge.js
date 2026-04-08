@@ -19,6 +19,7 @@
 //   9. runNaturalEventsJob       — eonet.ts (NASA EONET + GDACS) → wm_natural_events
 //  10. runEarthquakesJob         — earthquakes.ts (USGS GeoJSON direct) → wm_earthquakes
 //  11. runSatelliteFiresJob      — wildfires/index.ts (NASA FIRMS direct) → wm_satellite_fires
+//  12. runWmGdeltIntelJob        — wm_gdelt_intel.js (24 topics, retry/stagger) → wm_intel_articles
 //
 //  Otros bridges (internet outages, ACLED protests, etc.) vendrán en
 //  commits separados.
@@ -1278,6 +1279,10 @@ const SATELLITE_FIRES_RETENTION_DAYS = Math.max(
   1,
   parseInt(process.env.SATELLITE_FIRES_RETENTION_DAYS || '14', 10) || 14
 );
+const WM_INTEL_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.WM_INTEL_RETENTION_DAYS || '7', 10) || 7
+);
 
 // ─── Persisters ───────────────────────────────────────────
 
@@ -1633,6 +1638,110 @@ async function runSatelliteFiresJob({ source = 'VIIRS_SNPP_NRT', area = '-180,-9
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 2 — Job 12: wm-gdelt-intel
+//
+//  Reemplaza el cron legacy `gdelt-fetch` (news_apis.fetchGdelt) que
+//  alternaba HTTP 429 / fetch failed / timeout. Itera 24 topic queries
+//  con stagger + retry exponencial. Persiste en wm_intel_articles.
+// ════════════════════════════════════════════════════════════
+
+let wmGdeltIntelMod = null;
+function loadWmGdeltIntel() {
+  if (!wmGdeltIntelMod) {
+    wmGdeltIntelMod = require('./wm_gdelt_intel');
+  }
+  return wmGdeltIntelMod;
+}
+
+async function persistIntelArticles(topicResults) {
+  let inserted = 0;
+  let updated = 0;
+  for (const tr of topicResults) {
+    if (!tr || !Array.isArray(tr.articles)) continue;
+    const topic = tr.topic;
+    for (const a of tr.articles) {
+      const r = await db.queryOne(
+        `INSERT INTO wm_intel_articles
+           (topic_id, topic_name, topic_icon, title, url, source,
+            seendate, language, tone, image, fetched_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+         ON CONFLICT (topic_id, url) DO UPDATE SET
+           title = EXCLUDED.title,
+           source = EXCLUDED.source,
+           seendate = COALESCE(EXCLUDED.seendate, wm_intel_articles.seendate),
+           language = COALESCE(EXCLUDED.language, wm_intel_articles.language),
+           tone = COALESCE(EXCLUDED.tone, wm_intel_articles.tone),
+           image = COALESCE(EXCLUDED.image, wm_intel_articles.image),
+           fetched_at = NOW()
+         RETURNING (xmax = 0) AS inserted`,
+        [
+          String(topic.id).slice(0, 50),
+          String(topic.name).slice(0, 200),
+          topic.icon ? String(topic.icon).slice(0, 20) : null,
+          String(a.title || '').slice(0, 1000),
+          String(a.url || '').slice(0, 2000),
+          a.source ? String(a.source).slice(0, 200) : null,
+          a.seendate || null,
+          a.language ? String(a.language).slice(0, 20) : null,
+          a.tone != null ? Number(a.tone) : null,
+          a.image ? String(a.image).slice(0, 1000) : null,
+        ]
+      );
+      if (r?.inserted) inserted++;
+      else updated++;
+    }
+  }
+  return { inserted, updated };
+}
+
+async function cleanupOldIntelArticles(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_intel_articles
+                  WHERE fetched_at < NOW() - ($1::int * INTERVAL '1 day')
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+async function runWmGdeltIntelJob({ group = 'a' } = {}) {
+  const t0 = Date.now();
+  const wmgi = loadWmGdeltIntel();
+  const results = await wmgi.fetchGroup(group);
+
+  const topicsTotal = results.length;
+  const topicsOk = results.filter(r => !r.error && r.articles.length > 0).length;
+  const topicsErr = results.filter(r => r.error).length;
+  const topicsEmpty = results.filter(r => !r.error && r.articles.length === 0).length;
+  const articlesTotal = results.reduce((s, r) => s + (r.articles?.length || 0), 0);
+
+  const persistResult = await persistIntelArticles(results);
+  // Cleanup runs only on group 'f' (last of the cycle) to avoid 6 deletes per hour
+  const deleted = group === 'f' ? await cleanupOldIntelArticles(WM_INTEL_RETENTION_DAYS) : 0;
+
+  // Capture per-topic errors compactly for log diagnostics
+  const errSummary = results
+    .filter(r => r.error)
+    .map(r => `${r.topic.id}:${r.error.slice(0, 30)}`)
+    .join(',');
+
+  return {
+    group,
+    topicsTotal,
+    topicsOk,
+    topicsEmpty,
+    topicsErr,
+    articlesFetched: articlesTotal,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    deleted,
+    errors: errSummary || null,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
@@ -1645,6 +1754,7 @@ module.exports = {
   runNaturalEventsJob,
   runEarthquakesJob,
   runSatelliteFiresJob,
+  runWmGdeltIntelJob,
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing
@@ -1663,6 +1773,8 @@ module.exports = {
   cleanupOldNaturalEvents,     // exported for testing
   cleanupOldEarthquakes,       // exported for testing
   cleanupOldSatelliteFires,    // exported for testing
+  persistIntelArticles,        // exported for testing
+  cleanupOldIntelArticles,     // exported for testing
   getRecentMilitaryFlights,    // exported for testing
   getCurrentSignalSummary,     // exported for testing
   getRecentEarthquakeAnomalies,// exported for testing

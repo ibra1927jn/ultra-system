@@ -41,103 +41,13 @@ async function insertArticle(feedId, title, url, summary, publishedAt, score) {
   return true;
 }
 
-// ═══════════════════════════════════════════════════════════
-//  GDELT DOC 2.0 — global news + early warning
-//  Docs: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/
-//  No auth, free, ventana 3 meses, 65 idiomas.
-// ═══════════════════════════════════════════════════════════
-
-const GDELT_BASE = 'https://api.gdeltproject.org/api/v2/doc/doc';
-
-/**
- * Construye query GDELT para todas las keywords activas (OR semántico).
- * Usa boolean operators de GDELT con OR explícito.
- */
-async function buildGdeltQuery() {
-  const kws = await db.queryAll('SELECT keyword FROM rss_keywords ORDER BY weight DESC LIMIT 10');
-  if (!kws.length) return null;
-  // Phrases con espacios → comillas. Limitamos a top 10 keywords para no explotar la URL.
-  // GDELT requiere paréntesis cuando hay OR (parser exige terms grouped).
-  const terms = kws.map(k => k.keyword.includes(' ') ? `"${k.keyword}"` : k.keyword);
-  return terms.length === 1 ? terms[0] : `(${terms.join(' OR ')})`;
-}
-
-/**
- * Fetch artículos GDELT recientes que matchean nuestras keywords.
- * Limita a últimas 12h para evitar duplicar todo el corpus en cada run.
- */
-async function fetchGdelt() {
-  try {
-    const query = await buildGdeltQuery();
-    if (!query) {
-      console.log('📭 [GDELT] Sin keywords configurados');
-      return { newCount: 0, highScoreArticles: [] };
-    }
-
-    const params = new URLSearchParams({
-      query,
-      mode: 'ArtList',
-      maxrecords: '50',
-      format: 'json',
-      timespan: '12h',     // últimas 12 horas
-      sort: 'datedesc',
-    });
-    const url = `${GDELT_BASE}?${params}`;
-
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'UltraSystem/1.0' },
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) throw new Error(`GDELT HTTP ${res.status}`);
-
-    // GDELT a veces devuelve text/plain con JSON dentro
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { articles: [] }; }
-    const articles = data.articles || [];
-
-    if (!articles.length) {
-      console.log('📭 [GDELT] 0 artículos para la query actual');
-      return { newCount: 0, highScoreArticles: [] };
-    }
-
-    const feedId = await pseudoFeedId('gdelt');
-    let newCount = 0;
-    const highScore = [];
-
-    for (const a of articles) {
-      const title = (a.title || 'GDELT untitled').substring(0, 500);
-      const url = a.url;
-      if (!url) continue;
-      const summary = `${a.domain || ''} | ${a.language || ''} | ${a.sourcecountry || ''} | ${a.seendate || ''}`;
-      const publishedAt = a.seendate ? parseGdeltDate(a.seendate) : new Date();
-
-      // Score reusando el scorer existente (suma weights de keywords matched en title)
-      const score = await rss.scoreArticle(title, summary);
-      const inserted = await insertArticle(feedId, title, url, summary, publishedAt, score);
-      if (inserted) {
-        newCount++;
-        if (score >= rss.SCORE_THRESHOLD) {
-          highScore.push({ title, url, score, feed: 'GDELT' });
-        }
-      }
-    }
-
-    await db.query('UPDATE rss_feeds SET last_fetched = NOW() WHERE id = $1', [feedId]);
-    console.log(`📰 [GDELT] ${newCount} nuevos, ${highScore.length} relevantes (de ${articles.length})`);
-    return { newCount, highScoreArticles: highScore };
-  } catch (err) {
-    console.error('❌ [GDELT] Error:', err.message);
-    return { newCount: 0, highScoreArticles: [] };
-  }
-}
-
-// GDELT seendate format: '20260407T123000Z'
-function parseGdeltDate(s) {
-  const m = s.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
-  if (!m) return new Date();
-  return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
-}
+// NOTE: legacy GDELT DOC 2.0 fetcher (fetchGdelt + buildGdeltQuery +
+// parseGdeltDate) was removed in WM Phase 2 step 12. The cron `gdelt-fetch`
+// it powered alternated between HTTP 429 / fetch failed / timeout and
+// produced 0 new articles consistently. It is replaced by `wm-gdelt-intel`
+// (src/wm_gdelt_intel.js + wm_bridge.runWmGdeltIntelJob), which iterates
+// 24 topic queries with stagger + retry/backoff and persists to
+// wm_intel_articles instead of the legacy `articles` table.
 
 // ═══════════════════════════════════════════════════════════
 //  BLUESKY SEARCH — social-as-news (xrpc public, free, no auth)
@@ -569,7 +479,6 @@ async function fetchPodcastIndex() {
 }
 
 module.exports = {
-  fetchGdelt,
   fetchBlueskySearch,
   fetchCurrents,
   fetchNewsdata,
