@@ -106,7 +106,7 @@ function haversineKm(lat1, lon1, lat2, lon2) {
  * Lista POIs en radio (km) usando bounding box pre-filter + Haversine refinamiento.
  * Sin PostGIS — pure SQL + JS.
  */
-async function listNearby(latitude, longitude, radiusKm = 20, poiType = null) {
+async function listNearby(latitude, longitude, radiusKm = 20, poiType = null, source = null) {
   // Bounding box aproximada (1° lat ≈ 111 km, 1° lon ≈ 111 * cos(lat) km)
   const dLat = radiusKm / 111;
   const dLon = radiusKm / (111 * Math.cos(latitude * Math.PI / 180));
@@ -117,10 +117,14 @@ async function listNearby(latitude, longitude, radiusKm = 20, poiType = null) {
     params.push(poiType);
     where += ` AND poi_type = $${params.length}`;
   }
+  if (source) {
+    params.push(source);
+    where += ` AND source = $${params.length}`;
+  }
 
   const rows = await db.queryAll(
-    `SELECT id, name, latitude, longitude, poi_type, source, has_water, has_dump, has_shower, tags
-     FROM log_pois WHERE ${where} ORDER BY id DESC LIMIT 200`,
+    `SELECT id, name, latitude, longitude, poi_type, source, has_water, has_dump, has_shower, has_wifi, has_power, tags, notes
+     FROM log_pois WHERE ${where} ORDER BY id DESC LIMIT 500`,
     params
   );
 

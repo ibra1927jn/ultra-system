@@ -94,7 +94,8 @@ function init() {
       '🗺️ _P6 Logistica:_',
       '/logistica — Proximos 7 dias',
       '/proximas — Proximas 48 horas',
-      '/poi — POIs cerca de current location',
+      '/poi — POIs cerca de current location (Overpass+DOC NZ)',
+      '/iov [tipo] [km] — POIs iOverlander cerca (van-life, ~9K Canada)',
       '/clima — Forecast 7d Open-Meteo',
       '/donde — Ver/fijar current location (📎 location o `/donde Ciudad`)',
       '/memberships — Workaway/WWOOF/HelpX renewals',
@@ -1771,6 +1772,70 @@ function init() {
       }
       lines.push('', `━━━━━━━━━━━━━━━━━━━━━━━━`);
       lines.push(`💡 _Uso: /poi campsite 30 (tipo y radio)_`);
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
+  // ─── P6: iOverlander van-life POIs cerca de current location ──
+  // /iov [tipo] [radio_km]   ej: /iov           → todos en 50km
+  //                              /iov campsite  → solo campsite
+  //                              /iov wild_camp 100
+  // Lee de log_pois donde source='ioverlander' (datos importados via
+  // seed_iov_canada.js o futuros downloads oficiales). NO crawlea iOverlander
+  // online — todo on-demand sobre la copia local respetando el opt-out.
+  bot.onText(/\/iov(?:\s+(\w+))?(?:\s+(\d+))?/, async (msg, match) => {
+    try {
+      const overpass = require('./overpass');
+      const cur = await db.queryOne(
+        `SELECT name, lat AS latitude, lon AS longitude FROM log_locations WHERE is_current=TRUE ORDER BY id DESC LIMIT 1`
+      );
+      if (!cur) {
+        send(msg.chat.id, '❌ Sin current location. Comparte tu ubicación de Telegram o usa `/donde Ciudad`.', 'Markdown');
+        return;
+      }
+      const poiType = match[1] || null;
+      const radius = parseInt(match[2] || 50);
+      const rows = await overpass.listNearby(
+        parseFloat(cur.latitude), parseFloat(cur.longitude), radius, poiType, 'ioverlander'
+      );
+      if (!rows.length) {
+        const total = await db.queryOne(`SELECT COUNT(*)::int AS c FROM log_pois WHERE source='ioverlander'`);
+        const lines = [
+          `📭 Sin POIs iOverlander en ${radius}km${poiType ? ` (tipo=${poiType})` : ''}.`,
+          '',
+          `Dataset local: *${(total?.c || 0).toLocaleString()}* POIs (sólo Canada por ahora).`,
+          'Cobertura global requiere subscripción Unlimited en iOverlander.com.',
+          '',
+          '_Uso: `/iov [tipo] [radio_km]` — ej: `/iov wild_camp 100`_',
+        ];
+        send(msg.chat.id, lines.join('\n'), 'Markdown');
+        return;
+      }
+      const emojiFor = {
+        wild_camp: '🏕️', informal_camp: '⛺', campsite: '🏞️',
+        water: '🚰', dump_station: '🚽', shower: '🚿', toilets: '🚻',
+        fuel: '⛽', propane: '🔥', mechanic: '🔧', laundromat: '🧺',
+        food: '🍴', lodging: '🏨', wifi: '📶', ev_charging: '🔌',
+        shopping: '🛒', medical: '⚕️', vet: '🐾', border: '🛂',
+      };
+      const lines = [`🌎 *iOverlander cerca de ${cur.name}*`, '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
+      for (const r of rows.slice(0, 12)) {
+        const e = emojiFor[r.poi_type] || '📌';
+        const ams = [];
+        if (r.has_water) ams.push('💧');
+        if (r.has_dump) ams.push('🚽');
+        if (r.has_shower) ams.push('🚿');
+        if (r.has_wifi) ams.push('📶');
+        if (r.has_power) ams.push('🔌');
+        const tagged = (r.tags?.big_rig_friendly === true) ? ' 🚐' : '';
+        lines.push(`${e} *${r.name.substring(0, 55).replace(/[*_`]/g, '')}*${tagged}`);
+        lines.push(`   📏 ${r.distance_km}km · ${r.poi_type}${ams.length ? ' · ' + ams.join(' ') : ''}`);
+      }
+      if (rows.length > 12) lines.push('', `_…y ${rows.length - 12} más en ${radius}km_`);
+      lines.push('', `━━━━━━━━━━━━━━━━━━━━━━━━`);
+      lines.push(`💡 _\`/iov [tipo] [radio]\` — tipos: campsite, wild_camp, water, shower, fuel, mechanic, dump_station_`);
       send(msg.chat.id, lines.join('\n'), 'Markdown');
     } catch (err) {
       send(msg.chat.id, `❌ Error: ${err.message}`);

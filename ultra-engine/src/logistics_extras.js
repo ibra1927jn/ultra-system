@@ -470,6 +470,177 @@ async function fetchAll() {
   return results;
 }
 
+// ════════════════════════════════════════════════════════════
+//  iOverlander — bulk CSV importer (Tier S #2 partial)
+// ════════════════════════════════════════════════════════════
+// Background: iOverlander tiene un endpoint oficial de export por país en
+//   /export/places?countries[]=N&xformat=csv|gpx|json|kml
+// pero requiere subscripción Unlimited (paywall). El parser que sigue es
+// agnóstico al origen del CSV: acepta cualquier export con el header oficial
+// de 37 columnas (Id, Location, Name, Category, Description, Latitude,
+// Longitude, Altitude, Date verified, Open, Electricity, Wifi, Kitchen,
+// Parking, Restaurant, Showers, Water, Toilets, Big rig friendly, Tent
+// friendly, Pet friendly, Sanitation dump station, Outdoor gear, Groceries,
+// Artisan goods, Bakery, Rarity in this area, Repairs vehicles, Repairs
+// motorcycles, Repairs bicycles, Sells parts, Recycles batteries, Recycles
+// oil, Bio fuel, Electric vehicle charging, Composting sawdust, Recycling
+// center).
+//
+// Hoy lo usa el seed script `seed_iov_canada.js` que descarga el dump
+// publicado por cug/wp_converter (MIT) en GitHub. El mismo importer servirá
+// para los downloads oficiales por país cuando el usuario active Unlimited.
+//
+// Persiste a `log_pois` (la tabla rica con amenity flags), source='ioverlander'.
+async function importIOverlanderCSV(csvBuffer, { country = null, defaultPoiType = 'campsite' } = {}) {
+  const { parse } = require('csv-parse/sync');
+  const records = parse(csvBuffer, {
+    columns: true,
+    skip_empty_lines: true,
+    relax_quotes: true,
+    relax_column_count: true,
+  });
+
+  // Map iOverlander Category → log_pois.poi_type. Lo que no encaja se
+  // normaliza (lowercased + non-alnum→_) y se guarda tal cual. Mantenemos
+  // los nombres comunes alineados con los que usa Overpass para que el
+  // comando /poi siga funcionando con el filtro `tipo`.
+  const CATEGORY_MAP = {
+    'wild camping': 'wild_camp',
+    'free wild camping': 'wild_camp',
+    'informal campsite': 'informal_camp',
+    'established campground': 'campsite',
+    'paid campground': 'campsite',
+    'water': 'water',
+    'showers': 'shower',
+    'sanitation dump station': 'dump_station',
+    'toilets': 'toilets',
+    'fuel station': 'fuel',
+    'propane': 'propane',
+    'mechanic and parts': 'mechanic',
+    'mechanic': 'mechanic',
+    'laundromat': 'laundromat',
+    'shopping': 'shopping',
+    'restaurant': 'food',
+    'cafe': 'food',
+    'hotel': 'lodging',
+    'hostel': 'lodging',
+    'guest house': 'lodging',
+    'wifi': 'wifi',
+    'electric vehicle charging': 'ev_charging',
+    'border crossing': 'border',
+    'medical': 'medical',
+    'veterinarian': 'vet',
+  };
+  const normalizePoi = (cat) => {
+    if (!cat) return defaultPoiType;
+    const key = cat.toLowerCase().trim();
+    if (CATEGORY_MAP[key]) return CATEGORY_MAP[key];
+    return key.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50) || defaultPoiType;
+  };
+
+  // Helper: iOverlander amenity columns son strings ("Yes", "No",
+  // "Yes - At Sites", "Pit Toilets", "Natural Source", "Unknown", ""...).
+  // Convertimos a tri-state: true (positivo), false (negativo), null (unknown/blank).
+  const yn = (v) => {
+    if (v == null) return null;
+    const s = String(v).trim().toLowerCase();
+    if (s === '' || s === 'unknown') return null;
+    if (s.startsWith('no')) return false;
+    if (s.startsWith('yes')) return true;
+    // Cualquier descriptor no vacío y no "no" cuenta como positivo
+    // ("Pit Toilets", "Natural Source", "Composting", etc.)
+    return true;
+  };
+
+  let inserted = 0, updated = 0, skipped = 0, errors = 0;
+  const t0 = Date.now();
+
+  for (const r of records) {
+    try {
+      const id = String(r.Id || '').trim();
+      const lat = parseFloat(r.Latitude);
+      const lon = parseFloat(r.Longitude);
+      if (!id || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+        skipped++; continue;
+      }
+      const name = (r.Name || r.Category || 'Unnamed').slice(0, 500);
+      const poiType = normalizePoi(r.Category);
+
+      // Tags JSONB con todo lo no canonizado, útil para querys avanzadas
+      const tags = {
+        category: r.Category || null,
+        location_address: r.Location || null,
+        date_verified: r['Date verified'] || null,
+        open: r.Open || null,
+        big_rig_friendly: yn(r['Big rig friendly']),
+        tent_friendly: yn(r['Tent friendly']),
+        pet_friendly: yn(r['Pet friendly']),
+        kitchen: yn(r.Kitchen),
+        parking: yn(r.Parking),
+        restaurant: yn(r.Restaurant),
+        toilets: r.Toilets || null,
+        groceries: yn(r.Groceries),
+        bakery: yn(r.Bakery),
+        outdoor_gear: yn(r['Outdoor gear']),
+        artisan_goods: yn(r['Artisan goods']),
+        rarity: r['Rarity in this area'] || null,
+        repairs_vehicles: yn(r['Repairs vehicles']),
+        repairs_motorcycles: yn(r['Repairs motorcycles']),
+        repairs_bicycles: yn(r['Repairs bicycles']),
+        sells_parts: yn(r['Sells parts']),
+        recycles_batteries: yn(r['Recycles batteries']),
+        recycles_oil: yn(r['Recycles oil']),
+        bio_fuel: yn(r['Bio fuel']),
+        ev_charging: yn(r['Electric vehicle charging']),
+        composting_sawdust: yn(r['Composting sawdust']),
+        recycling_center: yn(r['Recycling center']),
+      };
+      // Limpia null fields para no inflar el JSON
+      Object.keys(tags).forEach(k => { if (tags[k] == null) delete tags[k]; });
+
+      const result = await db.queryOne(
+        `INSERT INTO log_pois
+           (name, latitude, longitude, poi_type, country, source, source_id,
+            has_water, has_dump, has_shower, has_wifi, has_power,
+            tags, notes, fetched_at)
+         VALUES ($1, $2, $3, $4, $5, 'ioverlander', $6,
+                 $7, $8, $9, $10, $11,
+                 $12, $13, NOW())
+         ON CONFLICT (source, source_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           latitude = EXCLUDED.latitude,
+           longitude = EXCLUDED.longitude,
+           poi_type = EXCLUDED.poi_type,
+           tags = EXCLUDED.tags,
+           notes = EXCLUDED.notes,
+           fetched_at = NOW()
+         RETURNING (xmax = 0) AS inserted`,
+        [
+          name, lat, lon, poiType, country, `iov:${id}`,
+          yn(r.Water),
+          yn(r['Sanitation dump station']),
+          yn(r.Showers),
+          yn(r.Wifi),
+          yn(r.Electricity),
+          JSON.stringify(tags),
+          (r.Description || '').slice(0, 4000),
+        ]
+      );
+      if (result?.inserted) inserted++; else updated++;
+    } catch (e) {
+      errors++;
+      if (errors <= 3) console.warn('iov import row error:', e.message);
+    }
+  }
+
+  return {
+    source: 'ioverlander',
+    rows: records.length,
+    inserted, updated, skipped, errors,
+    elapsed_ms: Date.now() - t0,
+  };
+}
+
 module.exports = {
   fetchPark4Night,
   fetchFreecycle,
@@ -483,4 +654,5 @@ module.exports = {
   fetchOverpassEssentials,
   fetchAll,
   ensureLogisticsPois,
+  importIOverlanderCSV,
 };

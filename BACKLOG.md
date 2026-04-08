@@ -8,15 +8,17 @@
 
 ## 🔥 Priority pending (R5+ sesiones)
 
-- [ ] **iOverlander 600K POIs** — [2026-04-08] investigado R6, **pattern descubierto pero discovery de UUIDs sigue pendiente**.
-  - Discovery del pattern: detail URL shape `https://ioverlander.com/places/{UUID}` (UUIDv4). Cada detail page tiene título con categoría embebida, ej: "Manna Gum, Main Range National Park | Established Campground".
-  - **Problema bloqueante**: no hay sitemap listando UUIDs, no hay API pública `/places.json`, el filtro `?country=XX` silenciosamente devuelve random. La única forma de enumerar es navegar la app mapa-based con bounding boxes y capturar tiles/XHR.
-  - Approaches para sesión dedicada:
-    1. **Interceptar network requests** del mapa en Puppeteer cuando pan/zoom (probable endpoint JSON interno)
-    2. **GitHub community dumps** — buscar en repos (github.com/search?q=ioverlander+dataset) por CSVs/KMLs filtrados
-    3. **Request oficial** — contactar iOverlander pidiendo export (tardan semanas)
-  - Alternativa actual: 37K POIs en `log_pois` via Overpass/OSM cubren parcialmente el caso de uso. No bloqueante.
-  - Prioridad: **alta** — user declared van-life, EU/Americas coverage.
+- [~] **iOverlander 600K POIs** — [2026-04-08 R7] **PARCIAL: Canada done (8,991 POIs), resto pending Unlimited subscription**.
+  - **Reconnaissance R7**: el endpoint legacy `placeMap_*` con grid `searchUrl + "searchboxmin=...&searchboxmax=..."` (descubierto reverse-engineering del JS bundle `application-*.js` función `mapGrid_SearchForPlacesInGrid`) **está muerto en backend** — el código JS sigue en el bundle pero `/places.json` devuelve 406 y `app.ioverlander.com` ya no resuelve DNS. Approach #1 (network intercept) descartado.
+  - **Endpoint oficial encontrado**: `/countries` enumera ~250 países, cada uno con 4 enlaces `/export/places?countries[]=N&xformat=csv|gpx|json|kml`. Pero la página dice literalmente *"Have an active subscription to iOverlander Unlimited"* — sin login + suscripción paid → 404 silencioso. **Camino limpio si usuario paga Unlimited**: añadir cookie `IOVERLANDER_SESSION_COOKIE` al .env, escribir un fetcher que itere países, parsear con `importIOverlanderCSV()` (ya implementado).
+  - **Robots.txt**: explícito `User-agent: ClaudeBot Disallow: /` + `Content-Signal: ai-train=no` bajo EU Directive 2019/790. **Decisión consciente: no se construye scraper** — vía paid o vía community dumps únicamente.
+  - **GitHub community search (Approach #2)**: única fuente válida encontrada → `cug/wp_converter` (MIT, Copyright 2024 Guido Neitzer), `sample_data/canada_24_07.csv`, **8,991 POIs reales de Canada export 2024-07** (37 columnas oficiales). Importado 2026-04-08 via `scripts/seed_iov_canada.js` → `log_pois` con `source='ioverlander'`. Distribución: wild_camp 3532, campsite 2030, informal_camp 1642, water 634, shower 515, laundromat 336, fuel 125, mechanic 106. Test query desde Vancouver retorna 439 POIs en 100km en <100ms.
+  - **Importer reusable**: `importIOverlanderCSV(buf, {country})` en `logistics_extras.js` parsea cualquier export oficial iOverlander (las 37 columnas), mapea Category → poi_type, amenities Yes/No → tri-state booleans, restantes a `tags` JSONB. Cuando usuario active Unlimited el mismo importer procesa los 250 países sin cambios.
+  - **Telegram /iov**: comando on-demand `/iov [tipo] [radio_km]` lee de log_pois local filtrado por source='ioverlander' usando `overpass.listNearby` extendido con filtro `source`. Default radio 50km. Cero requests a iOverlander online — 100% sobre el cache local, respeta el opt-out triple del sitio. Si 0 hits informa que dataset es Canada-only y sugiere Unlimited.
+  - **Pendiente**:
+    1. Decisión usuario: ¿pagar iOverlander Unlimited (~$X/año, no verificado precio)? Si sí → 1 sesión de 1h para construir el fetcher oficial paginado por país y rellenar los otros 249 países (~600K POIs adicionales).
+    2. (opcional) Email a iOverlander pidiendo export académico/personal multi-país sin Unlimited.
+  - Prioridad: **media** (Canada done cubre Norteamérica, NZ ya tiene Park4Night+DOC NZ+Overpass, EU tiene Park4Night).
 
 
 
