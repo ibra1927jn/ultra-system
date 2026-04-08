@@ -45,9 +45,12 @@ jobs:
           # Deploy
           # Build stage is separate from up so that if the build fails the
           # currently-running engine container is left untouched.
-          # Post-deploy health check fails the GitHub Action job loud if the
-          # new container does not respond — that way we hear about it
-          # instead of silently leaving production in a half-deployed state.
+          # Post-deploy health check uses retry loop because engine cold-start
+          # takes 15-25s (DB pool init, scheduler register, telegram bot login)
+          # and a single shot after fixed sleep was producing false-red runs
+          # even when production was healthy.
+          # Port note: engine is published 80:3000 on the host, so the
+          # external probe must hit :80 — NOT :3000.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$HETZNER_HOST" '
             set -euo pipefail
             cd /root/ultra-system &&
@@ -56,10 +59,19 @@ jobs:
             git reset --hard origin/master &&
             docker compose build engine spacy &&
             docker compose up -d engine spacy &&
-            sleep 10 &&
             docker ps --format "table {{.Names}}\t{{.Status}}" &&
-            curl -fsS http://localhost:3000/api/health > /dev/null \
-              || (echo "POST-DEPLOY HEALTH FAIL — engine /api/health did not respond" && exit 1) &&
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              if curl -fsS http://localhost/api/health > /dev/null 2>&1; then
+                echo "POST-DEPLOY HEALTH OK on attempt $i"
+                break
+              fi
+              if [ "$i" = "10" ]; then
+                echo "POST-DEPLOY HEALTH FAIL — engine /api/health did not respond after 10 retries (50s)"
+                docker logs ultra_engine --tail 50
+                exit 1
+              fi
+              sleep 5
+            done &&
             echo "Deploy completed at $(date)"
           '
 
