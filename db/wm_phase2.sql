@@ -99,3 +99,36 @@ CREATE INDEX IF NOT EXISTS idx_wm_country_scores_level
   WHERE level IN ('elevated','high','critical');
 CREATE INDEX IF NOT EXISTS idx_wm_country_scores_last_seen
   ON wm_country_scores (last_seen DESC);
+
+-- ─── Step 4: trending keyword spikes ───────────────────────
+-- Mirrors src/worldmonitor/services/trending-keywords.ts → TrendingSpike
+-- (transformado a CorrelationSignal en handleSpike). Una fila por término
+-- spike-detected en las últimas 2h. Idempotente por (term): nuevos spikes
+-- del mismo término refrescan count/multiplier/sources y bumpean last_seen.
+-- mention_count = recent count en rolling window 2h.
+-- baseline = average diaria sobre baseline window 7d (0 si cold-start).
+-- multiplier = recent / baseline (0 si baseline=0).
+CREATE TABLE IF NOT EXISTS wm_trending_keywords (
+  id                 SERIAL PRIMARY KEY,
+  term               TEXT NOT NULL UNIQUE,
+  mention_count      INTEGER NOT NULL DEFAULT 0,
+  baseline           NUMERIC(10,4) NOT NULL DEFAULT 0,
+  multiplier         NUMERIC(10,4) NOT NULL DEFAULT 0,
+  unique_sources     INTEGER NOT NULL DEFAULT 0,
+  window_hours       NUMERIC(5,2) NOT NULL DEFAULT 2,
+  confidence         NUMERIC(4,3) NOT NULL DEFAULT 0,
+  sample_headlines   JSONB,
+  signal_type        TEXT,
+  raw                JSONB,
+  first_seen         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_trending_count
+  ON wm_trending_keywords (mention_count DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_trending_last_seen
+  ON wm_trending_keywords (last_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_trending_multiplier
+  ON wm_trending_keywords (multiplier DESC)
+  WHERE multiplier > 0;

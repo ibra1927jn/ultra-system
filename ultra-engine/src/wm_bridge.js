@@ -11,6 +11,7 @@
 //   1. runClusteringJob          — rss_articles → clustering.ts → wm_clusters
 //   2. runFocalPointJob          — clusters → focal-point-detector.ts → wm_focal_points
 //   3. runCountryInstabilityJob  — clusters → country-instability.ts → wm_country_scores
+//   4. runTrendingKeywordsJob    — articles → trending-keywords.ts → wm_trending_keywords
 //
 //  Otros bridges (signal-aggregator real, conflict ingestion, etc.) vendrán
 //  en commits separados a medida que se cableen.
@@ -42,6 +43,28 @@ function loadCII() {
     ciiMod = require('./worldmonitor/services/country-instability');
   }
   return ciiMod;
+}
+
+let trendingMod = null;
+let trendingConfigured = false;
+function loadTrending() {
+  if (!trendingMod) {
+    trendingMod = require('./worldmonitor/services/trending-keywords');
+    // Disable autoSummarize on first load: summarization.ts is a Phase 1
+    // stub (NewsServiceClient.summarizeArticle not implemented) and would
+    // spam logs with 'News Summarization Failed' + 300s cooldowns on every
+    // cron run. The spike detection itself works fine without summaries.
+    // When summarization gets wired in a future phase, flip this back on.
+    if (!trendingConfigured) {
+      try {
+        trendingMod.updateTrendingConfig({ autoSummarize: false });
+        trendingConfigured = true;
+      } catch (err) {
+        console.warn('⚠️  trending-keywords config update failed:', err.message);
+      }
+    }
+  }
+  return trendingMod;
 }
 
 /**
@@ -438,12 +461,152 @@ async function runCountryInstabilityJob({ lookbackHours = 24, limit = 1000 } = {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 2 — Job 4: trending-keywords
+//
+//  Pipeline:
+//    rss_articles (24h) → TrendingHeadlineInput[] → ingestHeadlines()
+//      → drainTrendingSignals() → wm_trending_keywords
+//
+//  Servicio fundamentalmente STREAMING: mantiene termFrequency Map en
+//  memoria, baselines 7d, rolling window 2h, spike cooldown 30min.
+//  Reusable en modelo cron porque:
+//    - seenHeadlines Map deduplica re-ingestiones de los mismos artículos
+//    - baselines se acumulan a lo largo de horas/días reales del proceso
+//    - cooldown evita re-emitir el mismo spike < 30min
+//
+//  Trade-off aceptado: estado in-memory se pierde si engine reinicia.
+//  Después del restart, primeras horas son cold-start (count >= 5
+//  threshold sin baseline). En 7 días tendremos baselines reales.
+//
+//  Limitaciones por dependencias upstream Phase 1:
+//    - mlWorker.isAvailable=false → spaCy NER no disponible → fallback a
+//      heurístico proper-noun. Algunos términos genéricos no-inglés se
+//      cuelan ('par', 'real', 'your'). Se arregla cuando se cablee
+//      ml-worker en una fase posterior.
+//    - i18n.t() es stub → title del signal viene como literal
+//      "alerts.trending". Lo sustituimos a mano antes de persistir.
+//    - summarization stub → autoSummarize desactivado en loadTrending()
+//      para evitar log spam. Las descripciones quedan como el fallback
+//      estático del propio handleSpike.
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Persiste trending signals como filas en wm_trending_keywords.
+ * Idempotente vía term (UNIQUE): mismo término en runs sucesivos hace
+ * UPDATE de count/baseline/multiplier/sources/headlines y bumpea last_seen.
+ *
+ * Acepta CorrelationSignal[] tal como lo devuelve drainTrendingSignals,
+ * extrae spike data del campo .data.
+ */
+async function persistTrendingSignals(signals) {
+  let inserted = 0, updated = 0;
+  for (const sig of signals) {
+    const data = sig.data || {};
+    const term = String(data.term || '').trim();
+    if (!term) continue;
+
+    const r = await db.queryOne(
+      `INSERT INTO wm_trending_keywords
+         (term, mention_count, baseline, multiplier, unique_sources,
+          window_hours, confidence, sample_headlines,
+          signal_type, raw, first_seen, last_seen)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())
+       ON CONFLICT (term) DO UPDATE SET
+         mention_count    = EXCLUDED.mention_count,
+         baseline         = EXCLUDED.baseline,
+         multiplier       = EXCLUDED.multiplier,
+         unique_sources   = EXCLUDED.unique_sources,
+         window_hours     = EXCLUDED.window_hours,
+         confidence       = EXCLUDED.confidence,
+         sample_headlines = EXCLUDED.sample_headlines,
+         signal_type      = EXCLUDED.signal_type,
+         raw              = EXCLUDED.raw,
+         last_seen        = NOW(),
+         updated_at       = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        term.slice(0, 200),
+        Number.isFinite(data.newsVelocity) ? data.newsVelocity : 0,
+        Number.isFinite(data.baseline) ? data.baseline : 0,
+        Number.isFinite(data.multiplier) ? data.multiplier : 0,
+        Number.isFinite(data.sourceCount) ? data.sourceCount : 0,
+        2,  // ROLLING_WINDOW_MS = 2h, hardcoded en trending-keywords.ts
+        Number.isFinite(sig.confidence) ? sig.confidence : 0,
+        JSON.stringify((data.relatedTopics || []).slice(0, 6)),
+        String(sig.type || 'keyword_spike').slice(0, 50),
+        JSON.stringify({
+          id: sig.id,
+          explanation: data.explanation,
+          confidence: sig.confidence,
+        }),
+      ]
+    );
+    if (r?.inserted) inserted++;
+    else updated++;
+  }
+  return { inserted, updated };
+}
+
+/**
+ * Job principal trending: pull articles → reshape → ingest → drain → persist.
+ *
+ * Devuelve { articlesScanned, trackedTerms, signalsEmitted, inserted,
+ *            updated, durationMs }.
+ *
+ * Importante: NO clearea estado entre runs. termFrequency Map debe
+ * acumular para que las baselines 7d se vayan formando. La deduplication
+ * via seenHeadlines previene doble conteo.
+ */
+async function runTrendingKeywordsJob({ lookbackHours = 24, limit = 1000 } = {}) {
+  const t0 = Date.now();
+  const articles = await fetchRecentArticles({ lookbackHours, limit });
+  if (!articles.length) {
+    return {
+      articlesScanned: 0, trackedTerms: 0, signalsEmitted: 0,
+      inserted: 0, updated: 0, durationMs: Date.now() - t0,
+    };
+  }
+
+  const trending = loadTrending();
+
+  // Reshape NewsItem → TrendingHeadlineInput
+  const headlines = articles.map(a => ({
+    title: a.title,
+    pubDate: a.pubDate,
+    source: a.source,
+    link: a.link,
+  }));
+
+  trending.ingestHeadlines(headlines);
+
+  // handleSpike() es async fire-and-forget dentro de ingestHeadlines.
+  // Dale una ventana corta para que las significant-term checks resuelvan
+  // (sin mlWorker el path es sincrónico/heurístico, ~ms). 300ms es
+  // generoso pero seguro vs runs largos.
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  const signals = trending.drainTrendingSignals();
+  const persistResult = await persistTrendingSignals(signals);
+
+  return {
+    articlesScanned: articles.length,
+    trackedTerms: trending.getTrackedTermCount(),
+    signalsEmitted: signals.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
   runCountryInstabilityJob,
-  fetchRecentArticles,    // exported for testing
-  persistClusters,        // exported for testing
-  persistFocalPoints,     // exported for testing
-  persistCountryScores,   // exported for testing
+  runTrendingKeywordsJob,
+  fetchRecentArticles,         // exported for testing
+  persistClusters,             // exported for testing
+  persistFocalPoints,          // exported for testing
+  persistCountryScores,        // exported for testing
+  persistTrendingSignals,      // exported for testing
 };

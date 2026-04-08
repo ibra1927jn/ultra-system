@@ -447,6 +447,20 @@ function init() {
     'Cada hora :50 — Country instability scoring sobre clusters de las últimas 24h vía worldmonitor/services/country-instability.ts → wm_country_scores'
   );
 
+  // ─── P1 WM Phase 2 step 4: trending keywords → wm_trending_keywords cada hora :55 ──
+  register(
+    'wm-trending-keywords',
+    '55 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runTrendingKeywordsJob({ lookbackHours: 24, limit: 1000 });
+        console.log(`🔥 wm-trending-keywords: scanned=${r.articlesScanned} tracked=${r.trackedTerms} signals=${r.signalsEmitted} inserted=${r.inserted} updated=${r.updated} ${r.durationMs}ms`);
+      } catch (err) { console.error('❌ wm-trending-keywords:', err.message); }
+    },
+    'Cada hora :55 — Trending keyword spike detection sobre artículos de las últimas 24h vía worldmonitor/services/trending-keywords.ts → wm_trending_keywords'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',
