@@ -117,19 +117,38 @@ async function getFeeds() {
 // Chromium real pasa el CF challenge y devuelve el XML raw; después
 // parseamos con parser.parseString(). Primera llamada por feed: +2-4s
 // vs parseURL directo. Sin impacto en feeds que ya funcionan via parseURL.
+//
+// B1 2026-04-09: ampliado para cubrir 2 modos extra de fallo descubiertos
+// con feeds cross-pillar:
+//   (a) WAF que devuelve 200/202 con body vacío o no-XML (ReliefWeb, BOE):
+//       parseURL lanza "Unable to parse XML" → trigger fallback.
+//   (b) Servidores que content-negotiate por UA/IP y devuelven HTML al
+//       fetcher pero XML al navegador (Federal Register desde container):
+//       parseURL lanza "Attribute without value" → trigger fallback.
+// Y el fallback ahora usa `evaluate: fetch(url)` en page context en vez de
+// `extract: text` (que devolvía body.innerText sin tags XML). Tras goto()
+// los cookies CF están resueltos, fetch() desde la página los reutiliza
+// y devuelve el RSS raw — el viewer XML de Chrome no contamina el body.
 async function _parseUrlWithPuppeteerFallback(url) {
   try {
     return await parser.parseURL(url);
   } catch (err) {
     const msg = String(err?.message || err);
-    // Reintentar solo si es un error típico de CF/403/net
-    if (!/403|406|status code 4\d\d|CERT|ECONN|ETIMEDOUT|EAI_AGAIN|cloudflare/i.test(msg)) {
+    // Triggers ampliados: CF/403/net + parser failures por content-neg/WAF
+    const triggerRegex = /403|406|status code 4\d\d|CERT|ECONN|ETIMEDOUT|EAI_AGAIN|cloudflare|Unable to parse XML|Attribute without value|Non-whitespace before first tag/i;
+    if (!triggerRegex.test(msg)) {
       throw err;
     }
     try {
       const pup = require('./puppeteer');
       if (!(await pup.isAvailable())) throw err;
-      const r = await pup.scrape({ url, waitFor: 2500, extract: 'text' });
+      // fetch() in page context: reuses CF cookies resolved by page.goto(),
+      // returns raw response body (not the rendered XML viewer DOM).
+      const r = await pup.scrape({
+        url,
+        waitFor: 2500,
+        evaluate: `fetch(${JSON.stringify(url)}, { credentials: 'include' }).then(r => r.text())`,
+      });
       if (!r.ok) throw new Error(`puppeteer fallback: ${r.error}`);
       const xml = r.data || '';
       if (!xml.includes('<item') && !xml.includes('<entry')) {

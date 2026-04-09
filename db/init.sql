@@ -1439,3 +1439,103 @@ CREATE TABLE IF NOT EXISTS bur_gov_changes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_gov_changes_detected ON bur_gov_changes(detected_at DESC);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FINALIZATION B1 — Cross-pillar feeds layer
+--  2026-04-09: enrich rss_feeds con target_pillar/pillar_topic
+--  para que feeds especializados nutran a P2/P3/P4/P5 via
+--  bridges (B6). Retrocompatible: feeds existentes mantienen
+--  target_pillar=NULL → pipeline P1 puro como hasta ahora.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='rss_feeds' AND column_name='target_pillar') THEN
+        ALTER TABLE rss_feeds ADD COLUMN target_pillar VARCHAR(4);  -- 'P2'|'P3'|'P4'|'P5' o NULL para P1 puro
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='rss_feeds' AND column_name='pillar_topic') THEN
+        ALTER TABLE rss_feeds ADD COLUMN pillar_topic VARCHAR(50);  -- hint topic ('layoffs','crypto_policy','visa','grants',...)
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_rss_feeds_target_pillar ON rss_feeds(target_pillar) WHERE target_pillar IS NOT NULL;
+
+-- Seed B1: 25 feeds especializados cross-pillar (P2/P3/P4/P5)
+-- Composición: 17 LIVE ahora + 4 [CF] (is_active=TRUE, requieren browser
+--   fetcher — funcionarán tras migración del server a Windows + Playwright)
+--   + 4 [deferred] (is_active=FALSE, requieren custom scraper en B1b).
+-- URLs verificadas 2026-04-09 con HEAD/GET + UA navegador real.
+-- Sufijo [CF]/[deferred] en `name` para trazabilidad operacional.
+-- Categoría 'cross-pillar' distingue del pool OSINT general (P1).
+INSERT INTO rss_feeds (url, name, category, target_pillar, pillar_topic, is_active) VALUES
+    -- ── P2: Empleo / mercado laboral (6) ──
+    ('https://news.crunchbase.com/feed/',                                                       'Crunchbase News',               'cross-pillar', 'P2', 'startup_news',   TRUE),
+    ('https://restofworld.org/feed/latest/',                                                    'Rest of World',                 'cross-pillar', 'P2', 'global_tech',    TRUE),
+    ('https://news.google.com/rss/search?q=tech+layoffs&hl=en&gl=US&ceid=US:en',                'Google News — tech layoffs',    'cross-pillar', 'P2', 'layoffs',        TRUE),
+    ('pseudo://layoffs_fyi',                                                                    'Layoffs.fyi [deferred]',        'cross-pillar', 'P2', 'layoffs',        FALSE),
+    ('pseudo://trueup_layoffs',                                                                 'TrueUp Layoffs [deferred]',     'cross-pillar', 'P2', 'layoffs',        FALSE),
+    ('pseudo://challenger_report',                                                              'Challenger Report [deferred]',  'cross-pillar', 'P2', 'layoffs',        FALSE),
+    -- ── P3: Finanzas / regulación / crypto / FX / bancos centrales (8) ──
+    ('https://www.atlanticcouncil.org/feed/',                                                   'Atlantic Council',              'cross-pillar', 'P3', 'crypto_policy',  TRUE),
+    ('https://www.coindesk.com/arc/outboundfeeds/rss?outputType=xml',                           'CoinDesk',                      'cross-pillar', 'P3', 'crypto_news',    TRUE),
+    ('https://www.dlnews.com/arc/outboundfeeds/rss/',                                           'DL News',                       'cross-pillar', 'P3', 'crypto_news',    TRUE),
+    ('https://www.fxstreet.com/rss/news',                                                       'FXStreet [CF]',                 'cross-pillar', 'P3', 'fx',             TRUE),
+    ('https://www.fsb.org/feed/',                                                               'Financial Stability Board',     'cross-pillar', 'P3', 'regulation',     TRUE),
+    ('https://www.bankofengland.co.uk/rss/news',                                                'Bank of England — news',        'cross-pillar', 'P3', 'central_bank',   TRUE),
+    ('https://www.federalreserve.gov/feeds/press_all.xml',                                      'Federal Reserve — press',       'cross-pillar', 'P3', 'central_bank',   TRUE),
+    ('https://www.ecb.europa.eu/rss/press.html',                                                'ECB — press releases',          'cross-pillar', 'P3', 'central_bank',   TRUE),
+    -- ── P4: Burocracia / visa / inmigración (5) ──
+    ('https://www.reddit.com/r/immigration/.rss',                                               'Reddit r/immigration',          'cross-pillar', 'P4', 'visa',           TRUE),
+    ('https://workpermit.com/rss.xml',                                                          'WorkPermit.com',                'cross-pillar', 'P4', 'visa',           TRUE),
+    ('https://www.federalregister.gov/api/v1/documents.rss?conditions[agencies][]=u-s-citizenship-and-immigration-services&order=newest', 'Federal Register — USCIS docs', 'cross-pillar', 'P4', 'visa_us',        TRUE),
+    ('https://www.boe.es/rss/canal.php?c=seccion2b',                                            'BOE Sección II.B',              'cross-pillar', 'P4', 'boe',            TRUE),
+    ('https://www.schengenvisainfo.com/news/feed/',                                             'Schengen Visa Info',            'cross-pillar', 'P4', 'visa_eu',        TRUE),
+    -- ── P5: Oportunidades / becas / grants / fellowships (6) ──
+    ('https://www.profellow.com/feed/',                                                         'ProFellow',                     'cross-pillar', 'P5', 'fellowships',    TRUE),
+    ('https://www2.fundsforngos.org/feed/',                                                     'FundsForNGOs',                  'cross-pillar', 'P5', 'grants_ngo',     TRUE),
+    ('https://www.ictworks.org/feed/',                                                          'ICTworks',                      'cross-pillar', 'P5', 'dev_grants',     TRUE),
+    ('https://archgrants.org/feed/',                                                            'Arch Grants',                   'cross-pillar', 'P5', 'startup_grants', TRUE),
+    ('https://reliefweb.int/updates/rss.xml',                                                   'ReliefWeb (UN OCHA)',           'cross-pillar', 'P5', 'grants_dev',     TRUE),
+    ('pseudo://grantwatch',                                                                     'GrantWatch [deferred]',         'cross-pillar', 'P5', 'grants',         FALSE)
+ON CONFLICT (url) DO UPDATE SET
+    name          = EXCLUDED.name,
+    category      = EXCLUDED.category,
+    target_pillar = EXCLUDED.target_pillar,
+    pillar_topic  = EXCLUDED.pillar_topic,
+    is_active     = EXCLUDED.is_active;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FINALIZATION B3a — Regional aggregators: Pacific + Caribbean
+--  2026-04-09: 15 feeds locales para llevar cobertura nacional de
+--  28 a 43 países (sub-bloque del lote B3 que cubre Pacific/Caribbean
+--  /MENA/Central Asia/Arctic/Balkans/Africa). category='regional',
+--  target_pillar=NULL → P1 puro, alimenta el news pipeline general.
+--  URLs verificadas 2026-04-09 con HEAD/GET + UA navegador real.
+--  VU Vanuatu Daily Post: marcado active aunque hoy devuelve 429
+--  (rate-limit IP Hetzner transitorio, auto-recovery esperado).
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+INSERT INTO rss_feeds (url, name, category, region, lang, tier, is_active) VALUES
+    -- ── Pacific (8) ──
+    ('https://www.postcourier.com.pg/feed/',                'Post-Courier (PG)',           'regional', 'PG', 'en', 2, TRUE),
+    ('https://www.fbcnews.com.fj/feed/',                    'FBC News (FJ)',               'regional', 'FJ', 'en', 2, TRUE),
+    ('https://www.dailypost.vu/feed/',                      'Vanuatu Daily Post',          'regional', 'VU', 'en', 2, TRUE),
+    ('https://www.solomonstarnews.com/feed/',               'Solomon Star (SB)',           'regional', 'SB', 'en', 2, TRUE),
+    ('https://www.rnz.co.nz/rss/pacific.xml',               'RNZ Pacific',                 'regional', 'WS', 'en', 1, TRUE),
+    ('https://matangitonga.to/rss.xml',                     'Matangi Tonga',               'regional', 'TO', 'en', 2, TRUE),
+    ('https://www.lnc.nc/rss.xml',                          'LNC (Nouvelle-Calédonie)',    'regional', 'NC', 'fr', 2, TRUE),
+    ('https://www.tahiti-infos.com/xml/syndication.rss',    'Tahiti Infos (PF)',           'regional', 'PF', 'fr', 2, TRUE),
+    -- ── Caribbean (7) ──
+    ('https://www.jamaicaobserver.com/feed/',               'Jamaica Observer',            'regional', 'JM', 'en', 2, TRUE),
+    ('https://newsday.co.tt/feed/',                         'Newsday (Trinidad & Tobago)', 'regional', 'TT', 'en', 2, TRUE),
+    ('https://ewnews.com/feed/',                            'EyeWitness News (BS)',        'regional', 'BS', 'en', 2, TRUE),
+    ('https://www.nationnews.com/feed/',                    'Nation News (BB)',            'regional', 'BB', 'en', 2, TRUE),
+    ('https://ayibopost.com/feed/',                         'Ayibopost (HT)',              'regional', 'HT', 'fr', 2, TRUE),
+    ('https://www.diariolibre.com/rss/portada.xml',         'Diario Libre (DO)',           'regional', 'DO', 'es', 2, TRUE),
+    ('https://en.granma.cu/feed',                           'Granma (CU)',                 'regional', 'CU', 'en', 3, TRUE)
+ON CONFLICT (url) DO UPDATE SET
+    name      = EXCLUDED.name,
+    category  = EXCLUDED.category,
+    region    = EXCLUDED.region,
+    lang      = EXCLUDED.lang,
+    tier      = EXCLUDED.tier,
+    is_active = EXCLUDED.is_active;
