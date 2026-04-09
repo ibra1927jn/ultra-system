@@ -2104,3 +2104,55 @@ INSERT INTO rss_feeds (url, name, category, tier, source_type, is_active) VALUES
     ('https://news.google.com/rss/search?q=site:rusi.org+commentary&hl=en-US&gl=US&ceid=US:en', 'RUSI Commentary', 'osint_monitor', 3, 'intel', TRUE)
 ON CONFLICT (url) DO NOTHING;
 
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FINALIZATION B4 — GDELT GEO timelines + volume z-score alerts
+--  2026-04-09: reinterpretación práctica del lote B4 original (CAST/
+--  GEO 2.0/Context 2.0) tras descubrir que /api/v2/geo/geo y /cast/cast
+--  están deprecados (404). Substitución con DOC API:
+--    - mode=TimelineVolInfo  → daily volume intensity por país (+top URLs)
+--    - mode=TimelineTone     → daily average tone por país
+--    - z-score volume vs 28d baseline → "CAST de pobre" para anomaly
+--      detection
+--
+--  Cobertura: los 29 países únicos de wm_hotspot_escalation HOTSPOTS
+--  (Sahel, Haiti, Horn of Africa, US, RU, CN, UA, TW, IR, IL, KP, GB,
+--   BE, VE, GL, DK, SA, EG, IQ, SY, QA, TR, LB, YE, AE).
+--
+--  Rate limit GDELT: 1 req/5s. 29 países × 2 reqs = 58 reqs × 5s ≈ 5 min.
+--  Cron cada 6h (4 ciclos/día).
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS wm_gdelt_geo_timeline (
+    id                SERIAL PRIMARY KEY,
+    country           VARCHAR(2) NOT NULL,
+    date              DATE NOT NULL,
+    volume_intensity  NUMERIC(12,8),         -- GDELT TimelineVolInfo value
+    avg_tone          NUMERIC(8,4),           -- GDELT TimelineTone value
+    fetched_at        TIMESTAMP DEFAULT NOW(),
+    UNIQUE(country, date)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_gdelt_geo_country_date
+    ON wm_gdelt_geo_timeline(country, date DESC);
+
+CREATE TABLE IF NOT EXISTS wm_gdelt_volume_alerts (
+    id              SERIAL PRIMARY KEY,
+    country         VARCHAR(2) NOT NULL,
+    alert_date      DATE NOT NULL,
+    current_volume  NUMERIC(12,8),
+    baseline_mean   NUMERIC(12,8),
+    baseline_std    NUMERIC(12,8),
+    z_score         NUMERIC(8,4),
+    current_tone    NUMERIC(8,4),
+    baseline_tone   NUMERIC(8,4),
+    severity        VARCHAR(10),               -- low|medium|high|critical
+    top_url         TEXT,
+    top_title       TEXT,
+    notified        BOOLEAN DEFAULT FALSE,
+    created_at      TIMESTAMP DEFAULT NOW(),
+    UNIQUE(country, alert_date)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_gdelt_alerts_country_date
+    ON wm_gdelt_volume_alerts(country, alert_date DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_gdelt_alerts_pending
+    ON wm_gdelt_volume_alerts(notified) WHERE notified = FALSE;
+

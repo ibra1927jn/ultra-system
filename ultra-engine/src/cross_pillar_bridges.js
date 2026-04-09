@@ -84,16 +84,59 @@ async function onCrossPillarNews({ data }) {
   }
 }
 
+// ─── B4 — gdelt.spike → telegram alert ─────────────────
+// Solo high+critical disparan alerta inmediata para no spamear.
+// Medium queda visible vía /cast pero sin push.
+async function onGdeltSpike({ data }) {
+  try {
+    const { alert_id, country, alert_date, z_score, severity, current_volume,
+            baseline_mean, current_tone, baseline_tone, top_url, top_title } = data;
+    if (severity !== 'high' && severity !== 'critical') return;
+
+    const sevEmoji = { critical: '🔴', high: '🟠' };
+    const e = sevEmoji[severity] || '🟡';
+    const z = typeof z_score === 'number' ? z_score.toFixed(2) : z_score;
+    const vol = typeof current_volume === 'number' ? current_volume.toFixed(4) : current_volume;
+    const base = typeof baseline_mean === 'number' ? baseline_mean.toFixed(4) : baseline_mean;
+    const tone = typeof current_tone === 'number' ? current_tone.toFixed(2) : '—';
+    const baseTone = typeof baseline_tone === 'number' ? baseline_tone.toFixed(2) : '—';
+    const dateS = alert_date ? String(alert_date).split('T')[0] : '?';
+
+    const lines = [
+      `${e} *GDELT spike — ${country}* (${severity})`,
+      ``,
+      `📅 ${dateS}`,
+      `📊 z-score: *${z}*  (vol ${vol} vs baseline ${base})`,
+      `💬 tone: ${tone} (baseline ${baseTone})`,
+    ];
+    if (top_title) lines.push(``, `📰 ${String(top_title).substring(0, 200)}`);
+    if (top_url) lines.push(`🔗 ${top_url}`);
+
+    await telegram.sendAlert(lines.join('\n'));
+
+    if (alert_id) {
+      await db.query(
+        `UPDATE wm_gdelt_volume_alerts SET notified = TRUE WHERE id = $1`,
+        [alert_id]
+      );
+    }
+  } catch (err) {
+    console.error('cross_pillar_bridges onGdeltSpike error:', err.message);
+  }
+}
+
 function init() {
   if (_initialized) return;
   eventbus.subscribe('news.cpi', onCrossPillarNews);
+  eventbus.subscribe('gdelt.spike', onGdeltSpike);
   _initialized = true;
-  console.log('🌉 Cross-pillar news bridges activos: news.cpi → telegram (P2/P3/P4/P5)');
+  console.log('🌉 Cross-pillar news bridges activos: news.cpi → telegram (P2/P3/P4/P5), gdelt.spike → telegram (high/critical)');
 }
 
 module.exports = {
   init,
   onCrossPillarNews,
+  onGdeltSpike,
   shouldAlert,
   ALWAYS_ALERT_TOPICS,
 };

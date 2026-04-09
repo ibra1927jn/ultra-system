@@ -263,6 +263,69 @@ function init() {
     }
   });
 
+  // ─── P1 B4: GDELT GEO volume z-score alerts ────────
+  // /cast            → últimas 12 alertas
+  // /cast critical   → solo critical
+  // /cast IR|US|...  → alerta de un país concreto si existe
+  bot.onText(/\/cast(?:\s+([a-zA-Z]{2,8}))?/, async (msg, match) => {
+    try {
+      const arg = match && match[1] ? match[1].toUpperCase() : null;
+      let where = '';
+      const params = [];
+      if (arg) {
+        if (['LOW','MEDIUM','HIGH','CRITICAL'].includes(arg)) {
+          params.push(arg.toLowerCase());
+          where = `WHERE severity = $${params.length}`;
+        } else if (/^[A-Z]{2}$/.test(arg)) {
+          params.push(arg);
+          where = `WHERE country = $${params.length}`;
+        }
+      }
+      const rows = await db.queryAll(
+        `SELECT country, alert_date, z_score, severity, current_volume,
+                baseline_mean, current_tone, baseline_tone, top_url, top_title, notified
+         FROM wm_gdelt_volume_alerts
+         ${where}
+         ORDER BY alert_date DESC, z_score DESC
+         LIMIT 12`,
+        params
+      );
+      if (!rows.length) {
+        send(msg.chat.id, arg
+          ? `📭 Sin alertas GDELT GEO para ${arg}.`
+          : '📭 Sin alertas GDELT GEO todavía. El job corre cada 6h (00:22, 06:22, 12:22, 18:22).');
+        return;
+      }
+      const sevEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '⚪' };
+      const lines = [
+        arg
+          ? `🌍 *GDELT GEO alerts — ${arg}*`
+          : '🌍 *GDELT GEO alerts — últimas 12*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        '',
+      ];
+      for (const r of rows) {
+        const e = sevEmoji[r.severity] || '⚪';
+        const z = Number(r.z_score).toFixed(2);
+        const vol = Number(r.current_volume).toFixed(4);
+        const base = Number(r.baseline_mean).toFixed(4);
+        const tone = r.current_tone != null ? Number(r.current_tone).toFixed(2) : '—';
+        const baseTone = r.baseline_tone != null ? Number(r.baseline_tone).toFixed(2) : '—';
+        const dateS = new Date(r.alert_date).toISOString().split('T')[0];
+        lines.push(`${e} *${r.country}* · z=${z} · ${r.severity}`);
+        lines.push(`   ${dateS}  vol=${vol} (base ${base})  tone=${tone} (base ${baseTone})`);
+        if (r.top_title) lines.push(`   📰 ${String(r.top_title).substring(0, 130)}`);
+        if (r.top_url) lines.push(`   🔗 ${r.top_url}`);
+        lines.push('');
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      lines.push('Filtros: `/cast critical` `/cast high` `/cast IR`');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
   // ─── P1: GDELT últimos artículos relevantes ────────
   bot.onText(/\/gdelt/, async (msg) => {
     try {

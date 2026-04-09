@@ -2052,6 +2052,20 @@ async function persistHotspotEscalation(records) {
   return { inserted, updated };
 }
 
+// ─── B4 — wm_gdelt_geo: per-country timeline + z-score alerts ───
+async function runWmGdeltGeoJob() {
+  const t0 = Date.now();
+  const wmGeo = require('./wm_gdelt_geo');
+  const r = await wmGeo.runOnce();
+  return {
+    countriesProcessed: r.countries,
+    rowsPersisted: r.persisted,
+    alertsTriggered: r.alerts,
+    elapsedSec: r.elapsedSec,
+    durationMs: Date.now() - t0,
+  };
+}
+
 async function runWmHotspotEscalationJob() {
   const t0 = Date.now();
   const wmhe = loadWmHotspotEsc();
@@ -3143,6 +3157,7 @@ module.exports = {
   runEarthquakesJob,
   runSatelliteFiresJob,
   runWmGdeltIntelJob,
+  runWmGdeltGeoJob,
   runWmHotspotEscalationJob,
   runMarketQuotesJob,
   runCryptoQuotesJob,
