@@ -179,8 +179,23 @@ async function fetchFeed(feedId) {
       );
 
       if (!existing) {
-        const title = item.title || 'Sin titulo';
-        const summary = (item.contentSnippet || item.content || '').substring(0, 500);
+        // Coerce title/summary a string: algunos feeds (e.g. Hoover Institution)
+        // entregan title como objeto cuando contiene HTML anidado, lo que rompe
+        // el INSERT a postgres silenciosamente.
+        const _toStr = (v) => {
+          if (v == null) return '';
+          if (typeof v === 'string') return v;
+          if (typeof v === 'object') {
+            // rss-parser nested-tag case: { _: 'text', $: {...} } o { a: [{_: 'text'}] }
+            if (typeof v._ === 'string') return v._;
+            if (Array.isArray(v.a) && v.a[0] && typeof v.a[0]._ === 'string') return v.a[0]._;
+            try { return JSON.stringify(v); } catch { return ''; }
+          }
+          return String(v);
+        };
+        const title = _toStr(item.title) || 'Sin titulo';
+        const rawSummary = _toStr(item.contentSnippet) || _toStr(item.content);
+        const summary = rawSummary.substring(0, 500);
 
         // Calcular score de relevancia
         const score = await scoreArticle(title, summary);
@@ -212,7 +227,11 @@ async function fetchFeed(feedId) {
                ON CONFLICT (article_id, target_pillar) DO NOTHING`,
               [inserted.id, feedId, feed.target_pillar, feed.pillar_topic, title, item.link, summary, score]
             );
-            await eventbus.publish('news.cpi', 'P1', {
+            // Fire-and-forget: el publish persiste en event_log antes de
+            // disparar handlers (await interno), así que no perdemos
+            // eventos. Pero NO bloqueamos el loop del fetch — handlers
+            // como Telegram (~500ms cada uno) corren en background.
+            eventbus.publish('news.cpi', 'P1', {
               article_id: inserted.id,
               feed_id: feedId,
               feed_name: feed.name,
@@ -222,7 +241,7 @@ async function fetchFeed(feedId) {
               url: item.link,
               summary,
               score,
-            });
+            }).catch(err => console.error('news.cpi publish error:', err.message));
           } catch (cpiErr) {
             console.error(`bridge cpi insert/publish error (feed=${feed.name}):`, cpiErr.message);
           }

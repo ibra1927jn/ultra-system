@@ -1864,3 +1864,243 @@ CREATE TABLE IF NOT EXISTS cross_pillar_intel (
 CREATE INDEX IF NOT EXISTS idx_cpi_pillar_created ON cross_pillar_intel(target_pillar, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cpi_topic_created  ON cross_pillar_intel(target_pillar, pillar_topic, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cpi_article_pillar_unique ON cross_pillar_intel(article_id, target_pillar);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FINALIZATION B2 — OSINT Monitor expansion 238→410 feeds
+--  2026-04-09: 19 fix-broken (URL re-source) + 172 nuevos.
+--
+--  Hallazgo del lote: 51/181 candidatos directos fallaron (CF/IP block
+--  desde Hetzner datacenter), puppeteer fallback rescató solo 1/20
+--  (Just Security). El otro 95% se resolvió pivotando a
+--  `news.google.com/rss/search?q=site:DOMAIN` (mismo truco que B3d para
+--  Iran/Bhutan/etc — bypass del fallback EN global silencioso porque
+--  search devuelve content distinct, verificado md5).
+--
+--  Composición:
+--    - 19 fix UPDATE: AEI/Bangkok Post/Brookings/CISA/CNBC/CNBC Tech/
+--      CSIS/Carnegie/Corriere/El Universal/Jeune Afrique/MIIT/MOFCOM/
+--      NHK World/News24/RAND/Responsible Statecraft/TVN24/VnExpress
+--    - 130 INSERT directo (RSS nativo OK)
+--    - 41 INSERT con GN search?q=site:DOMAIN (datacenter-bypass)
+--    - 1 INSERT puppeteer-fallback path (Just Security, verificado)
+--
+--  8 candidatos descartados por colisión URL con feeds B1/country/latam/
+--  world existentes (Rest of World cross-pillar P2, Asharq Al-Awsat
+--  country-sa, Jerusalem Post country-il, ANSA country-it, Spiegel
+--  world, InSight Crime latam, Just Security latam, The Hacker News
+--  osint_monitor existing). ON CONFLICT DO NOTHING en vez de DO UPDATE
+--  para evitar reclasificar feeds B1.
+--
+--  Buckets nuevos: 15 wires (AFP/EFE/Yonhap/Anadolu/TASS/Xinhua/Kyodo/
+--  RT/TRT/Press TV/PA Media/DPA/ANSA EN/ANP/NewsCentral Africa), 51
+--  mainstream regional (Asia/Europe/MENA/Africa), 14 defense, 25 think
+--  tanks (Hudson/Hoover/Heritage/Cato/Quincy/AC Tech+Ukraine/ECFR/
+--  Bruegel/CEPS/CER/Carnegie Europe/IFRI/SIPRI/IISS/Wilson Kennan/
+--  Africa Center/RUSI Cmnt/ISW/...), 14 cyber, 5 humanitarian, 10
+--  IOs, 17 government, 8 energy/climate, 13 specialized markets/intel.
+--
+--  Total osint_monitor: 238 → 410 (+172 INSERT, 19 UPDATE in-place).
+--  Target original (379) superado.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- B2 fix-19 — re-source URLs for osint_monitor feeds with last_fetched IS NULL.
+-- Strategy: replace URL with `news.google.com/rss/search?q=site:DOMAIN`
+-- (verified bypass del CF/datacenter block) o con URL nativa alternativa.
+-- Mantenemos id+name+category+tier+source_type — solo cambia URL.
+
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:aei.org&hl=en-US&gl=US&ceid=US:en' WHERE id=463;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:bangkokpost.com&hl=en-US&gl=US&ceid=US:en' WHERE id=418;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:brookings.edu&hl=en-US&gl=US&ceid=US:en' WHERE id=616;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:cisa.gov+advisory&hl=en-US&gl=US&ceid=US:en' WHERE id=452;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:cnbc.com&hl=en-US&gl=US&ceid=US:en' WHERE id=440;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:cnbc.com+technology&hl=en-US&gl=US&ceid=US:en' WHERE id=575;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:csis.org&hl=en-US&gl=US&ceid=US:en' WHERE id=611;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:carnegieendowment.org&hl=en-US&gl=US&ceid=US:en' WHERE id=617;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:corriere.it&hl=it&gl=IT&ceid=IT:it' WHERE id=401;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:eluniversal.com.mx&hl=es&gl=MX&ceid=MX:es' WHERE id=489;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:jeuneafrique.com&hl=fr&gl=FR&ceid=FR:fr' WHERE id=478;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:miit.gov.cn&hl=zh-CN&gl=CN&ceid=CN:zh-CN' WHERE id=500;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:mofcom.gov.cn&hl=zh-CN&gl=CN&ceid=CN:zh-CN' WHERE id=501;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:nhk.or.jp+nhkworld&hl=en-US&gl=US&ceid=US:en' WHERE id=495;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:news24.com&hl=en-US&gl=US&ceid=US:en' WHERE id=476;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:rand.org&hl=en-US&gl=US&ceid=US:en' WHERE id=615;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:responsiblestatecraft.org&hl=en-US&gl=US&ceid=US:en' WHERE id=464;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:tvn24.pl&hl=pl&gl=PL&ceid=PL:pl' WHERE id=412;
+UPDATE rss_feeds SET url='https://news.google.com/rss/search?q=site:vnexpress.net&hl=vi&gl=VN&ceid=VN:vi' WHERE id=420;
+-- B2 P1 finalization — 172 new osint_monitor feeds
+-- (8 candidatos descartados por colisión URL con B1/country/latam/world)
+INSERT INTO rss_feeds (url, name, category, tier, source_type, is_active) VALUES
+    ('https://news.google.com/rss/search?q=site:afp.com&hl=en-US&gl=US&ceid=US:en', 'AFP English', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://news.google.com/rss/search?q=site:efe.com&hl=en-US&gl=US&ceid=US:en', 'EFE English', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://en.yna.co.kr/RSS/news.xml', 'Yonhap News', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://www.aa.com.tr/en/rss/default?cat=guncel', 'Anadolu Agency', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://tass.com/rss/v2.xml', 'TASS English', 'osint_monitor', 1, 'wire', TRUE),
+    ('http://www.news.cn/english/rss/worldrss.xml', 'Xinhua English', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://news.google.com/rss/search?q=site:dpa-international.com&hl=en-US&gl=US&ceid=US:en', 'DPA International', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://news.google.com/rss/search?q=site:pamediagroup.com&hl=en-US&gl=US&ceid=US:en', 'PA Media UK', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://news.google.com/rss/search?q=ANP+Netherlands+news&hl=nl&gl=NL&ceid=NL:nl', 'ANP Netherlands', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://www.presstv.ir/rss.xml', 'Press TV English', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://www.rt.com/rss/', 'RT News', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://news.google.com/rss/search?q=site:newscentral.africa&hl=en-US&gl=US&ceid=US:en', 'NewsCentral Africa', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://www.japantimes.co.jp/feed/topstories/', 'Japan Times', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:koreaherald.com&hl=en-US&gl=US&ceid=US:en', 'Korea Herald', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:koreajoongangdaily.joins.com&hl=en-US&gl=US&ceid=US:en', 'JoongAng Daily', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:english.hani.co.kr&hl=en-US&gl=US&ceid=US:en', 'Hankyoreh English', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:taipeitimes.com&hl=en-US&gl=US&ceid=US:en', 'Taipei Times', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:chinadaily.com.cn&hl=en-US&gl=US&ceid=US:en', 'China Daily', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:globaltimes.cn&hl=en-US&gl=US&ceid=US:en', 'Global Times', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.scmp.com/rss/91/feed', 'SCMP', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml', 'Hindustan Times', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://timesofindia.indiatimes.com/rssfeeds/296589292.cms', 'Times of India World', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://feeds.feedburner.com/NDTV-LatestNews', 'NDTV', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:thewire.in&hl=en-US&gl=US&ceid=US:en', 'The Wire India', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:theprint.in&hl=en-US&gl=US&ceid=US:en', 'ThePrint India', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:scroll.in&hl=en-US&gl=US&ceid=US:en', 'Scroll.in', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.dawn.com/feeds/home', 'Dawn Pakistan', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:thenews.com.pk&hl=en-US&gl=US&ceid=US:en', 'The News PK', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:thedailystar.net&hl=en-US&gl=US&ceid=US:en', 'Daily Star Bangladesh', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:en.prothomalo.com&hl=en-US&gl=US&ceid=US:en', 'Prothom Alo English', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:kathmandupost.com&hl=en-US&gl=US&ceid=US:en', 'Kathmandu Post', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:frontiermyanmar.net&hl=en-US&gl=US&ceid=US:en', 'Frontier Myanmar', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.channelnewsasia.com/rssfeeds/8395986', 'Channel News Asia World', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:todayonline.com&hl=en-US&gl=US&ceid=US:en', 'TODAYonline', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.al-monitor.com/rss', 'Al-Monitor', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.middleeasteye.net/rss', 'Middle East Eye', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:arabnews.com&hl=en-US&gl=US&ceid=US:en', 'Arab News', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:thenationalnews.com&hl=en-US&gl=US&ceid=US:en', 'The National UAE', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.dailysabah.com/rssFeed/0', 'Daily Sabah', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:mediapart.fr/en&hl=en-US&gl=US&ceid=US:en', 'Mediapart English', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.lefigaro.fr/rss/figaro_international.xml', 'Le Figaro International', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.faz.net/rss/aktuell/politik/', 'FAZ', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.abc.es/rss/feeds/abc_ultima.xml', 'ABC.es', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.politico.eu/feed/', 'Politico Europe', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:euobserver.com&hl=en-US&gl=US&ceid=US:en', 'EU Observer', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://mg.co.za/section/news/world/feed/', 'Mail and Guardian', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.premiumtimesng.com/feed', 'Premium Times Nigeria', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf', 'allAfrica', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:pravda.com.ua/eng&hl=en-US&gl=US&ceid=US:en', 'Ukrainska Pravda English', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://www.c4isrnet.com/arc/outboundfeeds/rss/?outputType=xml', 'C4ISRNET', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:aviationweek.com+defense&hl=en-US&gl=US&ceid=US:en', 'Aviation Week Defense', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.thedrive.com/the-war-zone/feed', 'The Drive Warzone', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.navalnews.com/feed/', 'Naval News', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.airforcetimes.com/arc/outboundfeeds/rss/?outputType=xml', 'Air Force Times', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.armytimes.com/arc/outboundfeeds/rss/?outputType=xml', 'Army Times', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.navytimes.com/arc/outboundfeeds/rss/?outputType=xml', 'Navy Times', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.marinecorpstimes.com/arc/outboundfeeds/rss/?outputType=xml', 'Marine Corps Times', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:insidedefense.com&hl=en-US&gl=US&ceid=US:en', 'Inside Defense', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:warontherocks.com&hl=en-US&gl=US&ceid=US:en', 'War on the Rocks Newsletter', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://mwi.westpoint.edu/feed/', 'Modern War Institute', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:understandingwar.org&hl=en-US&gl=US&ceid=US:en', 'ISW Institute Study of War', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://www.hoover.org/rss.xml', 'Hoover Institution', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://www.heritage.org/rss/', 'Heritage Foundation', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://quincyinst.org/feed/', 'Quincy Institute', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://www.atlanticcouncil.org/category/blogs/geotech-cues/feed/', 'Atlantic Council Tech', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:ecfr.eu&hl=en-US&gl=US&ceid=US:en', 'ECFR Wider Europe', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:cer.eu&hl=en-US&gl=US&ceid=US:en', 'CER Center European Reform', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:ifri.org&hl=fr&gl=FR&ceid=FR:fr', 'IFRI', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=Stockholm+SCEEUS&hl=en-US&gl=US&ceid=US:en', 'Stockholm Centre for Eastern European Studies', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=open+source+intelligence+centre&hl=en-US&gl=US&ceid=US:en', 'Open Source Centre', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=conflict+intelligence+team+CIT&hl=en-US&gl=US&ceid=US:en', 'Conflict Intelligence Team', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://globalinitiative.net/feed/', 'GIATOC', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://geopoliticalfutures.com/feed/', 'Geopolitical Futures', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://inkstickmedia.com/feed/', 'Inkstick', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://therecord.media/feed', 'The Record Recorded Future', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://cyberscoop.com/feed/', 'CyberScoop', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.securityweek.com/feed/', 'SecurityWeek', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.bleepingcomputer.com/feed/', 'Bleeping Computer', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.welivesecurity.com/feed/', 'WeLiveSecurity ESET', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.mandiant.com/resources/blog/rss.xml', 'Mandiant Blog', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.microsoft.com/en-us/security/blog/feed/', 'Microsoft Security', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://blog.google/threat-analysis-group/rss/', 'Google TAG', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=CERT-EU+vulnerability&hl=en-US&gl=US&ceid=US:en', 'CERT-EU', 'osint_monitor', 3, 'gov', TRUE),
+    ('https://www.ncsc.gov.uk/api/1/services/v1/news-rss-feed.xml', 'NCSC UK', 'osint_monitor', 3, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:oecd.org&hl=en-US&gl=US&ceid=US:en', 'OECD News', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:ilo.org+news&hl=en-US&gl=US&ceid=US:en', 'ILO News', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:unctad.org+news&hl=en-US&gl=US&ceid=US:en', 'UNCTAD News', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:consilium.europa.eu+press&hl=en-US&gl=US&ceid=US:en', 'EU Council Press', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945', 'US DoD News', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://www.gov.uk/government/organisations/foreign-commonwealth-development-office.atom', 'UK FCDO', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://www.gov.uk/government/organisations/cabinet-office.atom', 'UK Cabinet Office', 'osint_monitor', 3, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:auswaertiges-amt.de&hl=en-US&gl=US&ceid=US:en', 'Germany Auswärtiges Amt', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:esteri.it&hl=it&gl=IT&ceid=IT:it', 'Italy MAECI', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:exteriores.gob.es&hl=es&gl=ES&ceid=ES:es', 'Spain Exteriores', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:mofa.go.jp&hl=en-US&gl=US&ceid=US:en', 'Japan MOFA', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:mofa.go.kr&hl=en-US&gl=US&ceid=US:en', 'Korea MOFA', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:dfat.gov.au&hl=en-US&gl=US&ceid=US:en', 'Australia DFAT', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:international.gc.ca&hl=en-US&gl=US&ceid=US:en', 'Canada GAC', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:mfat.govt.nz&hl=en-US&gl=US&ceid=US:en', 'NZ MFAT', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:gov.il+mfa&hl=en-US&gl=US&ceid=US:en', 'Israel MFA', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:mid.ru+english&hl=en-US&gl=US&ceid=US:en', 'Russia MID', 'osint_monitor', 3, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:fmprc.gov.cn&hl=en-US&gl=US&ceid=US:en', 'China MFA', 'osint_monitor', 3, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:mea.gov.in&hl=en-US&gl=US&ceid=US:en', 'India MEA', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:mfa.gov.ua&hl=en-US&gl=US&ceid=US:en', 'Ukraine MFA', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:gov.br+itamaraty&hl=pt&gl=BR&ceid=BR:pt', 'Brazil Itamaraty', 'osint_monitor', 3, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=SWIFT+payments+news&hl=en-US&gl=US&ceid=US:en', 'SWIFT News', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=Bloomberg+Green+climate&hl=en-US&gl=US&ceid=US:en', 'Bloomberg Green', 'osint_monitor', 2, 'market', TRUE),
+    ('https://news.google.com/rss/search?q=site:spglobal.com+commodity&hl=en-US&gl=US&ceid=US:en', 'S&P Global Commodity', 'osint_monitor', 2, 'market', TRUE),
+    ('https://news.google.com/rss/search?q=site:argusmedia.com&hl=en-US&gl=US&ceid=US:en', 'Argus Media', 'osint_monitor', 2, 'market', TRUE),
+    ('https://oilprice.com/rss/main', 'OilPrice', 'osint_monitor', 2, 'market', TRUE),
+    ('https://www.world-nuclear-news.org/rss', 'World Nuclear News', 'osint_monitor', 2, 'market', TRUE),
+    ('https://www.carbonbrief.org/feed/', 'Carbon Brief', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.desmog.com/rss.xml', 'DeSmog', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://www.thewirechina.com/feed/', 'The Wire China', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=Sinocism+China&hl=en-US&gl=US&ceid=US:en', 'Sinocism', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://www.chinatalk.media/feed', 'ChinaTalk', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://www.semianalysis.com/feed', 'SemiAnalysis Public', 'osint_monitor', 3, 'tech', TRUE),
+    ('https://news.google.com/rss/search?q=Asianometry+semiconductor&hl=en-US&gl=US&ceid=US:en', 'Asianometry', 'osint_monitor', 3, 'tech', TRUE),
+    ('https://news.google.com/rss/search?q=Pivot+to+AI+newsletter&hl=en-US&gl=US&ceid=US:en', 'Pivot to AI', 'osint_monitor', 3, 'tech', TRUE),
+    ('https://www.404media.co/rss/', '404 Media', 'osint_monitor', 3, 'tech', TRUE),
+    ('https://themarkup.org/feeds/rss.xml', 'The Markup', 'osint_monitor', 3, 'tech', TRUE),
+    ('https://www.propublica.org/feeds/propublica/main', 'ProPublica', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://www.icij.org/feed/', 'ICIJ', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:trtworld.com&hl=en-US&gl=US&ceid=US:en', 'TRT World', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://news.google.com/rss/search?q=site:focustaiwan.tw&hl=en-US&gl=US&ceid=US:en', 'Focus Taiwan', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:indianexpress.com+world&hl=en-US&gl=US&ceid=US:en', 'Indian Express World', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:irrawaddy.com&hl=en-US&gl=US&ceid=US:en', 'The Irrawaddy', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:timesofisrael.com&hl=en-US&gl=US&ceid=US:en', 'Times of Israel', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:hurriyetdailynews.com&hl=en-US&gl=US&ceid=US:en', 'Hurriyet Daily News', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:welt.de+politik&hl=de&gl=DE&ceid=DE:de', 'Die Welt Politik', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:lavanguardia.com+internacional&hl=es&gl=ES&ceid=ES:es', 'La Vanguardia Internacional', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:sudantribune.com&hl=en-US&gl=US&ceid=US:en', 'Sudan Tribune', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:theeastafrican.co.ke&hl=en-US&gl=US&ceid=US:en', 'The East African', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:dailymaverick.co.za&hl=en-US&gl=US&ceid=US:en', 'Daily Maverick', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:rferl.org&hl=en-US&gl=US&ceid=US:en', 'RFE/RL', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:belsat.eu+english&hl=en-US&gl=US&ceid=US:en', 'Belsat English', 'osint_monitor', 2, 'mainstream', TRUE),
+    ('https://news.google.com/rss/search?q=site:lawfaremedia.org&hl=en-US&gl=US&ceid=US:en', 'Lawfare', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:hudson.org&hl=en-US&gl=US&ceid=US:en', 'Hudson Institute', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:smallwarsjournal.com&hl=en-US&gl=US&ceid=US:en', 'Small Wars Journal', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:bruegel.org&hl=en-US&gl=US&ceid=US:en', 'Bruegel', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:cato.org&hl=en-US&gl=US&ceid=US:en', 'Cato Institute', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:atlanticcouncil.org+ukraine&hl=en-US&gl=US&ceid=US:en', 'Atlantic Council Ukraine', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:sipri.org&hl=en-US&gl=US&ceid=US:en', 'SIPRI', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:iiss.org&hl=en-US&gl=US&ceid=US:en', 'IISS', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:ceps.eu&hl=en-US&gl=US&ceid=US:en', 'CEPS', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:wilsoncenter.org+kennan&hl=en-US&gl=US&ceid=US:en', 'Wilson Center Kennan', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:africacenter.org&hl=en-US&gl=US&ceid=US:en', 'Africa Center Strategic Studies', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:worldpoliticsreview.com&hl=en-US&gl=US&ceid=US:en', 'World Politics Review', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:eurasiareview.com&hl=en-US&gl=US&ceid=US:en', 'Eurasia Review', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:news.sophos.com&hl=en-US&gl=US&ceid=US:en', 'Sophos News', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:nist.gov+cybersecurity&hl=en-US&gl=US&ceid=US:en', 'NIST Cybersecurity', 'osint_monitor', 3, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:icrc.org&hl=en-US&gl=US&ceid=US:en', 'ICRC News', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:doctorswithoutborders.org&hl=en-US&gl=US&ceid=US:en', 'MSF Doctors Without Borders', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:refugeesinternational.org&hl=en-US&gl=US&ceid=US:en', 'Refugees International', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:nrc.no&hl=en-US&gl=US&ceid=US:en', 'Norwegian Refugee Council', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:rescue.org&hl=en-US&gl=US&ceid=US:en', 'IRC News', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:worldbank.org+news&hl=en-US&gl=US&ceid=US:en', 'World Bank News', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:imf.org+news&hl=en-US&gl=US&ceid=US:en', 'IMF News', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:wto.org+news&hl=en-US&gl=US&ceid=US:en', 'WTO News', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:nato.int+news&hl=en-US&gl=US&ceid=US:en', 'NATO News', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:eeas.europa.eu&hl=en-US&gl=US&ceid=US:en', 'EU EEAS', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:enisa.europa.eu&hl=en-US&gl=US&ceid=US:en', 'ENISA EU', 'osint_monitor', 3, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:ecdc.europa.eu&hl=en-US&gl=US&ceid=US:en', 'ECDC', 'osint_monitor', 3, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:undp.org+news&hl=en-US&gl=US&ceid=US:en', 'UNDP News', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:state.gov&hl=en-US&gl=US&ceid=US:en', 'US State Dept', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:diplomatie.gouv.fr&hl=fr&gl=FR&ceid=FR:fr', 'France MFA', 'osint_monitor', 2, 'gov', TRUE),
+    ('https://news.google.com/rss/search?q=site:ecb.europa.eu+working+papers&hl=en-US&gl=US&ceid=US:en', 'ECB Working Papers', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:bis.org+speeches&hl=en-US&gl=US&ceid=US:en', 'BIS Speeches', 'osint_monitor', 3, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:climatechangenews.com&hl=en-US&gl=US&ceid=US:en', 'ClimateHome News', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:occrp.org&hl=en-US&gl=US&ceid=US:en', 'OCCRP', 'osint_monitor', 2, 'intel', TRUE),
+    ('https://news.google.com/rss/search?q=site:english.kyodonews.net&hl=en-US&gl=US&ceid=US:en', 'Kyodo News', 'osint_monitor', 1, 'wire', TRUE),
+    ('https://news.google.com/rss/search?q=site:rusi.org+commentary&hl=en-US&gl=US&ceid=US:en', 'RUSI Commentary', 'osint_monitor', 3, 'intel', TRUE)
+ON CONFLICT (url) DO NOTHING;
+
