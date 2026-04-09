@@ -441,12 +441,18 @@ ON CONFLICT (url) DO NOTHING;
 DELETE FROM rss_feeds a USING rss_feeds b
 WHERE a.category LIKE 'country-%' AND a.category = b.category AND a.id < b.id;
 
--- Pseudo-feeds para fuentes no-RSS (GDELT API + Bluesky search)
--- Sirven como source_id para news_apis.js. fetchAll() los skipea por category.
+-- Pseudo-feeds para fuentes no-RSS (GDELT API + Bluesky search).
+-- Sirven como source_id para news_apis.js (lookup por category vía
+-- pseudoFeedId()). El URL es 'pseudo://...' por convención para que
+-- rss.js getFeeds() los excluya con `url NOT LIKE 'pseudo:%'`. Las URLs
+-- HTTPS reales viven hardcodeadas en news_apis.js y wm_gdelt_intel.js.
 INSERT INTO rss_feeds (url, name, category) VALUES
-    ('https://api.gdeltproject.org/api/v2/doc/doc', 'GDELT DOC 2.0 (global)', 'gdelt'),
-    ('https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts', 'Bluesky Search', 'bsky')
+    ('pseudo://gdelt', 'GDELT DOC 2.0 (global)', 'gdelt'),
+    ('pseudo://bsky',  'Bluesky Search',         'bsky')
 ON CONFLICT (url) DO NOTHING;
+-- Idempotent migration: si existían las URLs HTTPS legacy, las normalizamos.
+UPDATE rss_feeds SET url = 'pseudo://gdelt' WHERE url = 'https://api.gdeltproject.org/api/v2/doc/doc';
+UPDATE rss_feeds SET url = 'pseudo://bsky'  WHERE url = 'https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts';
 
 -- Keywords prioritarios para alimentar GDELT y Bluesky search (si la tabla está vacía)
 INSERT INTO rss_keywords (keyword, weight) VALUES
