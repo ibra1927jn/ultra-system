@@ -1639,3 +1639,189 @@ ON CONFLICT (url) DO UPDATE SET
     lang      = EXCLUDED.lang,
     tier      = EXCLUDED.tier,
     is_active = EXCLUDED.is_active;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FINALIZATION B3d — Width + Depth expansion
+--  2026-04-09: añade ~95 feeds llevando cobertura nacional
+--  ~79 → ~135 países (target original 100 + 35 microstates).
+--
+--  Estrategia (acordada con usuario sesión 2026-04-09):
+--    WIDTH  = más países (microstates Pacific/Caribe/Africa débil/
+--             Asia Central + majors faltantes JP/CN/RU/CA/AU/UA/PL...)
+--    DEPTH  = 3-5 fuentes/país en hotspots (existing 49 + new majors)
+--
+--  Método de selección (lecciones B1+B3):
+--    1. md5-verify obligatorio en TODO Google News country feed contra
+--       fallback puro `hl=lang&ceid=:lang`. 60 candidatos probados,
+--       29 únicos (con feed nativo real) + 5 cluster compartidos
+--       legítimos (1 representante por md5-cluster, tier=3). El resto
+--       (~26 países) caen al fallback EN global "Top stories" md5
+--       1808f12c — NO seedeados con gl=, se usa GN /search?q=COUNTRY.
+--    2. GN /rss/search?q=<CountryName> SIEMPRE devuelve 100 items
+--       relevantes — fallback robusto para países sin GN country feed.
+--    3. Reddit r/<country>: 20/54 subreddits validados con ≥25 entries
+--       desde Hetzner IP via old.reddit.com (resto rate-limited, no
+--       inválidos). www.reddit.com/.rss usado para consistencia con
+--       B3c — fetcher resuelve via Puppeteer fallback (R6 patch).
+--    4. rsshub.app NO aporta valor para news country aggregation
+--       (solo expone routes per-medio, no per-país). Descartado.
+--    5. GDELT pseudo-feeds requieren custom fetcher en news_apis.js
+--       (scope creep) — diferido a B3e si necesario. wm-gdelt-intel
+--       ya proporciona cobertura GDELT vía Phase-2 cron.
+--
+--  Microstates (Nauru, Tuvalu, Palau, Kiribati, Marshall, FSM,
+--  Dominica, St.Kitts, Grenada, St.Vincent, Eritrea, Bhutan, Belize,
+--  Suriname, Andorra, Liechtenstein, San Marino...) marcados tier=3
+--  ('thin coverage', señal débil pero NO [CF]).
+--
+--  category='regional', target_pillar=NULL → P1 puro.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- ── B3d.1: GN country feeds nativos únicos (29 países, md5 distintos al fallback) ──
+INSERT INTO rss_feeds (url, name, category, region, lang, tier, is_active) VALUES
+    -- Asia majors
+    ('https://news.google.com/rss?hl=ja&gl=JP&ceid=JP:ja',         'GN Japan (ja)',         'regional', 'JP', 'ja',    2, TRUE),
+    ('https://news.google.com/rss?hl=zh-CN&gl=CN&ceid=CN:zh-CN',   'GN China (zh-CN)',      'regional', 'CN', 'zh',    2, TRUE),
+    ('https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-TW',   'GN Taiwan (zh-TW)',     'regional', 'TW', 'zh',    2, TRUE),
+    ('https://news.google.com/rss?hl=zh-HK&gl=HK&ceid=HK:zh-HK',   'GN Hong Kong (zh-HK)',  'regional', 'HK', 'zh',    2, TRUE),
+    ('https://news.google.com/rss?hl=id&gl=ID&ceid=ID:id',         'GN Indonesia (id)',     'regional', 'ID', 'id',    2, TRUE),
+    ('https://news.google.com/rss?hl=ms&gl=MY&ceid=MY:ms',         'GN Malaysia (ms)',      'regional', 'MY', 'ms',    2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=SG&ceid=SG:en',         'GN Singapore (en)',     'regional', 'SG', 'en',    2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=PK&ceid=PK:en',         'GN Pakistan (en)',      'regional', 'PK', 'en',    2, TRUE),
+    ('https://news.google.com/rss?hl=bn&gl=BD&ceid=BD:bn',         'GN Bangladesh (bn)',    'regional', 'BD', 'bn',    2, TRUE),
+    -- Europe majors
+    ('https://news.google.com/rss?hl=ru&gl=RU&ceid=RU:ru',         'GN Russia (ru)',        'regional', 'RU', 'ru',    2, TRUE),
+    ('https://news.google.com/rss?hl=uk&gl=UA&ceid=UA:uk',         'GN Ukraine (uk)',       'regional', 'UA', 'uk',    1, TRUE),
+    ('https://news.google.com/rss?hl=pl&gl=PL&ceid=PL:pl',         'GN Poland (pl)',        'regional', 'PL', 'pl',    2, TRUE),
+    ('https://news.google.com/rss?hl=de&gl=AT&ceid=AT:de',         'GN Austria (de)',       'regional', 'AT', 'de',    2, TRUE),
+    ('https://news.google.com/rss?hl=fr&gl=BE&ceid=BE:fr',         'GN Belgium (fr)',       'regional', 'BE', 'fr',    2, TRUE),
+    ('https://news.google.com/rss?hl=da&gl=DK&ceid=DK:da',         'GN Denmark (da)',       'regional', 'DK', 'da',    2, TRUE),
+    ('https://news.google.com/rss?hl=hu&gl=HU&ceid=HU:hu',         'GN Hungary (hu)',       'regional', 'HU', 'hu',    2, TRUE),
+    ('https://news.google.com/rss?hl=cs&gl=CZ&ceid=CZ:cs',         'GN Czechia (cs)',       'regional', 'CZ', 'cs',    2, TRUE),
+    ('https://news.google.com/rss?hl=sk&gl=SK&ceid=SK:sk',         'GN Slovakia (sk)',      'regional', 'SK', 'sk',    2, TRUE),
+    -- Microstate Europe
+    ('https://news.google.com/rss?hl=ca&gl=AD&ceid=AD:ca',         'GN Andorra (ca)',       'regional', 'AD', 'ca',    3, TRUE),
+    ('https://news.google.com/rss?hl=de&gl=LI&ceid=LI:de',         'GN Liechtenstein (de)', 'regional', 'LI', 'de',    3, TRUE),
+    ('https://news.google.com/rss?hl=it&gl=SM&ceid=SM:it',         'GN San Marino (it)',    'regional', 'SM', 'it',    3, TRUE),
+    -- Americas
+    ('https://news.google.com/rss?hl=en&gl=CA&ceid=CA:en',         'GN Canada (en)',        'regional', 'CA', 'en',    2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=AU&ceid=AU:en',         'GN Australia (en)',     'regional', 'AU', 'en',    2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=NZ&ceid=NZ:en',         'GN New Zealand (en)',   'regional', 'NZ', 'en',    2, TRUE),
+    ('https://news.google.com/rss?hl=es&gl=VE&ceid=VE:es',         'GN Venezuela (es)',     'regional', 'VE', 'es',    2, TRUE),
+    ('https://news.google.com/rss?hl=nl&gl=SR&ceid=SR:nl',         'GN Suriname (nl)',      'regional', 'SR', 'nl',    3, TRUE),
+    -- Africa
+    ('https://news.google.com/rss?hl=en&gl=UG&ceid=UG:en',         'GN Uganda (en)',        'regional', 'UG', 'en',    2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=NA&ceid=NA:en',         'GN Namibia (en)',       'regional', 'NA', 'en',    2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=BW&ceid=BW:en',         'GN Botswana (en)',      'regional', 'BW', 'en',    2, TRUE)
+ON CONFLICT (url) DO UPDATE SET
+    name=EXCLUDED.name, category=EXCLUDED.category, region=EXCLUDED.region,
+    lang=EXCLUDED.lang, tier=EXCLUDED.tier, is_active=EXCLUDED.is_active;
+
+-- ── B3d.2: GN cluster aggregators (5 representantes md5-distintos al fallback EN) ──
+-- Cada md5-cluster se mapea a UN país representativo (tier=3, regional shared).
+INSERT INTO rss_feeds (url, name, category, region, lang, tier, is_active) VALUES
+    ('https://news.google.com/rss?hl=fr&gl=ML&ceid=ML:fr',         'GN French Sahel cluster (ML)',     'regional', 'ML', 'fr',    3, TRUE),
+    ('https://news.google.com/rss?hl=ar&gl=SY&ceid=SY:ar',         'GN Arab MENA cluster (SY)',        'regional', 'SY', 'ar',    3, TRUE),
+    ('https://news.google.com/rss?hl=pt-PT&gl=AO&ceid=AO:pt-PT',   'GN Lusophone cluster (AO)',        'regional', 'AO', 'pt',    3, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=ZM&ceid=ZM:en',         'GN English S.Africa cluster (ZM)', 'regional', 'ZM', 'en',    3, TRUE),
+    ('https://news.google.com/rss?hl=ru&gl=BY&ceid=BY:ru',         'GN Russian post-Soviet cluster (BY)','regional','BY','ru',    3, TRUE)
+ON CONFLICT (url) DO UPDATE SET
+    name=EXCLUDED.name, category=EXCLUDED.category, region=EXCLUDED.region,
+    lang=EXCLUDED.lang, tier=EXCLUDED.tier, is_active=EXCLUDED.is_active;
+
+-- ── B3d.3: GN /rss/search?q=<Country> para países sin feed nativo (29 países) ──
+-- Endpoint /rss/search devuelve 100 items relevantes a la query, bypass del
+-- problema fallback EN global. Tier=3 (search aggregator vs nativo).
+INSERT INTO rss_feeds (url, name, category, region, lang, tier, is_active) VALUES
+    -- Asia
+    ('https://news.google.com/rss/search?q=Iran&hl=en-US&gl=US&ceid=US:en',         'GN search Iran',        'regional', 'IR', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Sri+Lanka&hl=en-US&gl=US&ceid=US:en',    'GN search Sri Lanka',   'regional', 'LK', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Nepal&hl=en-US&gl=US&ceid=US:en',        'GN search Nepal',       'regional', 'NP', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Myanmar&hl=en-US&gl=US&ceid=US:en',      'GN search Myanmar',     'regional', 'MM', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Cambodia&hl=en-US&gl=US&ceid=US:en',     'GN search Cambodia',    'regional', 'KH', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Laos&hl=en-US&gl=US&ceid=US:en',         'GN search Laos',        'regional', 'LA', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Bhutan&hl=en-US&gl=US&ceid=US:en',       'GN search Bhutan',      'regional', 'BT', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Mongolia&hl=en-US&gl=US&ceid=US:en',     'GN search Mongolia',    'regional', 'MN', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Timor-Leste&hl=en-US&gl=US&ceid=US:en',  'GN search Timor-Leste', 'regional', 'TL', 'en', 3, TRUE),
+    -- Caucasus + Central Asia
+    ('https://news.google.com/rss/search?q=Georgia+Tbilisi&hl=en-US&gl=US&ceid=US:en','GN search Georgia',   'regional', 'GE', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Armenia+Yerevan&hl=en-US&gl=US&ceid=US:en','GN search Armenia',   'regional', 'AM', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Azerbaijan&hl=en-US&gl=US&ceid=US:en',   'GN search Azerbaijan',  'regional', 'AZ', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Turkmenistan&hl=en-US&gl=US&ceid=US:en', 'GN search Turkmenistan','regional', 'TM', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Tajikistan&hl=en-US&gl=US&ceid=US:en',   'GN search Tajikistan',  'regional', 'TJ', 'en', 3, TRUE),
+    -- MENA fallbacks (los del cluster ar 139abc6c, individualizados)
+    ('https://news.google.com/rss/search?q=Libya&hl=en-US&gl=US&ceid=US:en',        'GN search Libya',       'regional', 'LY', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Yemen&hl=en-US&gl=US&ceid=US:en',        'GN search Yemen',       'regional', 'YE', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Qatar+Doha&hl=en-US&gl=US&ceid=US:en',   'GN search Qatar',       'regional', 'QA', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Kuwait&hl=en-US&gl=US&ceid=US:en',       'GN search Kuwait',      'regional', 'KW', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Oman+Muscat&hl=en-US&gl=US&ceid=US:en',  'GN search Oman',        'regional', 'OM', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Palestine+Gaza&hl=en-US&gl=US&ceid=US:en','GN search Palestine',  'regional', 'PS', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Mauritania&hl=en-US&gl=US&ceid=US:en',   'GN search Mauritania',  'regional', 'MR', 'en', 3, TRUE),
+    -- Africa subsahariana (los del cluster fr 5601a4e6 individualizados)
+    ('https://news.google.com/rss/search?q=Cameroon&hl=en-US&gl=US&ceid=US:en',     'GN search Cameroon',    'regional', 'CM', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=DR+Congo+Kinshasa&hl=en-US&gl=US&ceid=US:en','GN search DR Congo','regional', 'CD', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Niger+Sahel&hl=en-US&gl=US&ceid=US:en',  'GN search Niger',       'regional', 'NE', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Chad+Sahel&hl=en-US&gl=US&ceid=US:en',   'GN search Chad',        'regional', 'TD', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Central+African+Republic&hl=en-US&gl=US&ceid=US:en','GN search CAR','regional','CF','en',3, TRUE),
+    ('https://news.google.com/rss/search?q=Burundi&hl=en-US&gl=US&ceid=US:en',      'GN search Burundi',     'regional', 'BI', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Mozambique&hl=en-US&gl=US&ceid=US:en',   'GN search Mozambique',  'regional', 'MZ', 'en', 3, TRUE),
+    ('https://news.google.com/rss/search?q=Eritrea&hl=en-US&gl=US&ceid=US:en',      'GN search Eritrea',     'regional', 'ER', 'en', 3, TRUE)
+ON CONFLICT (url) DO UPDATE SET
+    name=EXCLUDED.name, category=EXCLUDED.category, region=EXCLUDED.region,
+    lang=EXCLUDED.lang, tier=EXCLUDED.tier, is_active=EXCLUDED.is_active;
+
+-- ── B3d.4: Reddit r/<country> rescates verificados (20 subs ≥25 entries) ──
+-- Validados desde container Hetzner via old.reddit.com 2026-04-09.
+-- Url www.reddit.com (consistencia B3c, fetcher resuelve via Puppeteer fallback).
+INSERT INTO rss_feeds (url, name, category, region, lang, tier, is_active) VALUES
+    -- Asia
+    ('https://www.reddit.com/r/iran/.rss',              'Reddit r/iran',           'regional', 'IR', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/srilanka/.rss',          'Reddit r/srilanka',       'regional', 'LK', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Nepal/.rss',             'Reddit r/Nepal',          'regional', 'NP', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/myanmar/.rss',           'Reddit r/myanmar',        'regional', 'MM', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/cambodia/.rss',          'Reddit r/cambodia',       'regional', 'KH', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Laos/.rss',              'Reddit r/Laos',           'regional', 'LA', 'en', 3, TRUE),
+    -- Caucasus
+    ('https://www.reddit.com/r/Sakartvelo/.rss',        'Reddit r/Sakartvelo (GE)','regional', 'GE', 'en', 3, TRUE),
+    -- Africa (English Sub-Saharan)
+    ('https://www.reddit.com/r/Rwanda/.rss',            'Reddit r/Rwanda',         'regional', 'RW', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/sierraleone/.rss',       'Reddit r/sierraleone',    'regional', 'SL', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Liberia/.rss',           'Reddit r/Liberia',        'regional', 'LR', 'en', 3, TRUE),
+    -- Caribbean micros
+    ('https://www.reddit.com/r/StKitts/.rss',           'Reddit r/StKitts',        'regional', 'KN', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Grenada/.rss',           'Reddit r/Grenada',        'regional', 'GD', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/svg/.rss',               'Reddit r/svg (VC)',       'regional', 'VC', 'en', 3, TRUE),
+    -- Pacific micros
+    ('https://www.reddit.com/r/Nauru/.rss',             'Reddit r/Nauru',          'regional', 'NR', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Tuvalu/.rss',            'Reddit r/Tuvalu',         'regional', 'TV', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Palau/.rss',             'Reddit r/Palau',          'regional', 'PW', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Kiribati/.rss',          'Reddit r/Kiribati',       'regional', 'KI', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/MarshallIslands/.rss',   'Reddit r/MarshallIslands','regional', 'MH', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Micronesia/.rss',        'Reddit r/Micronesia (FM)','regional', 'FM', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Dominica/.rss',          'Reddit r/Dominica',       'regional', 'DM', 'en', 3, TRUE)
+ON CONFLICT (url) DO UPDATE SET
+    name=EXCLUDED.name, category=EXCLUDED.category, region=EXCLUDED.region,
+    lang=EXCLUDED.lang, tier=EXCLUDED.tier, is_active=EXCLUDED.is_active;
+
+-- ── B3d.5: Depth — segunda fuente (Reddit/GN search) en hotspots existentes ──
+-- Aumenta profundidad 1→2-3 fuentes en países críticos ya cubiertos.
+INSERT INTO rss_feeds (url, name, category, region, lang, tier, is_active) VALUES
+    -- Reddit complement on existing hotspots
+    ('https://www.reddit.com/r/ukraine/.rss',           'Reddit r/ukraine',        'regional', 'UA', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/russia/.rss',            'Reddit r/russia',         'regional', 'RU', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/japan/.rss',             'Reddit r/japan',          'regional', 'JP', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/india/.rss',             'Reddit r/india',          'regional', 'IN', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/pakistan/.rss',          'Reddit r/pakistan',       'regional', 'PK', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/korea/.rss',             'Reddit r/korea',          'regional', 'KR', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/taiwan/.rss',            'Reddit r/taiwan',         'regional', 'TW', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/china/.rss',             'Reddit r/china',          'regional', 'CN', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/mexico/.rss',            'Reddit r/mexico',         'regional', 'MX', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/brasil/.rss',            'Reddit r/brasil',         'regional', 'BR', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/southafrica/.rss',       'Reddit r/southafrica',    'regional', 'ZA', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Nigeria/.rss',           'Reddit r/Nigeria',        'regional', 'NG', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Kenya/.rss',             'Reddit r/Kenya',          'regional', 'KE', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Ethiopia/.rss',          'Reddit r/Ethiopia',       'regional', 'ET', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/Sudan/.rss',             'Reddit r/Sudan',          'regional', 'SD', 'en', 3, TRUE)
+ON CONFLICT (url) DO UPDATE SET
+    name=EXCLUDED.name, category=EXCLUDED.category, region=EXCLUDED.region,
+    lang=EXCLUDED.lang, tier=EXCLUDED.tier, is_active=EXCLUDED.is_active;
