@@ -1539,3 +1539,103 @@ ON CONFLICT (url) DO UPDATE SET
     lang      = EXCLUDED.lang,
     tier      = EXCLUDED.tier,
     is_active = EXCLUDED.is_active;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FINALIZATION B3b — Regional aggregators: MENA + Central Asia + Africa SS
+--  2026-04-09: 19 feeds Google News country-specific para cobertura
+--  nacional 42 → 61 países. Sub-bloque del lote B3.
+--
+--  Decisión: tras descubrir que medios locales MENA/Africa están bloqueados
+--  por CF/403/Akamai casi universalmente desde IPs Hetzner datacenter
+--  (8/8 fallaron en primer batch: ahram, jordantimes, lorientlejour, rudaw,
+--  khaleejtimes, arabnews, timesofisrael, moroccoworldnews), pivotamos a
+--  Google News country-specific feeds (gl=ISO2&ceid=ISO2:lang) que ofrecen:
+--    + sin geo-block ni CF (probado en B1 con tech layoffs)
+--    + ~38 items por feed (verificado contra news.google.com NG)
+--    + agregación de medios locales del país (cobertura horizontal)
+--    + idioma local cuando aplica (ar para MENA, en para CA/Africa SS)
+--  Trade-off: no son medios nativos sino agregadores Google. Enrichment
+--  con medios locales donde funcionen queda como sub-task B3b' iterativa.
+--
+--  category='regional', target_pillar=NULL → P1 puro.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- AE/JO movidos a B3c (Reddit) tras descubrir que devuelven el cluster
+-- inglés global "Top stories" (md5 a4ab30f0...) sin contenido nacional real.
+INSERT INTO rss_feeds (url, name, category, region, lang, tier, is_active) VALUES
+    -- ── MENA (6 únicos) ──
+    ('https://news.google.com/rss?hl=ar&gl=EG&ceid=EG:ar', 'GN Egypt+Iraq cluster (ar)', 'regional', 'EG', 'ar', 3, TRUE),
+    ('https://news.google.com/rss?hl=ar&gl=LB&ceid=LB:ar', 'GN Lebanon (ar)',       'regional', 'LB', 'ar', 2, TRUE),
+    ('https://news.google.com/rss?hl=ar&gl=IQ&ceid=IQ:ar', 'GN Iraq+Egypt cluster (ar)', 'regional', 'IQ', 'ar', 3, TRUE),
+    ('https://news.google.com/rss?hl=ar&gl=SA&ceid=SA:ar', 'GN Saudi Arabia (ar)',  'regional', 'SA', 'ar', 2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=IL&ceid=IL:en', 'GN Israel (en)',        'regional', 'IL', 'en', 2, TRUE),
+    ('https://news.google.com/rss?hl=fr&gl=MA&ceid=MA:fr', 'GN Morocco (fr)',       'regional', 'MA', 'fr', 2, TRUE),
+    -- ── Central Asia (3, cluster ruso compartido) ──
+    ('https://news.google.com/rss?hl=ru&gl=KZ&ceid=KZ:ru', 'GN Central Asia ru (KZ)',  'regional', 'KZ', 'ru', 3, TRUE),
+    ('https://news.google.com/rss?hl=ru&gl=UZ&ceid=UZ:ru', 'GN Central Asia ru (UZ)',  'regional', 'UZ', 'ru', 3, TRUE),
+    ('https://news.google.com/rss?hl=ru&gl=KG&ceid=KG:ru', 'GN Central Asia ru (KG)',  'regional', 'KG', 'ru', 3, TRUE),
+    -- ── Africa subsahariana (8) ──
+    ('https://news.google.com/rss?hl=en&gl=NG&ceid=NG:en', 'GN Nigeria (en)',       'regional', 'NG', 'en', 2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=KE&ceid=KE:en', 'GN Kenya (en)',         'regional', 'KE', 'en', 2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=ZA&ceid=ZA:en', 'GN South Africa (en)',  'regional', 'ZA', 'en', 2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=ET&ceid=ET:en', 'GN Ethiopia (en)',      'regional', 'ET', 'en', 2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=GH&ceid=GH:en', 'GN Ghana (en)',         'regional', 'GH', 'en', 2, TRUE),
+    ('https://news.google.com/rss?hl=fr&gl=SN&ceid=SN:fr', 'GN Senegal (fr)',       'regional', 'SN', 'fr', 2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=TZ&ceid=TZ:en', 'GN Tanzania (en)',      'regional', 'TZ', 'en', 2, TRUE),
+    ('https://news.google.com/rss?hl=en&gl=ZW&ceid=ZW:en', 'GN Zimbabwe (en)',      'regional', 'ZW', 'en', 2, TRUE)
+ON CONFLICT (url) DO UPDATE SET
+    name      = EXCLUDED.name,
+    category  = EXCLUDED.category,
+    region    = EXCLUDED.region,
+    lang      = EXCLUDED.lang,
+    tier      = EXCLUDED.tier,
+    is_active = EXCLUDED.is_active;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FINALIZATION B3c — Regional aggregators: Arctic + Balkans
+--                         + rescate Reddit (AE/JO/IS/AL/HR/MK/BA/XK)
+--  2026-04-09: 17 entradas, cobertura nacional 61 → 78 países.
+--
+--  Hallazgo crítico durante research: Google News country feeds
+--  devuelven el cluster INGLÉS GLOBAL "Top stories" (en-US, md5
+--  a4ab30f0...) cuando no tienen feed nativo, IGNORANDO hl/gl. 8
+--  países afectados: AE, JO, IS, AL, HR, MK, BA, XK. Estos NO tienen
+--  cobertura real via Google News y van rescatados via Reddit.
+--
+--  Por contraste, los clusters árabe (EG/IQ), ruso (KZ/UZ/KG),
+--  rumano (MD/RO) y noruego (NO/GL/FO) son contenido legítimo
+--  regional (md5 distintos al fallback de su idioma puro). Marcados
+--  con tier=3 (cluster compartido, no per-country) en lugar de tier=2.
+--
+--  Reddit r/<country> verificado: 25 entries cada uno, sin CF, sin
+--  geo-block. Tier=3 (foro comunitario, no medio profesional).
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+INSERT INTO rss_feeds (url, name, category, region, lang, tier, is_active) VALUES
+    -- ── Arctic Google News únicos + cluster nórdico (4) ──
+    ('https://news.google.com/rss?hl=fi&gl=FI&ceid=FI:fi', 'GN Finland (fi)',           'regional', 'FI', 'fi', 2, TRUE),
+    ('https://news.google.com/rss?hl=no&gl=NO&ceid=NO:no', 'GN Nordic ru cluster (NO)', 'regional', 'NO', 'no', 3, TRUE),
+    ('https://news.google.com/rss?hl=da&gl=GL&ceid=GL:da', 'GN Nordic cluster (GL)',    'regional', 'GL', 'da', 3, TRUE),
+    ('https://news.google.com/rss?hl=da&gl=FO&ceid=FO:da', 'GN Nordic cluster (FO)',    'regional', 'FO', 'da', 3, TRUE),
+    -- ── Balkans Google News únicos + cluster rumano (4) ──
+    ('https://news.google.com/rss?hl=bg&gl=BG&ceid=BG:bg', 'GN Bulgaria (bg)',          'regional', 'BG', 'bg', 2, TRUE),
+    ('https://news.google.com/rss?hl=sl&gl=SI&ceid=SI:sl', 'GN Slovenia (sl)',          'regional', 'SI', 'sl', 2, TRUE),
+    ('https://news.google.com/rss?hl=sr&gl=ME&ceid=ME:sr', 'GN Montenegro (sr)',        'regional', 'ME', 'sr', 2, TRUE),
+    ('https://news.google.com/rss?hl=ro&gl=RO&ceid=RO:ro', 'GN Carpathians cluster (RO)', 'regional', 'RO', 'ro', 3, TRUE),
+    ('https://news.google.com/rss?hl=ro&gl=MD&ceid=MD:ro', 'GN Carpathians cluster (MD)', 'regional', 'MD', 'ro', 3, TRUE),
+    -- ── Reddit rescates (8) — países sin Google News nativo ──
+    ('https://www.reddit.com/r/UAE/.rss',       'Reddit r/UAE',         'regional', 'AE', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/jordan/.rss',    'Reddit r/jordan',      'regional', 'JO', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/iceland/.rss',   'Reddit r/iceland',     'regional', 'IS', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/albania/.rss',   'Reddit r/albania',     'regional', 'AL', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/croatia/.rss',   'Reddit r/croatia',     'regional', 'HR', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/macedonia/.rss', 'Reddit r/macedonia',   'regional', 'MK', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/bosnia/.rss',    'Reddit r/bosnia',      'regional', 'BA', 'en', 3, TRUE),
+    ('https://www.reddit.com/r/kosovo/.rss',    'Reddit r/kosovo',      'regional', 'XK', 'en', 3, TRUE)
+ON CONFLICT (url) DO UPDATE SET
+    name      = EXCLUDED.name,
+    category  = EXCLUDED.category,
+    region    = EXCLUDED.region,
+    lang      = EXCLUDED.lang,
+    tier      = EXCLUDED.tier,
+    is_active = EXCLUDED.is_active;
