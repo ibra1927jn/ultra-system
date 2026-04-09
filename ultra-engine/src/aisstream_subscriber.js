@@ -97,6 +97,18 @@ function loadMilitaryVessels() {
   return militaryVesselsMod;
 }
 
+// Same lazy pattern for the commercial-vessels TS module — fan-out
+// added in WM Phase 3 Bloque 5 Sub-D so each AIS message reaches both
+// the military filter (existing) AND the commercial cargo/tanker
+// filter (new). Each module owns its own state map.
+let commercialVesselsMod = null;
+function loadCommercialVessels() {
+  if (!commercialVesselsMod) {
+    commercialVesselsMod = require('./worldmonitor/services/commercial-vessels');
+  }
+  return commercialVesselsMod;
+}
+
 /**
  * Build the subscription message that aisstream.io expects after WebSocket
  * connection. Subscribes to PositionReport + ShipStaticData over the
@@ -249,6 +261,14 @@ function connect() {
     } catch (err) {
       // Don't let one bad message kill the stream
       messagesFiltered++;
+    }
+    // Fan-out to commercial-vessels filter (Bloque 5 Sub-D). Independent
+    // try/catch so a commercial-side bug never affects military tracking.
+    try {
+      const com = loadCommercialVessels();
+      com.processCommercialAisPosition(data);
+    } catch {
+      /* swallow — commercial track is best-effort */
     }
   });
 

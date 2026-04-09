@@ -858,6 +858,121 @@ function init() {
     'Cada 15min — Polymarket Gamma /events open + nested markets → wm_prediction_markets'
   );
 
+  // ─── WM Phase 3 Bloque 5 Sub-A: cyber CVEs (NIST NVD + CISA KEV) ──
+  // Pull NVD CVEs published in the last 30d (cvss ≥ 7.0) merged with
+  // the full CISA KEV catalog. UPSERT por cve_id; NVD anon rate limit
+  // is 5 req/30s so a 6.5s pause between pages keeps us under it. Cron
+  // hourly — NVD publishes in irregular bursts and there's no value to
+  // higher frequency. Cleanup retention 365d (KEV-tagged rows kept
+  // indefinitely).
+  register(
+    'wm-cyber-cves',
+    '7 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runCyberCvesJob();
+        if (r.error) {
+          console.error(`❌ wm-cyber-cves: ${r.error}`);
+        } else {
+          console.log(`🛡️  wm-cyber-cves: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} deleted=${r.deleted} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-cyber-cves:', err.message); }
+    },
+    'Cada hora :07 — NIST NVD 2.0 + CISA KEV catalog → wm_cyber_cves'
+  );
+
+  // ─── WM Phase 3 Bloque 5 Sub-B: Cloudflare Radar outages ──
+  // GET /radar/annotations/outages?dateRange=30d con bearer
+  // CLOUDFLARE_RADAR_TOKEN. UPSERT por annotation id; ongoing
+  // outages se actualizan cuando CF cierra el end_date. Cada 30 min
+  // — Cloudflare publica updates ~horarios.
+  register(
+    'wm-cf-radar-outages',
+    '*/30 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runCloudflareRadarOutagesJob();
+        if (r.error) {
+          console.error(`❌ wm-cf-radar-outages: ${r.error}`);
+        } else {
+          console.log(`🌐 wm-cf-radar-outages: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-cf-radar-outages:', err.message); }
+    },
+    'Cada 30min — Cloudflare Radar /annotations/outages 30d window → wm_internet_outages'
+  );
+
+  // ─── WM Phase 3 Bloque 5 Sub-D: commercial flights (OpenSky) ──
+  // OpenSky /api/states/all sobre 6 bboxes comerciales (NA / EU /
+  // APAC / MENA), filtra military out (ya en wm_military_flights),
+  // sample MAX 600/región para acotar volumen. Append-only snapshot
+  // por (icao24, observed_at). Retention 7d en el primer tick de cada
+  // hora. Cron */15 (igual cadencia que market-quotes).
+  register(
+    'wm-commercial-flights',
+    '*/15 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runCommercialFlightsJob();
+        if (r.error) {
+          console.error(`❌ wm-commercial-flights: ${r.error}`);
+        } else {
+          console.log(`✈️  wm-commercial-flights: fetched=${r.fetched} inserted=${r.inserted} deleted=${r.deleted} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-commercial-flights:', err.message); }
+    },
+    'Cada 15min — OpenSky non-military 6 regions → wm_commercial_flights'
+  );
+
+  // ─── WM Phase 3 Bloque 5 Sub-D: commercial vessels (AISStream) ──
+  // El subscriber WebSocket fan-outs cada AIS message a
+  // commercial-vessels.processCommercialAisPosition (cargo/tanker
+  // ship type 70-89) que mantiene un Map en memoria. Este job
+  // snapshota el Map cada 15 min al wm_commercial_vessels. Retention
+  // 7d.
+  register(
+    'wm-commercial-vessels',
+    '3-59/15 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runCommercialVesselsJob();
+        if (r.error) {
+          console.error(`❌ wm-commercial-vessels: ${r.error}`);
+        } else {
+          const cats = Object.entries(r.byCategory || {}).map(([k, v]) => `${k}=${v}`).join(' ');
+          console.log(`🚢 wm-commercial-vessels: tracked=${r.tracked} inserted=${r.inserted} deleted=${r.deleted} ${cats} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-commercial-vessels:', err.message); }
+    },
+    'Cada 15min :3 — AISStream cargo/tanker snapshot → wm_commercial_vessels'
+  );
+
+  // ─── WM Phase 3 Bloque 5: correlation runner (Phase 2 closure) ──
+  // Server-side detectors over PG state: market_move / crypto_move /
+  // fx_move / prediction_swing / cve_critical / outage_started.
+  // Dedup por (signal_type, entity_key) en ventana 6-168h según tipo.
+  // Append-only a wm_correlation_signals. Retention 90 días.
+  register(
+    'wm-correlation',
+    '11-59/15 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runCorrelationJob();
+        if (r.error) {
+          console.error(`❌ wm-correlation: ${r.error}`);
+        } else {
+          console.log(`🔗 wm-correlation: emitted=${r.emitted} skipped=${r.skippedDup} mm=${r.marketMoves} cm=${r.cryptoMoves} fx=${r.fxMoves} pred=${r.predictionSwings} cve=${r.cveCriticals} out=${r.newOutages} deleted=${r.deleted} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-correlation:', err.message); }
+    },
+    'Cada 15min :11 — Server-side correlation detectors → wm_correlation_signals'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',

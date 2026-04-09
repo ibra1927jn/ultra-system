@@ -320,3 +320,207 @@ CREATE INDEX IF NOT EXISTS idx_wm_pred_snap_market_time
   ON wm_prediction_market_snapshots (market_id, captured_at DESC);
 CREATE INDEX IF NOT EXISTS idx_wm_pred_snap_captured
   ON wm_prediction_market_snapshots (captured_at DESC);
+
+-- ════════════════════════════════════════════════════════════
+--  Bloque 5 — cyber + infrastructure + commercial transport + correlation
+--
+--  Sub-A: cyber CVEs (NIST NVD 2.0 + CISA KEV catalog)
+--  Sub-B: internet outages (Cloudflare Radar API)
+--  Sub-D: commercial flights (OpenSky direct, non-military)
+--  Sub-D: commercial vessels (AISStream fan-out, cargo/tanker)
+--  Phase 2 closure: correlation signals (server-side runner)
+-- ════════════════════════════════════════════════════════════
+
+-- ─── Bloque 5 step 21: Cyber CVEs (NVD 2.0 + CISA KEV) ─────────────
+-- One row per CVE id. NVD 2.0 API provides incremental updates via
+-- lastModStartDate; we keep the latest known state per CVE (UPSERT).
+-- Filter: store CVEs with cvss_score ≥ 7.0 OR kev_flag = true. The
+-- KEV (Known Exploited Vulnerabilities) flag comes from the CISA KEV
+-- catalog (separate JSON, ~1300 entries) which we re-merge on every
+-- fetch — KEV state can transition false → true when CISA adds the
+-- CVE retroactively.
+--
+-- Storage: ~1500 KEV-tagged + ~3000 CVSS≥7 published in last 30d on
+-- first run, then deltas only. Bounded retention 365d on published_at.
+CREATE TABLE IF NOT EXISTS wm_cyber_cves (
+  id              BIGSERIAL PRIMARY KEY,
+  cve_id          TEXT NOT NULL,                   -- 'CVE-2026-12345'
+  source          TEXT NOT NULL,                   -- 'NVD'
+  published_at    TIMESTAMPTZ NOT NULL,            -- NVD published
+  last_modified   TIMESTAMPTZ NOT NULL,            -- NVD lastModified
+  cvss_version    TEXT,                            -- 'v3.1' / 'v3.0' / 'v2'
+  cvss_score      NUMERIC(4,1),                    -- 0.0 - 10.0
+  cvss_severity   TEXT,                            -- LOW|MEDIUM|HIGH|CRITICAL
+  cvss_vector     TEXT,
+  kev_flag        BOOLEAN NOT NULL DEFAULT FALSE,  -- in CISA KEV catalog
+  kev_added_date  DATE,                            -- date added to KEV
+  kev_due_date    DATE,                            -- KEV remediation due
+  vendors         TEXT[] NOT NULL DEFAULT '{}',    -- normalized vendor names
+  products        TEXT[] NOT NULL DEFAULT '{}',    -- normalized product names
+  cwe_ids         TEXT[] NOT NULL DEFAULT '{}',    -- CWE-79, CWE-89, ...
+  description     TEXT,
+  reference_count INTEGER,                         -- # of references
+  fetched_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  raw             JSONB,                           -- truncated NVD payload
+  CONSTRAINT wm_cyber_cves_uniq UNIQUE (cve_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_cyber_cves_published
+  ON wm_cyber_cves (published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_cyber_cves_modified
+  ON wm_cyber_cves (last_modified DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_cyber_cves_severity
+  ON wm_cyber_cves (cvss_severity, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_cyber_cves_kev
+  ON wm_cyber_cves (kev_flag, kev_added_date DESC) WHERE kev_flag = TRUE;
+CREATE INDEX IF NOT EXISTS idx_wm_cyber_cves_vendors
+  ON wm_cyber_cves USING GIN (vendors);
+CREATE INDEX IF NOT EXISTS idx_wm_cyber_cves_products
+  ON wm_cyber_cves USING GIN (products);
+
+-- ─── Bloque 5 step 22: Internet outages (Cloudflare Radar) ─────────
+-- Country/network-level connectivity disruptions detected by
+-- Cloudflare Radar. Endpoint: GET /radar/annotations/outages with
+-- bearer CLOUDFLARE_RADAR_TOKEN. UPSERT por id (Cloudflare's stable
+-- annotation id). Each outage row spans a (start_date, end_date)
+-- window — re-runs update end_date when CF closes the annotation.
+--
+-- Storage: ~50-200 active outages globally at any time, ~1-5K/year
+-- of historical entries. Sin retention pruning.
+CREATE TABLE IF NOT EXISTS wm_internet_outages (
+  id              BIGSERIAL PRIMARY KEY,
+  source_id       TEXT NOT NULL,                   -- Cloudflare annotation id
+  outage_type     TEXT,                            -- 'INTERNET-OUTAGE' | etc
+  scope           TEXT,                            -- 'country' | 'network'
+  location_code   TEXT,                            -- ISO country code
+  location_name   TEXT,
+  asn             TEXT,                            -- network outages
+  asn_name        TEXT,
+  event_type      TEXT,                            -- govt-directed | technical | unknown
+  description     TEXT,
+  link_url        TEXT,
+  start_date      TIMESTAMPTZ NOT NULL,
+  end_date        TIMESTAMPTZ,                     -- null = ongoing
+  is_ongoing      BOOLEAN NOT NULL DEFAULT FALSE,
+  first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  raw             JSONB,
+  CONSTRAINT wm_internet_outages_uniq UNIQUE (source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_outages_start
+  ON wm_internet_outages (start_date DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_outages_country
+  ON wm_internet_outages (location_code, start_date DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_outages_ongoing
+  ON wm_internet_outages (is_ongoing, start_date DESC) WHERE is_ongoing = TRUE;
+
+-- ─── Bloque 5 step 23: Commercial flights (OpenSky non-military) ───
+-- Snapshot of commercial aircraft positions from OpenSky /api/states/all
+-- over a wide bbox set covering NA / EU / Asia airspace. We filter OUT
+-- military flights (already covered by wm_military_flights) and sample
+-- to bound the dataset. Each cron tick is one (icao24, observed_at)
+-- snapshot — append-only, bounded retention 7 días.
+--
+-- Storage: ~2-5K rows/snapshot × 4 snapshots/h × 24h × 7d ≈ 1-3M rows
+-- max, manageable with the time-bounded indexes.
+CREATE TABLE IF NOT EXISTS wm_commercial_flights (
+  id              BIGSERIAL PRIMARY KEY,
+  icao24          TEXT NOT NULL,
+  callsign        TEXT,
+  origin_country  TEXT,
+  lat             NUMERIC(9,6) NOT NULL,
+  lon             NUMERIC(9,6) NOT NULL,
+  altitude_ft     INTEGER,
+  heading_deg     NUMERIC(6,2),
+  speed_kt        INTEGER,
+  vertical_rate_fpm INTEGER,
+  on_ground       BOOLEAN,
+  squawk          TEXT,
+  region          TEXT,                            -- 'na'|'eu'|'apac'|'mena'|'oceania'|'sa'
+  observed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_commercial_flights_uniq UNIQUE (icao24, observed_at)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_comm_flights_observed
+  ON wm_commercial_flights (observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_comm_flights_region_obs
+  ON wm_commercial_flights (region, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_comm_flights_callsign
+  ON wm_commercial_flights (callsign) WHERE callsign IS NOT NULL;
+
+-- ─── Bloque 5 step 24: Commercial vessels (AISStream fan-out) ──────
+-- Snapshot of commercial vessels (cargo / tanker AIS ship types) seen
+-- by the AISStream WebSocket subscriber. The subscriber fans out each
+-- AIS message to BOTH military-vessels.processAisPosition (existing)
+-- AND commercial-vessels.processCommercialAisPosition (new). The
+-- commercial track keeps an in-memory map filtered to ship types
+-- 70-89 (cargo / tanker). Cron snapshots the map periodically.
+--
+-- Storage: ~200-2000 tracked vessels × 4 snapshots/h × 24h × 7d ≈
+-- 100K-1.4M rows max. Bounded retention 7 días.
+CREATE TABLE IF NOT EXISTS wm_commercial_vessels (
+  id              BIGSERIAL PRIMARY KEY,
+  mmsi            TEXT NOT NULL,
+  vessel_name     TEXT,
+  ais_ship_type   INTEGER,                         -- 70-79 cargo, 80-89 tanker
+  ais_ship_type_name TEXT,                         -- 'Cargo' | 'Tanker' | ...
+  category        TEXT NOT NULL,                   -- 'cargo' | 'tanker' | 'other'
+  flag_country    TEXT,
+  lat             NUMERIC(9,6) NOT NULL,
+  lon             NUMERIC(9,6) NOT NULL,
+  heading_deg     NUMERIC(6,2),
+  speed_kt        NUMERIC(6,2),
+  course_deg      NUMERIC(6,2),
+  destination     TEXT,
+  near_chokepoint TEXT,                            -- chokepoint name if inside bbox
+  observed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT wm_commercial_vessels_uniq UNIQUE (mmsi, observed_at)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_comm_vessels_observed
+  ON wm_commercial_vessels (observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_comm_vessels_category_obs
+  ON wm_commercial_vessels (category, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_comm_vessels_chokepoint
+  ON wm_commercial_vessels (near_chokepoint, observed_at DESC)
+  WHERE near_chokepoint IS NOT NULL;
+
+-- ─── Bloque 5 step 25: Correlation signals (Phase 2 closure) ───────
+-- Server-side correlation runner. Reads recent rows from:
+--   - wm_market_quotes / wm_crypto_quotes / wm_fx_rates  (price moves)
+--   - wm_prediction_markets + wm_prediction_market_snapshots (prob shifts)
+--   - wm_intel_articles                                  (news velocity)
+-- and emits CorrelationSignal rows when mechanical thresholds are
+-- crossed. Designed as a NEW path independent of the in-memory
+-- analyzeCorrelationsCore() which expects a different shape.
+--
+-- Signal types (Bloque 5 v1, expand later):
+--   - prediction_swing      |Δp| ≥ 5pp in last ~60min for a market
+--   - market_move           |change_pct| ≥ 3% on a stock/sector/index
+--   - crypto_move           |change_24h| ≥ 5% on top4 crypto
+--   - fx_move               |change_pct| ≥ 1% on a major pair
+--   - cve_critical          new CVE published with cvss ≥ 9.0 OR kev=true
+--   - outage_started        new internet outage row (govt-directed flagged)
+--
+-- One row per (signal_type, entity_key, fired_at). Dedup at the
+-- runner level by recent (signal_type, entity_key) lookup so we don't
+-- spam every cron tick.
+--
+-- Storage: ~50-500 signals/day. Bounded retention 90 días.
+CREATE TABLE IF NOT EXISTS wm_correlation_signals (
+  id              BIGSERIAL PRIMARY KEY,
+  signal_type     TEXT NOT NULL,
+  entity_key      TEXT NOT NULL,                   -- 'symbol:^VIX' / 'pred:polymarket:abc' / 'cve:CVE-...' / 'outage:cf:...'
+  title           TEXT NOT NULL,
+  description     TEXT,
+  confidence      NUMERIC(4,3) NOT NULL,           -- 0.0 - 1.0
+  magnitude       NUMERIC(12,4),                   -- |Δ| of the underlying move
+  baseline        NUMERIC(12,4),
+  observed        NUMERIC(12,4),
+  related         JSONB,                           -- {related_news:[], related_markets:[], ...}
+  raw             JSONB,
+  fired_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_corr_fired
+  ON wm_correlation_signals (fired_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_corr_type_fired
+  ON wm_correlation_signals (signal_type, fired_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_corr_entity
+  ON wm_correlation_signals (entity_key, fired_at DESC);

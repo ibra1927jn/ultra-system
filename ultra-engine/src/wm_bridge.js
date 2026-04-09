@@ -29,9 +29,16 @@
 //  --- Phase 3 (commodities/market verticals, Bloque 3) ---
 //  18. runMacroIndicatorsJob     — FRED (12 series) + World Bank (2 series) → wm_macro_indicators
 //  19. runAgriCommoditiesJob     — USDA NASS Quick Stats (5 crops) → wm_agri_commodities
-//
-//  Otros bridges (internet outages, ACLED protests, etc.) vendrán en
-//  commits separados.
+//  --- Phase 3 (prediction markets, Bloque 4) ---
+//  20. runManifoldMarketsJob     — Manifold /v0/search-markets → wm_prediction_markets
+//      runKalshiMarketsJob       — Kalshi /v2/events → wm_prediction_markets
+//      runPolymarketMarketsJob   — Polymarket Gamma /events → wm_prediction_markets
+//  --- Phase 3 (cyber + infra + commercial transport + correlation, Bloque 5) ---
+//  21. runCyberCvesJob              — NIST NVD 2.0 + CISA KEV → wm_cyber_cves
+//  22. runCloudflareRadarOutagesJob — Cloudflare Radar /annotations/outages → wm_internet_outages
+//  23. runCommercialFlightsJob      — OpenSky /api/states/all (non-mil) → wm_commercial_flights
+//  24. runCommercialVesselsJob      — AISStream fan-out (cargo/tanker) → wm_commercial_vessels
+//  25. runCorrelationJob            — Phase 2 closure: PG-driven detectors → wm_correlation_signals
 // ════════════════════════════════════════════════════════════
 
 const db = require('./db');
@@ -180,6 +187,47 @@ function loadPolymarketMarkets() {
     polymarketMarketsMod = require('./worldmonitor/services/polymarket-markets');
   }
   return polymarketMarketsMod;
+}
+
+// ─── WM Phase 3 Bloque 5 lazy module loaders ──────────────────────
+let cyberCvesMod = null;
+function loadCyberCves() {
+  if (!cyberCvesMod) {
+    cyberCvesMod = require('./worldmonitor/services/cyber-cves');
+  }
+  return cyberCvesMod;
+}
+
+let cfRadarOutagesMod = null;
+function loadCloudflareRadarOutages() {
+  if (!cfRadarOutagesMod) {
+    cfRadarOutagesMod = require('./worldmonitor/services/cloudflare-radar-outages');
+  }
+  return cfRadarOutagesMod;
+}
+
+let commercialFlightsMod = null;
+function loadCommercialFlights() {
+  if (!commercialFlightsMod) {
+    commercialFlightsMod = require('./worldmonitor/services/commercial-flights');
+  }
+  return commercialFlightsMod;
+}
+
+let commercialVesselsMod = null;
+function loadCommercialVessels() {
+  if (!commercialVesselsMod) {
+    commercialVesselsMod = require('./worldmonitor/services/commercial-vessels');
+  }
+  return commercialVesselsMod;
+}
+
+let correlationRunnerMod = null;
+function loadCorrelationRunner() {
+  if (!correlationRunnerMod) {
+    correlationRunnerMod = require('./worldmonitor/services/correlation-runner');
+  }
+  return correlationRunnerMod;
 }
 
 let trendingMod = null;
@@ -2685,6 +2733,403 @@ async function runPolymarketMarketsJob() {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+//  Phase 3 — Bloque 5 Sub-A: Cyber CVEs (NIST NVD + CISA KEV)
+//
+//  Tabla wm_cyber_cves (db/wm_phase3.sql). UPSERT por cve_id —
+//  re-runs son no-op cuando NVD no ha publicado nuevos CVEs ni CISA
+//  ha añadido nuevas entradas a KEV. Cron */60 (cada hora) — NVD
+//  publica en bursts irregulares, no hay ganancia con frecuencia
+//  más alta y rate-limit anon es 5 req/30s.
+// ════════════════════════════════════════════════════════════
+
+const CYBER_CVES_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.CYBER_CVES_RETENTION_DAYS || '365', 10) || 365
+);
+
+async function persistCyberCves(rows) {
+  let inserted = 0, updated = 0;
+  for (const r of rows) {
+    if (!r || !r.cveId) continue;
+    const res = await db.queryOne(
+      `INSERT INTO wm_cyber_cves
+         (cve_id, source, published_at, last_modified, cvss_version,
+          cvss_score, cvss_severity, cvss_vector, kev_flag,
+          kev_added_date, kev_due_date, vendors, products, cwe_ids,
+          description, reference_count, fetched_at, raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW(),$17)
+       ON CONFLICT (cve_id) DO UPDATE SET
+         source          = EXCLUDED.source,
+         published_at    = EXCLUDED.published_at,
+         last_modified   = EXCLUDED.last_modified,
+         cvss_version    = EXCLUDED.cvss_version,
+         cvss_score      = EXCLUDED.cvss_score,
+         cvss_severity   = EXCLUDED.cvss_severity,
+         cvss_vector     = EXCLUDED.cvss_vector,
+         kev_flag        = EXCLUDED.kev_flag,
+         kev_added_date  = EXCLUDED.kev_added_date,
+         kev_due_date    = EXCLUDED.kev_due_date,
+         vendors         = EXCLUDED.vendors,
+         products        = EXCLUDED.products,
+         cwe_ids         = EXCLUDED.cwe_ids,
+         description     = COALESCE(EXCLUDED.description, wm_cyber_cves.description),
+         reference_count = EXCLUDED.reference_count,
+         fetched_at      = NOW(),
+         raw             = EXCLUDED.raw
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        String(r.cveId).slice(0, 50),
+        String(r.source || 'NVD').slice(0, 20),
+        r.publishedAt,
+        r.lastModified,
+        r.cvssVersion ? String(r.cvssVersion).slice(0, 10) : null,
+        Number.isFinite(r.cvssScore) ? Number(r.cvssScore) : null,
+        r.cvssSeverity ? String(r.cvssSeverity).slice(0, 20) : null,
+        r.cvssVector ? String(r.cvssVector).slice(0, 200) : null,
+        Boolean(r.kevFlag),
+        r.kevAddedDate || null,
+        r.kevDueDate || null,
+        Array.isArray(r.vendors) ? r.vendors.slice(0, 20) : [],
+        Array.isArray(r.products) ? r.products.slice(0, 20) : [],
+        Array.isArray(r.cweIds) ? r.cweIds.slice(0, 10) : [],
+        r.description ? String(r.description).slice(0, 4000) : null,
+        Number.isFinite(r.referenceCount) ? Number(r.referenceCount) : 0,
+        r.raw ? JSON.stringify(r.raw) : null,
+      ]
+    );
+    if (res?.inserted === true) inserted++;
+    else if (res) updated++;
+  }
+  return { inserted, updated };
+}
+
+async function cleanupOldCyberCves(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_cyber_cves
+                  WHERE published_at < NOW() - ($1::int * INTERVAL '1 day')
+                    AND kev_flag = FALSE
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+async function runCyberCvesJob() {
+  const t0 = Date.now();
+  const cc = loadCyberCves();
+  let rows = [];
+  try {
+    rows = await cc.fetchAllCyberCves({
+      daysWindow: parseInt(process.env.CYBER_CVES_WINDOW_DAYS || '30', 10) || 30,
+      minCvss: parseFloat(process.env.CYBER_CVES_MIN_CVSS || '7.0') || 7.0,
+      apiKey: process.env.NVD_API_KEY || null,
+    });
+  } catch (err) {
+    return { fetched: 0, inserted: 0, updated: 0, deleted: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistCyberCves(rows);
+  let deleted = 0;
+  try {
+    deleted = await cleanupOldCyberCves(CYBER_CVES_RETENTION_DAYS);
+  } catch (err) {
+    console.warn('[cyber-cves] cleanup failed:', err.message);
+  }
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    deleted,
+    durationMs: Date.now() - t0,
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  Phase 3 — Bloque 5 Sub-B: Cloudflare Radar internet outages
+//
+//  Tabla wm_internet_outages. UPSERT por source_id (Cloudflare's
+//  stable annotation id). End_date transitions null → ISO when CF
+//  closes the outage; UPSERT updates that.
+// ════════════════════════════════════════════════════════════
+
+async function persistInternetOutages(rows) {
+  let inserted = 0, updated = 0;
+  for (const r of rows) {
+    if (!r || !r.sourceId || !r.startDate) continue;
+    const res = await db.queryOne(
+      `INSERT INTO wm_internet_outages
+         (source_id, outage_type, scope, location_code, location_name,
+          asn, asn_name, event_type, description, link_url,
+          start_date, end_date, is_ongoing, first_seen_at, last_seen_at, raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW(),$14)
+       ON CONFLICT (source_id) DO UPDATE SET
+         outage_type   = EXCLUDED.outage_type,
+         scope         = EXCLUDED.scope,
+         location_code = EXCLUDED.location_code,
+         location_name = EXCLUDED.location_name,
+         asn           = EXCLUDED.asn,
+         asn_name      = EXCLUDED.asn_name,
+         event_type    = EXCLUDED.event_type,
+         description   = EXCLUDED.description,
+         link_url      = EXCLUDED.link_url,
+         start_date    = EXCLUDED.start_date,
+         end_date      = EXCLUDED.end_date,
+         is_ongoing    = EXCLUDED.is_ongoing,
+         last_seen_at  = NOW(),
+         raw           = EXCLUDED.raw
+       RETURNING (xmax = 0) AS inserted`,
+      [
+        String(r.sourceId).slice(0, 100),
+        r.outageType ? String(r.outageType).slice(0, 60) : null,
+        r.scope ? String(r.scope).slice(0, 30) : null,
+        r.locationCode ? String(r.locationCode).slice(0, 10) : null,
+        r.locationName ? String(r.locationName).slice(0, 200) : null,
+        r.asn ? String(r.asn).slice(0, 30) : null,
+        r.asnName ? String(r.asnName).slice(0, 200) : null,
+        r.eventType ? String(r.eventType).slice(0, 60) : null,
+        r.description ? String(r.description).slice(0, 4000) : null,
+        r.linkUrl ? String(r.linkUrl).slice(0, 500) : null,
+        r.startDate,
+        r.endDate || null,
+        Boolean(r.isOngoing),
+        r.raw ? JSON.stringify(r.raw) : null,
+      ]
+    );
+    if (res?.inserted === true) inserted++;
+    else if (res) updated++;
+  }
+  return { inserted, updated };
+}
+
+async function runCloudflareRadarOutagesJob() {
+  const t0 = Date.now();
+  const token = process.env.CLOUDFLARE_RADAR_TOKEN || '';
+  if (!token) {
+    return { fetched: 0, inserted: 0, updated: 0, durationMs: Date.now() - t0, error: 'CLOUDFLARE_RADAR_TOKEN missing' };
+  }
+  const cf = loadCloudflareRadarOutages();
+  let rows = [];
+  try {
+    rows = await cf.fetchAllInternetOutages(token);
+  } catch (err) {
+    return { fetched: 0, inserted: 0, updated: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistInternetOutages(rows);
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    durationMs: Date.now() - t0,
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  Phase 3 — Bloque 5 Sub-D: Commercial flights (OpenSky non-mil)
+//
+//  Tabla wm_commercial_flights. Append-only snapshot por
+//  (icao24, observed_at). Retention 7 días.
+// ════════════════════════════════════════════════════════════
+
+const COMMERCIAL_FLIGHTS_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.COMMERCIAL_FLIGHTS_RETENTION_DAYS || '7', 10) || 7
+);
+
+async function persistCommercialFlights(rows, observedAt) {
+  let inserted = 0;
+  for (const r of rows) {
+    if (!r || !r.icao24 || !Number.isFinite(r.lat) || !Number.isFinite(r.lon)) continue;
+    const res = await db.queryOne(
+      `INSERT INTO wm_commercial_flights
+         (icao24, callsign, origin_country, lat, lon,
+          altitude_ft, heading_deg, speed_kt, vertical_rate_fpm,
+          on_ground, squawk, region, observed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       ON CONFLICT (icao24, observed_at) DO NOTHING
+       RETURNING id`,
+      [
+        String(r.icao24).toLowerCase().slice(0, 10),
+        r.callsign ? String(r.callsign).slice(0, 30) : null,
+        r.originCountry ? String(r.originCountry).slice(0, 60) : null,
+        Number(r.lat),
+        Number(r.lon),
+        Number.isFinite(r.altitudeFt) ? Math.round(r.altitudeFt) : null,
+        Number.isFinite(r.headingDeg) ? Number(r.headingDeg) : null,
+        Number.isFinite(r.speedKt) ? Math.round(r.speedKt) : null,
+        Number.isFinite(r.verticalRateFpm) ? Math.round(r.verticalRateFpm) : null,
+        Boolean(r.onGround),
+        r.squawk ? String(r.squawk).slice(0, 10) : null,
+        String(r.region || 'unknown').slice(0, 10),
+        observedAt,
+      ]
+    );
+    if (res?.id) inserted++;
+  }
+  return { inserted };
+}
+
+async function cleanupOldCommercialFlights(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_commercial_flights
+                  WHERE observed_at < NOW() - ($1::int * INTERVAL '1 day')
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+async function runCommercialFlightsJob() {
+  const t0 = Date.now();
+  const observedAt = new Date();
+  const cf = loadCommercialFlights();
+  let rows = [];
+  try {
+    rows = await cf.fetchAllCommercialFlights();
+  } catch (err) {
+    return { fetched: 0, inserted: 0, deleted: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistCommercialFlights(rows, observedAt);
+  // Cleanup once per hour at the top-of-hour tick (matches market-quotes pattern)
+  let deleted = 0;
+  if (observedAt.getUTCMinutes() < 15) {
+    deleted = await cleanupOldCommercialFlights(COMMERCIAL_FLIGHTS_RETENTION_DAYS);
+  }
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    deleted,
+    durationMs: Date.now() - t0,
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  Phase 3 — Bloque 5 Sub-D: Commercial vessels (AISStream fan-out)
+//
+//  Tabla wm_commercial_vessels. The aisstream_subscriber.js fans out
+//  each AIS message to commercial-vessels.processCommercialAisPosition,
+//  which keeps an in-memory map of cargo/tanker vessels (AIS ship
+//  type 70-89). This job snapshots the map periodically.
+// ════════════════════════════════════════════════════════════
+
+const COMMERCIAL_VESSELS_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.COMMERCIAL_VESSELS_RETENTION_DAYS || '7', 10) || 7
+);
+
+async function persistCommercialVessels(vessels, observedAt) {
+  let inserted = 0;
+  for (const v of vessels) {
+    if (!v || !v.mmsi || !Number.isFinite(v.lat) || !Number.isFinite(v.lon)) continue;
+    const res = await db.queryOne(
+      `INSERT INTO wm_commercial_vessels
+         (mmsi, vessel_name, ais_ship_type, ais_ship_type_name, category,
+          flag_country, lat, lon, heading_deg, speed_kt, course_deg,
+          destination, near_chokepoint, observed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       ON CONFLICT (mmsi, observed_at) DO NOTHING
+       RETURNING id`,
+      [
+        String(v.mmsi).slice(0, 20),
+        v.name ? String(v.name).slice(0, 100) : null,
+        Number.isFinite(v.aisShipType) ? Number(v.aisShipType) : null,
+        v.aisShipTypeName ? String(v.aisShipTypeName).slice(0, 60) : null,
+        String(v.category || 'other').slice(0, 20),
+        v.flagCountry ? String(v.flagCountry).slice(0, 60) : null,
+        Number(v.lat),
+        Number(v.lon),
+        Number.isFinite(v.heading) ? Number(v.heading) : null,
+        Number.isFinite(v.speed) ? Number(v.speed) : null,
+        Number.isFinite(v.course) ? Number(v.course) : null,
+        v.destination ? String(v.destination).slice(0, 200) : null,
+        v.nearChokepoint ? String(v.nearChokepoint).slice(0, 60) : null,
+        observedAt,
+      ]
+    );
+    if (res?.id) inserted++;
+  }
+  return { inserted };
+}
+
+async function cleanupOldCommercialVessels(retentionDays) {
+  const r = await db.queryOne(
+    `WITH del AS (DELETE FROM wm_commercial_vessels
+                  WHERE observed_at < NOW() - ($1::int * INTERVAL '1 day')
+                  RETURNING id)
+     SELECT COUNT(*)::int AS deleted FROM del`,
+    [retentionDays]
+  );
+  return r?.deleted || 0;
+}
+
+async function runCommercialVesselsJob() {
+  const t0 = Date.now();
+  const observedAt = new Date();
+  const cv = loadCommercialVessels();
+  const vessels = cv.getTrackedCommercialVessels();
+  const persistResult = await persistCommercialVessels(vessels, observedAt);
+  let deleted = 0;
+  if (observedAt.getUTCMinutes() < 15) {
+    deleted = await cleanupOldCommercialVessels(COMMERCIAL_VESSELS_RETENTION_DAYS);
+  }
+  // Aggregate stats for the cron logger
+  const byCategory = {};
+  const byChokepoint = {};
+  for (const v of vessels) {
+    const cat = v.category || 'other';
+    byCategory[cat] = (byCategory[cat] || 0) + 1;
+    if (v.nearChokepoint) {
+      byChokepoint[v.nearChokepoint] = (byChokepoint[v.nearChokepoint] || 0) + 1;
+    }
+  }
+  return {
+    tracked: vessels.length,
+    inserted: persistResult.inserted,
+    deleted,
+    byCategory,
+    byChokepoint,
+    durationMs: Date.now() - t0,
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  Phase 3 — Bloque 5: Correlation runner (Phase 2 closure)
+//
+//  Reads recent rows from wm_market_quotes / wm_crypto_quotes /
+//  wm_fx_rates / wm_prediction_markets+snapshots / wm_cyber_cves /
+//  wm_internet_outages, runs mechanical detectors with dedup, and
+//  persists the resulting CorrelationSignal rows to
+//  wm_correlation_signals. See worldmonitor/services/correlation-runner.ts
+//  for the detector logic and threshold knobs.
+// ════════════════════════════════════════════════════════════
+
+const CORRELATION_RETENTION_DAYS = Math.max(
+  1,
+  parseInt(process.env.CORRELATION_RETENTION_DAYS || '90', 10) || 90
+);
+
+async function runCorrelationJob() {
+  const t0 = Date.now();
+  const cr = loadCorrelationRunner();
+  let stats;
+  try {
+    stats = await cr.runCorrelationDetectors(db);
+  } catch (err) {
+    return { emitted: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  let deleted = 0;
+  // Cleanup once per hour at the top-of-hour tick
+  if (new Date().getUTCMinutes() < 15) {
+    try {
+      deleted = await cr.cleanupOldCorrelationSignals(db, CORRELATION_RETENTION_DAYS);
+    } catch (err) {
+      console.warn('[correlation] cleanup failed:', err.message);
+    }
+  }
+  return { ...stats, deleted, durationMs: Date.now() - t0 };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
@@ -2708,6 +3153,18 @@ module.exports = {
   runManifoldMarketsJob,
   runKalshiMarketsJob,
   runPolymarketMarketsJob,
+  runCyberCvesJob,
+  runCloudflareRadarOutagesJob,
+  runCommercialFlightsJob,
+  runCommercialVesselsJob,
+  runCorrelationJob,
+  persistCyberCves,            // exported for testing
+  persistInternetOutages,      // exported for testing
+  persistCommercialFlights,    // exported for testing
+  persistCommercialVessels,    // exported for testing
+  cleanupOldCyberCves,         // exported for testing
+  cleanupOldCommercialFlights, // exported for testing
+  cleanupOldCommercialVessels, // exported for testing
   persistPredictionMarkets,    // exported for testing
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
