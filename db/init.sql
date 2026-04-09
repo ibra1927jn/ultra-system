@@ -1825,3 +1825,42 @@ INSERT INTO rss_feeds (url, name, category, region, lang, tier, is_active) VALUE
 ON CONFLICT (url) DO UPDATE SET
     name=EXCLUDED.name, category=EXCLUDED.category, region=EXCLUDED.region,
     lang=EXCLUDED.lang, tier=EXCLUDED.tier, is_active=EXCLUDED.is_active;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FINALIZATION B6 — Cross-pillar bridges (depende de B1)
+--  2026-04-09: tabla cross_pillar_intel + bridge handler que enruta
+--  artículos de los 25 feeds B1 (target_pillar P2/P3/P4/P5) hacia
+--  los pilares destino vía eventbus → telegram alerts.
+--
+--  Flujo:
+--    1. rss.js fetchFeed inserta articulo en rss_articles (P1 puro).
+--    2. Si rss_feeds.target_pillar IS NOT NULL → además inserta en
+--       cross_pillar_intel (snapshot del routing) y publica un evento
+--       'news.cpi' en eventbus.
+--    3. cross_pillar_bridges.js subscriber consume news.cpi, aplica
+--       filtros por pillar_topic, dispara telegram alert si:
+--         - score >= SCORE_THRESHOLD (8), OR
+--         - topic en lista de "always-alert" (visa changes, BOE, layoffs,
+--           central bank decisions, grant deadlines)
+--
+--  No se modifica el pipeline P1 puro: feeds sin target_pillar siguen
+--  comportándose igual. Backwards-compatible al 100%.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CREATE TABLE IF NOT EXISTS cross_pillar_intel (
+    id              SERIAL PRIMARY KEY,
+    article_id      INTEGER REFERENCES rss_articles(id) ON DELETE CASCADE,
+    feed_id         INTEGER REFERENCES rss_feeds(id) ON DELETE CASCADE,
+    target_pillar   VARCHAR(4) NOT NULL,           -- 'P2'|'P3'|'P4'|'P5'
+    pillar_topic    VARCHAR(50),                   -- 'layoffs'|'visa'|'grants'|...
+    title           TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    summary         TEXT,
+    relevance_score INTEGER DEFAULT 0,
+    notified        BOOLEAN DEFAULT FALSE,         -- telegram alerted
+    acted_on        BOOLEAN DEFAULT FALSE,         -- downstream pillar consumed
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cpi_pillar_created ON cross_pillar_intel(target_pillar, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cpi_topic_created  ON cross_pillar_intel(target_pillar, pillar_topic, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cpi_article_pillar_unique ON cross_pillar_intel(article_id, target_pillar);

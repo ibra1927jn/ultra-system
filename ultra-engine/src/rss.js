@@ -5,6 +5,7 @@
 
 const Parser = require('rss-parser');
 const db = require('./db');
+const eventbus = require('./eventbus');
 
 const parser = new Parser({
   timeout: 15000,
@@ -184,9 +185,10 @@ async function fetchFeed(feedId) {
         // Calcular score de relevancia
         const score = await scoreArticle(title, summary);
 
-        await db.query(
+        const inserted = await db.queryOne(
           `INSERT INTO rss_articles (feed_id, title, url, summary, published_at, relevance_score)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id`,
           [
             feedId,
             title,
@@ -197,6 +199,34 @@ async function fetchFeed(feedId) {
           ]
         );
         newCount++;
+
+        // B6 — Cross-pillar bridge: si el feed tiene target_pillar (P2/P3/P4/P5),
+        // route to cross_pillar_intel + emit news.cpi event for downstream
+        // pillar handlers. P1-pure feeds (target_pillar IS NULL) sin cambios.
+        if (feed.target_pillar && inserted?.id) {
+          try {
+            await db.query(
+              `INSERT INTO cross_pillar_intel
+                 (article_id, feed_id, target_pillar, pillar_topic, title, url, summary, relevance_score)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (article_id, target_pillar) DO NOTHING`,
+              [inserted.id, feedId, feed.target_pillar, feed.pillar_topic, title, item.link, summary, score]
+            );
+            await eventbus.publish('news.cpi', 'P1', {
+              article_id: inserted.id,
+              feed_id: feedId,
+              feed_name: feed.name,
+              target_pillar: feed.target_pillar,
+              pillar_topic: feed.pillar_topic,
+              title,
+              url: item.link,
+              summary,
+              score,
+            });
+          } catch (cpiErr) {
+            console.error(`bridge cpi insert/publish error (feed=${feed.name}):`, cpiErr.message);
+          }
+        }
 
         // Si supera el umbral, guardar para alertar
         if (score >= SCORE_THRESHOLD) {

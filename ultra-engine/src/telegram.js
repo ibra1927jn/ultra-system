@@ -200,6 +200,59 @@ function init() {
     }
   });
 
+  // ─── P1 → P2/P3/P4/P5: cross-pillar intel (B6) ────────
+  bot.onText(/\/cpi(?:\s+(P[2-5]))?/, async (msg, match) => {
+    try {
+      const pillarFilter = match && match[1] ? match[1].toUpperCase() : null;
+      const params = [];
+      let where = '';
+      if (pillarFilter) {
+        where = 'WHERE c.target_pillar = $1';
+        params.push(pillarFilter);
+      }
+      const rows = await db.queryAll(
+        `SELECT c.target_pillar, c.pillar_topic, c.title, c.url, c.relevance_score,
+                c.notified, c.created_at, f.name AS feed_name
+         FROM cross_pillar_intel c
+         LEFT JOIN rss_feeds f ON f.id = c.feed_id
+         ${where}
+         ORDER BY c.created_at DESC
+         LIMIT 12`,
+        params
+      );
+      if (!rows.length) {
+        send(msg.chat.id, pillarFilter
+          ? `📭 Sin cross-pillar intel para ${pillarFilter} todavía.`
+          : '📭 Sin cross-pillar intel todavía. El cron RSS corre periódicamente.');
+        return;
+      }
+      const lines = [
+        pillarFilter
+          ? `🌉 *Cross-pillar intel — ${pillarFilter}*`
+          : '🌉 *Cross-pillar intel — últimos 12*',
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        '',
+      ];
+      for (const r of rows) {
+        const emoji = { P2: '💼', P3: '💰', P4: '🛂', P5: '🎯' }[r.target_pillar] || '📰';
+        const topic = r.pillar_topic ? ` · #${r.pillar_topic}` : '';
+        const score = r.relevance_score != null && r.relevance_score > 0 ? ` ⭐${r.relevance_score}` : '';
+        const seen = r.notified ? '✅' : '🆕';
+        const date = r.created_at ? new Date(r.created_at).toISOString().split('T')[0] : '';
+        lines.push(`${emoji} *${r.target_pillar}*${topic}${score} ${seen}`);
+        lines.push(`   ${date} · _${r.feed_name || 'feed'}_`);
+        lines.push(`   ${(r.title || '').substring(0, 140)}`);
+        lines.push(`   🔗 ${r.url}`);
+        lines.push('');
+      }
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+      lines.push('Filtros: `/cpi P2` `/cpi P3` `/cpi P4` `/cpi P5`');
+      send(msg.chat.id, lines.join('\n'), 'Markdown');
+    } catch (err) {
+      send(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+  });
+
   // ─── P1: GDELT últimos artículos relevantes ────────
   bot.onText(/\/gdelt/, async (msg) => {
     try {

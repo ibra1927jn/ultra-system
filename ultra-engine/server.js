@@ -22,6 +22,7 @@ const db = require('./src/db');
 const telegram = require('./src/telegram');
 const scheduler = require('./src/scheduler');
 const bridges = require('./src/bridges');
+const crossPillarBridges = require('./src/cross_pillar_bridges');
 const aisstream = require('./src/aisstream_subscriber');
 const { apiKeyAuth } = require('./src/middleware/auth');
 const { requireAuth } = require('./src/middleware/jwt-auth');
@@ -165,6 +166,9 @@ async function start() {
 
   // 3b. Iniciar bridges P3↔P5/P6 (event subscribers)
   bridges.init();
+
+  // 3b'. B6 — Cross-pillar news bridges (rss.js news.cpi → telegram P2/P3/P4/P5)
+  crossPillarBridges.init();
 
   // 3c. Iniciar AISstream WebSocket subscriber (P1 WM Phase 2 step 7).
   // Persistent connection to wss://stream.aisstream.io feeding
