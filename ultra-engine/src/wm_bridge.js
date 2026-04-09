@@ -158,6 +158,30 @@ function loadAgriCommodities() {
   return agriCommoditiesMod;
 }
 
+let manifoldMarketsMod = null;
+function loadManifoldMarkets() {
+  if (!manifoldMarketsMod) {
+    manifoldMarketsMod = require('./worldmonitor/services/manifold-markets');
+  }
+  return manifoldMarketsMod;
+}
+
+let kalshiMarketsMod = null;
+function loadKalshiMarkets() {
+  if (!kalshiMarketsMod) {
+    kalshiMarketsMod = require('./worldmonitor/services/kalshi-markets');
+  }
+  return kalshiMarketsMod;
+}
+
+let polymarketMarketsMod = null;
+function loadPolymarketMarkets() {
+  if (!polymarketMarketsMod) {
+    polymarketMarketsMod = require('./worldmonitor/services/polymarket-markets');
+  }
+  return polymarketMarketsMod;
+}
+
 let trendingMod = null;
 let trendingConfigured = false;
 function loadTrending() {
@@ -2502,6 +2526,165 @@ async function runAgriCommoditiesJob() {
   };
 }
 
+// ─── WM Phase 3 Bloque 4 Sub 4a: prediction markets (Manifold) ──
+// Generic persist function — same shape feeds Kalshi/Metaculus/
+// Polymarket in 4b/4c/4d. UPSERT por (source, source_market_id).
+// Each successful upsert also inserts one snapshot row in the
+// child table for time-series tracking.
+async function persistPredictionMarkets(rows) {
+  let inserted = 0, updated = 0, snapshotted = 0, skipped = 0;
+  for (const r of rows) {
+    if (!r || !r.sourceMarketId || !r.question || !r.source || !r.marketType || !r.status || !r.currency) {
+      skipped++;
+      continue;
+    }
+    const upsert = await db.queryOne(
+      `INSERT INTO wm_prediction_markets
+         (source, source_market_id, source_event_id, slug, url,
+          question, description, category, raw_tags, market_type,
+          outcomes, probability, volume, liquidity, open_interest,
+          currency, trader_count, opened_at, closes_at, resolved_at,
+          resolution, resolution_source, status, last_fetched_at, raw)
+       VALUES ($1,$2,$3,$4,$5,
+               $6,$7,$8,$9,$10,
+               $11,$12,$13,$14,$15,
+               $16,$17,$18,$19,$20,
+               $21,$22,$23,NOW(),$24)
+       ON CONFLICT (source, source_market_id) DO UPDATE SET
+         source_event_id   = EXCLUDED.source_event_id,
+         slug              = EXCLUDED.slug,
+         url               = EXCLUDED.url,
+         question          = EXCLUDED.question,
+         description       = COALESCE(EXCLUDED.description, wm_prediction_markets.description),
+         category          = EXCLUDED.category,
+         raw_tags          = EXCLUDED.raw_tags,
+         market_type       = EXCLUDED.market_type,
+         outcomes          = EXCLUDED.outcomes,
+         probability       = EXCLUDED.probability,
+         volume            = EXCLUDED.volume,
+         liquidity         = EXCLUDED.liquidity,
+         open_interest     = EXCLUDED.open_interest,
+         currency          = EXCLUDED.currency,
+         trader_count      = EXCLUDED.trader_count,
+         opened_at         = EXCLUDED.opened_at,
+         closes_at         = EXCLUDED.closes_at,
+         resolved_at       = EXCLUDED.resolved_at,
+         resolution        = EXCLUDED.resolution,
+         resolution_source = EXCLUDED.resolution_source,
+         status            = EXCLUDED.status,
+         last_fetched_at   = NOW(),
+         raw               = EXCLUDED.raw
+       RETURNING id, (xmax = 0) AS inserted`,
+      [
+        String(r.source).slice(0, 20),
+        String(r.sourceMarketId).slice(0, 100),
+        r.sourceEventId ? String(r.sourceEventId).slice(0, 100) : null,
+        r.slug ? String(r.slug).slice(0, 200) : null,
+        r.url ? String(r.url).slice(0, 500) : null,
+        String(r.question).slice(0, 1000),
+        r.description ? String(r.description).slice(0, 4000) : null,
+        Array.isArray(r.category) ? r.category : [],
+        Array.isArray(r.rawTags) ? r.rawTags : [],
+        String(r.marketType).slice(0, 30),
+        r.outcomes ? JSON.stringify(r.outcomes) : null,
+        Number.isFinite(r.probability) ? Number(r.probability) : null,
+        Number.isFinite(r.volume) ? Number(r.volume) : null,
+        Number.isFinite(r.liquidity) ? Number(r.liquidity) : null,
+        Number.isFinite(r.openInterest) ? Number(r.openInterest) : null,
+        String(r.currency).slice(0, 10),
+        Number.isFinite(r.traderCount) ? Number(r.traderCount) : null,
+        r.openedAt || null,
+        r.closesAt || null,
+        r.resolvedAt || null,
+        r.resolution ? String(r.resolution).slice(0, 200) : null,
+        r.resolutionSource ? String(r.resolutionSource).slice(0, 500) : null,
+        String(r.status).slice(0, 20),
+        r.raw ? JSON.stringify(r.raw) : null,
+      ]
+    );
+    if (!upsert || !upsert.id) { skipped++; continue; }
+    if (upsert.inserted === true) inserted++;
+    else updated++;
+
+    // Always append a snapshot row — one row per cron tick per market.
+    await db.queryOne(
+      `INSERT INTO wm_prediction_market_snapshots
+         (market_id, captured_at, probability, outcomes, volume, liquidity)
+       VALUES ($1, NOW(), $2, $3, $4, $5)
+       RETURNING id`,
+      [
+        upsert.id,
+        Number.isFinite(r.probability) ? Number(r.probability) : null,
+        r.outcomes ? JSON.stringify(r.outcomes) : null,
+        Number.isFinite(r.volume) ? Number(r.volume) : null,
+        Number.isFinite(r.liquidity) ? Number(r.liquidity) : null,
+      ]
+    );
+    snapshotted++;
+  }
+  return { inserted, updated, snapshotted, skipped };
+}
+
+async function runManifoldMarketsJob() {
+  const t0 = Date.now();
+  const mm = loadManifoldMarkets();
+  let rows = [];
+  try {
+    rows = await mm.fetchAllManifoldMarkets();
+  } catch (err) {
+    return { fetched: 0, inserted: 0, updated: 0, snapshotted: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistPredictionMarkets(rows);
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    snapshotted: persistResult.snapshotted,
+    skipped: persistResult.skipped,
+    durationMs: Date.now() - t0,
+  };
+}
+
+async function runKalshiMarketsJob() {
+  const t0 = Date.now();
+  const km = loadKalshiMarkets();
+  let rows = [];
+  try {
+    rows = await km.fetchAllKalshiMarkets();
+  } catch (err) {
+    return { fetched: 0, inserted: 0, updated: 0, snapshotted: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistPredictionMarkets(rows);
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    snapshotted: persistResult.snapshotted,
+    skipped: persistResult.skipped,
+    durationMs: Date.now() - t0,
+  };
+}
+
+async function runPolymarketMarketsJob() {
+  const t0 = Date.now();
+  const pm = loadPolymarketMarkets();
+  let rows = [];
+  try {
+    rows = await pm.fetchAllPolymarketMarkets();
+  } catch (err) {
+    return { fetched: 0, inserted: 0, updated: 0, snapshotted: 0, durationMs: Date.now() - t0, error: err.message };
+  }
+  const persistResult = await persistPredictionMarkets(rows);
+  return {
+    fetched: rows.length,
+    inserted: persistResult.inserted,
+    updated: persistResult.updated,
+    snapshotted: persistResult.snapshotted,
+    skipped: persistResult.skipped,
+    durationMs: Date.now() - t0,
+  };
+}
+
 module.exports = {
   runClusteringJob,
   runFocalPointJob,
@@ -2522,6 +2705,10 @@ module.exports = {
   runFxRatesJob,
   runMacroIndicatorsJob,
   runAgriCommoditiesJob,
+  runManifoldMarketsJob,
+  runKalshiMarketsJob,
+  runPolymarketMarketsJob,
+  persistPredictionMarkets,    // exported for testing
   fetchRecentArticles,         // exported for testing
   persistClusters,             // exported for testing
   persistFocalPoints,          // exported for testing

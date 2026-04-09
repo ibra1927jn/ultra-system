@@ -250,3 +250,73 @@ CREATE INDEX IF NOT EXISTS idx_wm_agri_category_period
   ON wm_agri_commodities (category, period DESC);
 CREATE INDEX IF NOT EXISTS idx_wm_agri_period
   ON wm_agri_commodities (period DESC);
+
+-- ─── Bloque 4 step 20: Prediction markets (unified) ────────────────
+-- Single table for prediction-market signals across multiple sources
+-- (Manifold / Kalshi / Metaculus / Polymarket). 90% of the semantics
+-- is shared; per-source quirks live in `outcomes` jsonb + `currency`
+-- (Manifold uses MANA play-money, Kalshi/Polymarket USD, Metaculus
+-- uses calibrated points + CDFs for continuous questions).
+--
+-- Time-series of prices/probabilities lives in the child table
+-- wm_prediction_market_snapshots — one append-only row per cron tick
+-- per market. Keeps the parent row small while preserving full history
+-- for the intelligence layer (correlation, divergence, regime shifts).
+--
+-- UPSERT key: (source, source_market_id) — native id from each source.
+--
+-- Storage budget Sub 4a (Manifold only): ~200 active markets × 48
+-- snapshots/day (cron */30) ≈ 10K rows/day → ~300K/mo. Bounded
+-- retention TBD when 4b/4c/4d add their volume.
+CREATE TABLE IF NOT EXISTS wm_prediction_markets (
+  id                BIGSERIAL PRIMARY KEY,
+  source            TEXT NOT NULL,                    -- 'manifold'|'kalshi'|'metaculus'|'polymarket'
+  source_market_id  TEXT NOT NULL,                    -- native id from source
+  source_event_id   TEXT,                             -- nullable (Polymarket events, Kalshi events)
+  slug              TEXT,
+  url               TEXT,
+  question          TEXT NOT NULL,
+  description       TEXT,
+  category          TEXT[] NOT NULL DEFAULT '{}',     -- normalized: politics|geopolitics|elections|macro|ai|science|biosec|crypto|tech|other
+  raw_tags          TEXT[] NOT NULL DEFAULT '{}',     -- source-native tags untouched
+  market_type       TEXT NOT NULL,                    -- 'binary'|'multiple_choice'|'scalar'|'continuous_cdf'
+  outcomes          JSONB,                            -- [{label, probability?, volume?}] — null for unknown shape
+  probability       NUMERIC(8,6),                     -- canonical YES probability for binary, null otherwise
+  volume            NUMERIC(20,4),                    -- in `currency` units (MANA/USD/PTS)
+  liquidity         NUMERIC(20,4),
+  open_interest     NUMERIC(20,4),
+  currency          TEXT NOT NULL,                    -- 'USD'|'MANA'|'PTS'
+  trader_count      INTEGER,
+  opened_at         TIMESTAMPTZ,
+  closes_at         TIMESTAMPTZ,
+  resolved_at       TIMESTAMPTZ,
+  resolution        TEXT,
+  resolution_source TEXT,
+  status            TEXT NOT NULL,                    -- 'open'|'closed'|'resolved'|'cancelled'
+  first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_fetched_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  raw               JSONB,                            -- full source payload for reprocessing
+  CONSTRAINT wm_prediction_markets_uniq UNIQUE (source, source_market_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_pred_source_fetched
+  ON wm_prediction_markets (source, last_fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_pred_closes_open
+  ON wm_prediction_markets (closes_at) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS idx_wm_pred_category
+  ON wm_prediction_markets USING GIN (category);
+CREATE INDEX IF NOT EXISTS idx_wm_pred_raw_tags
+  ON wm_prediction_markets USING GIN (raw_tags);
+
+CREATE TABLE IF NOT EXISTS wm_prediction_market_snapshots (
+  id            BIGSERIAL PRIMARY KEY,
+  market_id     BIGINT NOT NULL REFERENCES wm_prediction_markets(id) ON DELETE CASCADE,
+  captured_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  probability   NUMERIC(8,6),
+  outcomes      JSONB,
+  volume        NUMERIC(20,4),
+  liquidity     NUMERIC(20,4)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_pred_snap_market_time
+  ON wm_prediction_market_snapshots (market_id, captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_pred_snap_captured
+  ON wm_prediction_market_snapshots (captured_at DESC);

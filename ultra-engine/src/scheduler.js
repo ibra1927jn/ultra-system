@@ -785,6 +785,79 @@ function init() {
     'Semanal lun 10:00 UTC — USDA NASS Quick Stats 5 crops → wm_agri_commodities'
   );
 
+  // ─── WM Phase 3 Bloque 4 Sub-a: Manifold prediction markets ──
+  // Manifold Markets via /v0/search-markets, 9 normalized categories
+  // (politics/geopolitics/elections/macro/ai/science/biosec/crypto/tech)
+  // × ~5 search terms each. Public REST API, no auth, no Cloudflare,
+  // 500 req/min cap (we use ~6 req/s). UPSERT por (source, source_market_id);
+  // each tick also appends a snapshot row to wm_prediction_market_snapshots.
+  // Currency is MANA (Manifold play-money), stored in `currency` column.
+  register(
+    'wm-manifold-markets',
+    '*/30 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runManifoldMarketsJob();
+        if (r.error) {
+          console.error(`❌ wm-manifold-markets: ${r.error}`);
+        } else {
+          console.log(`📈 wm-manifold-markets: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} snapshotted=${r.snapshotted} skipped=${r.skipped} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-manifold-markets:', err.message); }
+    },
+    'Cada 30min — Manifold Markets /v0/search-markets → wm_prediction_markets'
+  );
+
+  // ─── WM Phase 3 Bloque 4 Sub-b: Kalshi prediction markets ──
+  // Kalshi (CFTC-regulated US prediction exchange) via /v2/events
+  // ?status=open&with_nested_markets=true. Category whitelist filters
+  // out Sports/Entertainment/Mentions noise; keeps Politics/Elections/
+  // Economics/Financials/World/Climate/SciTech/Crypto/Health/Companies.
+  // USD-denominated, no auth, ~10-30 paginated calls per tick.
+  register(
+    'wm-kalshi-markets',
+    '*/15 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runKalshiMarketsJob();
+        if (r.error) {
+          console.error(`❌ wm-kalshi-markets: ${r.error}`);
+        } else {
+          console.log(`🇺🇸 wm-kalshi-markets: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} snapshotted=${r.snapshotted} skipped=${r.skipped} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-kalshi-markets:', err.message); }
+    },
+    'Cada 15min — Kalshi /v2/events open + nested markets → wm_prediction_markets'
+  );
+
+  // ─── WM Phase 3 Bloque 4 Sub-d: Polymarket prediction markets ──
+  // Polymarket (USDC-settled on-chain prediction market on Polygon) via
+  // Gamma API /events?closed=false&order=volume&ascending=false. Top
+  // 2000 events by volume (10 pages × 200), event-tag whitelist drops
+  // Sports/Culture/operational tags, per-market activity filter requires
+  // 24h volume>0 OR liquidity>1000 USD. USD-denominated, no auth.
+  // Note: an older RPC (domains/prediction/v1/list-prediction-markets.ts)
+  // documented Cloudflare JA3 fingerprint blocking — verified 2026-04-09
+  // that this is no longer in effect from this Hetzner box.
+  register(
+    'wm-polymarket-markets',
+    '*/15 * * * *',
+    async () => {
+      try {
+        const wm = require('./wm_bridge');
+        const r = await wm.runPolymarketMarketsJob();
+        if (r.error) {
+          console.error(`❌ wm-polymarket-markets: ${r.error}`);
+        } else {
+          console.log(`💰 wm-polymarket-markets: fetched=${r.fetched} inserted=${r.inserted} updated=${r.updated} snapshotted=${r.snapshotted} skipped=${r.skipped} ${r.durationMs}ms`);
+        }
+      } catch (err) { console.error('❌ wm-polymarket-markets:', err.message); }
+    },
+    'Cada 15min — Polymarket Gamma /events open + nested markets → wm_prediction_markets'
+  );
+
   // ─── P1 Tier A: News API stubs poll cada 4h ──
   register(
     'news-api-stubs',
