@@ -17,18 +17,18 @@ const telegram = require('./telegram');
 const SCORE_ALWAYS_ALERT = 8;
 
 // Topics que SIEMPRE alertan (independientemente del score) por su
-// criticidad operacional para Ibrahim:
+// criticidad operacional para Ibrahim. Lista deliberadamente CORTA: solo
+// eventos raros y de alto impacto institucional. Topics ruidosos como
+// layoffs/grants_*/fellowships pasan por la puerta del score (≥8) — si
+// no tienen palabras clave configuradas que disparen el score, son ruido
+// de baja prioridad y no merecen interrumpir.
 //   - visa* → afecta a NZ WHV / movilidad
 //   - boe → boletín oficial estatal (España, residencia, deudas)
-//   - layoffs → P2 jobs intel (riesgo si tiene aplicaciones)
 //   - central_bank → decisiones de tipos (riesgo P3)
-//   - grants/grants_dev/grants_ngo/dev_grants/startup_grants/fellowships → deadline tracking
 const ALWAYS_ALERT_TOPICS = new Set([
   'visa', 'visa_eu', 'visa_us',
   'boe',
-  'layoffs',
   'central_bank',
-  'grants', 'grants_dev', 'grants_ngo', 'dev_grants', 'startup_grants', 'fellowships',
 ]);
 
 const PILLAR_EMOJI = {

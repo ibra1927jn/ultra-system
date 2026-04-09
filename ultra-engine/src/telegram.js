@@ -201,15 +201,19 @@ function init() {
   });
 
   // ─── P1 → P2/P3/P4/P5: cross-pillar intel (B6) ────────
-  bot.onText(/\/cpi(?:\s+(P[2-5]))?/, async (msg, match) => {
+  // /cpi               → últimos 12 (todos los pilares)
+  // /cpi P2|P3|P4|P5   → filtro por pilar destino
+  // /cpi unread        → solo notified=FALSE (pendientes)
+  bot.onText(/\/cpi(?:\s+(P[2-5]|unread))?/i, async (msg, match) => {
     try {
-      const pillarFilter = match && match[1] ? match[1].toUpperCase() : null;
+      const arg = match && match[1] ? match[1].toUpperCase() : null;
+      const pillarFilter = arg && arg.startsWith('P') ? arg : null;
+      const unreadOnly = arg === 'UNREAD';
+      const conds = [];
       const params = [];
-      let where = '';
-      if (pillarFilter) {
-        where = 'WHERE c.target_pillar = $1';
-        params.push(pillarFilter);
-      }
+      if (pillarFilter) { params.push(pillarFilter); conds.push(`c.target_pillar = $${params.length}`); }
+      if (unreadOnly)   { conds.push(`c.notified = FALSE`); }
+      const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
       const rows = await db.queryAll(
         `SELECT c.target_pillar, c.pillar_topic, c.title, c.url, c.relevance_score,
                 c.notified, c.created_at, f.name AS feed_name
@@ -220,19 +224,25 @@ function init() {
          LIMIT 12`,
         params
       );
+      const totals = await db.queryOne(
+        `SELECT COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE notified = FALSE) AS unread
+         FROM cross_pillar_intel`
+      );
       if (!rows.length) {
-        send(msg.chat.id, pillarFilter
-          ? `📭 Sin cross-pillar intel para ${pillarFilter} todavía.`
-          : '📭 Sin cross-pillar intel todavía. El cron RSS corre periódicamente.');
+        send(msg.chat.id, unreadOnly
+          ? '📭 No hay cross-pillar intel pendiente.'
+          : pillarFilter
+            ? `📭 Sin cross-pillar intel para ${pillarFilter} todavía.`
+            : '📭 Sin cross-pillar intel todavía. El cron RSS corre periódicamente.');
         return;
       }
-      const lines = [
-        pillarFilter
-          ? `🌉 *Cross-pillar intel — ${pillarFilter}*`
-          : '🌉 *Cross-pillar intel — últimos 12*',
-        '━━━━━━━━━━━━━━━━━━━━━━━━',
-        '',
-      ];
+      const header = unreadOnly
+        ? `🌉 *Cross-pillar intel — pendientes (${totals.unread}/${totals.total})*`
+        : pillarFilter
+          ? `🌉 *Cross-pillar intel — ${pillarFilter}* (${totals.unread} pendientes / ${totals.total} total)`
+          : `🌉 *Cross-pillar intel — últimos 12* (${totals.unread} pendientes / ${totals.total} total)`;
+      const lines = [header, '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
       for (const r of rows) {
         const emoji = { P2: '💼', P3: '💰', P4: '🛂', P5: '🎯' }[r.target_pillar] || '📰';
         const topic = r.pillar_topic ? ` · #${r.pillar_topic}` : '';
@@ -246,7 +256,7 @@ function init() {
         lines.push('');
       }
       lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
-      lines.push('Filtros: `/cpi P2` `/cpi P3` `/cpi P4` `/cpi P5`');
+      lines.push('Filtros: `/cpi P2` `/cpi P3` `/cpi P4` `/cpi P5` `/cpi unread`');
       send(msg.chat.id, lines.join('\n'), 'Markdown');
     } catch (err) {
       send(msg.chat.id, `❌ Error: ${err.message}`);
