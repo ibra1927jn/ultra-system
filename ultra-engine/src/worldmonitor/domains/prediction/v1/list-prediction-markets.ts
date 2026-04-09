@@ -1,10 +1,14 @@
 /**
  * ListPredictionMarkets RPC -- proxies the Gamma API for Polymarket prediction markets.
  *
- * Critical constraint: Gamma API is behind Cloudflare JA3 fingerprint detection
- * that blocks server-side TLS connections. The handler tries the fetch and
- * gracefully returns empty on failure -- identical to the existing api/polymarket.js
- * behavior. This is expected, not an error.
+ * Historical note: this RPC was originally written assuming Gamma was behind
+ * Cloudflare JA3 fingerprint detection blocking server-side TLS — it always
+ * returned empty on the live cron and the handler had a "graceful empty" branch.
+ * Verified 2026-04-09 from ct4-bot (Hetzner Helsinki) that plain Node fetch to
+ * gamma-api.polymarket.com returns 200 with no special headers. WM Phase 3
+ * Bloque 4 introduced wm-polymarket-markets which writes to wm_prediction_markets
+ * directly and proves the path. This RPC is kept as a thin proxy for ad-hoc
+ * lookups; failures are now treated as real errors (not expected silence).
  */
 
 import type {
@@ -150,9 +154,12 @@ export const listPredictionMarkets: PredictionServiceHandler['listPredictionMark
         const rawMarkets = data as GammaMarket[];
         markets = rawMarkets.map(mapMarket);
       }
-    } catch {
+    } catch (err) {
       clearTimeout(timer);
-      // Expected: Cloudflare blocks server-side TLS connections
+      // Real network/parse error — log and return empty so the RPC client
+      // gets a usable response. JA3 graceful-empty assumption removed
+      // 2026-04-09 (verified Gamma reachable from this host).
+      console.warn('[list-prediction-markets] gamma fetch failed:', (err as Error).message);
       return { markets: [], pagination: undefined };
     }
 

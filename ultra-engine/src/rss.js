@@ -93,11 +93,16 @@ async function addFeed(url, name, category = 'general') {
  * Obtiene todos los feeds
  */
 async function getFeeds() {
-  // Excluye pseudo-feeds (gdelt, bsky) — esos los maneja news_apis.js con fetchers dedicados
+  // Excluye pseudo-feeds — fetchers dedicados en news_apis.js los manejan
+  // (gdelt, bsky, mastodon_search, apple_podcasts, podcast_index, reddit,
+  // currents, newsdata, youtube_search, finlight, etc.). Filtramos por URL
+  // en vez de lista de categorías para que nuevos pseudo-feeds queden
+  // auto-excluidos sin tocar este código. Convención: pseudo-feeds tienen
+  // url 'pseudo://...' y categoría real fetcheada por su módulo dedicado.
   return db.queryAll(
     `SELECT * FROM rss_feeds
      WHERE is_active = TRUE
-       AND category NOT IN ('gdelt', 'bsky')
+       AND url NOT LIKE 'pseudo:%'
      ORDER BY name`
   );
 }
