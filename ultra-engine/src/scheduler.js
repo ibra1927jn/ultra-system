@@ -1018,6 +1018,27 @@ function init() {
     'Cada hora — Health check interno'
   );
 
+  // ─── P1 P0 #2 — Feeds health check ──────────────────────
+  // Audita los 750+ feeds RSS cada 6h. Solo notifica Telegram
+  // si problems >= 5 o hay feeds stale > 72h. Silencioso bajo
+  // ese umbral para evitar ruido.
+  register(
+    'feeds-health-check',
+    '17 */6 * * *',
+    async () => {
+      try {
+        const { runFeedsHealthCheck } = require('./feeds_health');
+        const r = await runFeedsHealthCheck();
+        if (r.alerted) {
+          console.log(`🩺 feeds-health alerted: ${r.never} never + ${r.stale24} stale_24h + ${r.stale72} stale_72h`);
+        }
+      } catch (err) {
+        console.error('❌ feeds-health-check:', err.message);
+      }
+    },
+    'Cada 6h :17 — Audit RSS feeds health (silent unless degraded)'
+  );
+
   console.log(`✅ ${jobs.length} jobs registrados`);
 }
 

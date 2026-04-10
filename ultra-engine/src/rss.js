@@ -209,7 +209,16 @@ async function fetchFeed(feedId) {
             title,
             item.link,
             summary,
-            (item.pubDate && !isNaN(new Date(item.pubDate).getTime())) ? new Date(item.pubDate) : new Date(),
+            // Clamp a NOW(): algunos feeds emiten timestamps en el futuro
+            // (timezone bugs, fechas mal codificadas) que rompen el orden
+            // por fecha en el dashboard. Tomamos el min(parsed, now).
+            (() => {
+              const now = new Date();
+              const parsed = item.pubDate && !isNaN(new Date(item.pubDate).getTime())
+                ? new Date(item.pubDate)
+                : now;
+              return parsed > now ? now : parsed;
+            })(),
             score,
           ]
         );
