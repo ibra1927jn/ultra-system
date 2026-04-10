@@ -632,14 +632,17 @@ function init() {
   register('wm-gdelt-intel-f', '52 * * * *', wmGdeltGroupHandler('f'), 'HH:52 — GDELT F (human_rights, food_security, water, ai_policy) + retention cleanup');
 
   // ─── P1 finalization B4 — GDELT GEO timelines + z-score alerts ──
-  // 29 países hotspot, sequential 6s stagger entre reqs (2 reqs/país),
-  // ciclo completo ≈ 6 min. Cron cada 6h: 00:22, 06:22, 12:22, 18:22.
+  // 29 países hotspot, paced por gdelt_throttle (~8-10s/req global).
+  // Cron cada 6h en :55 (no :22) para no arrancar encima de
+  // wm-gdelt-intel-c (HH:22). El throttle compartido coordinaría
+  // igualmente, pero arrancar en una ventana donde intel está idle
+  // reduce el coste inicial de cooldown.
   // Persiste daily snapshot en wm_gdelt_geo_timeline + INSERT a
   // wm_gdelt_volume_alerts cuando z-score >= 2.0 vs baseline 28d.
   // Publish 'gdelt.spike' en eventbus para downstream handlers.
   register(
     'wm-gdelt-geo',
-    '22 0,6,12,18 * * *',
+    '55 0,6,12,18 * * *',
     async () => {
       try {
         const wm = require('./wm_bridge');
@@ -647,7 +650,7 @@ function init() {
         console.log(`🌍 wm-gdelt-geo: countries=${r.countriesProcessed} persisted=${r.rowsPersisted} alerts=${r.alertsTriggered} ${r.elapsedSec}s`);
       } catch (err) { console.error('❌ wm-gdelt-geo:', err.message); }
     },
-    'Cada 6h :22 — GDELT GEO timelines + volume z-score alerts (29 hotspots)'
+    'Cada 6h :55 — GDELT GEO timelines + volume z-score alerts (29 hotspots)'
   );
 
   // ─── P1 WM Phase 2 step 13: hotspot dynamic escalation ──

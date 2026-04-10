@@ -36,17 +36,19 @@
 
 const db = require('./db');
 const eventbus = require('./eventbus');
+const throttle = require('./gdelt_throttle');
 
 const GDELT_DOC_API = 'https://api.gdeltproject.org/api/v2/doc/doc';
 const CHROME_UA =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// Tuning — GDELT explicit limit message: "Please limit requests to one
-// every 5 seconds". Use 6s to give a 1s margin and add jitter.
-const STAGGER_MS = 6_000;
+// Tuning — Since 2026-04-10 pacing is enforced by `gdelt_throttle`
+// (process-wide gate shared with wm_gdelt_intel). No internal stagger
+// remains — we only await throttle.acquire() before each fetch and
+// report throttling back on 429/non-json so the throttle applies a
+// global cooldown that also holds back intel calls.
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_ATTEMPTS = 2;
-const RETRY_BACKOFF_BASE_MS = 30_000;
 const TIMESPAN = '30d';
 
 // 29 países hotspot — sincronizados con wm_hotspot_escalation.HOTSPOTS.
@@ -94,7 +96,7 @@ function severityFromZ(z) {
   return 'low';
 }
 
-// ─── HTTP helper with retry/backoff ─────────────────────────
+// ─── HTTP helper with throttle + retry ──────────────────────
 async function gdeltFetchJSON(params) {
   const url = new URL(GDELT_DOC_API);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -102,6 +104,9 @@ async function gdeltFetchJSON(params) {
 
   let lastErr = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Wait for our turn on the global GDELT gate. This also enforces
+    // the cooldown if another caller reported a 429 recently.
+    await throttle.acquire();
     try {
       const res = await fetch(url.toString(), {
         headers: { 'User-Agent': CHROME_UA, Accept: 'application/json' },
@@ -109,9 +114,7 @@ async function gdeltFetchJSON(params) {
       });
       if (res.status === 429 || res.status >= 500) {
         lastErr = new Error(`GDELT HTTP ${res.status}`);
-        if (attempt < MAX_ATTEMPTS) {
-          await sleep(RETRY_BACKOFF_BASE_MS + Math.floor(Math.random() * 5000));
-        }
+        throttle.reportThrottled(); // global cooldown
         continue;
       }
       if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
@@ -119,13 +122,19 @@ async function gdeltFetchJSON(params) {
       try {
         return { ok: true, data: JSON.parse(text) };
       } catch {
+        // GDELT serves an HTML/plain error page when rate-limited —
+        // treat as retriable throttle and raise the global cooldown.
+        lastErr = new Error('non-json response (likely throttled)');
+        throttle.reportThrottled();
+        if (attempt < MAX_ATTEMPTS) continue;
         return { ok: false, error: 'non-json response' };
       }
     } catch (err) {
+      // Network error / timeout — not definitively a throttle, but
+      // GDELT tends to drop connections when overloaded, so apply a
+      // shorter cooldown than the throttle default.
       lastErr = err;
-      if (attempt < MAX_ATTEMPTS) {
-        await sleep(RETRY_BACKOFF_BASE_MS + Math.floor(Math.random() * 5000));
-      }
+      throttle.reportThrottled(15_000);
     }
   }
   return { ok: false, error: lastErr ? lastErr.message : 'unknown' };
@@ -141,7 +150,9 @@ function parseGdeltDate(s) {
 async function fetchCountryTimeline(country) {
   const sourceCountryQuery = `sourcecountry:${country}`;
 
-  // 1. Volume intensity timeline (+top URLs per day)
+  // 1. Volume intensity timeline (+top URLs per day). The global
+  //    throttle inside gdeltFetchJSON enforces pacing between this
+  //    call and the tone call below (and any concurrent intel calls).
   const volRes = await gdeltFetchJSON({
     query: sourceCountryQuery,
     mode: 'TimelineVolInfo',
@@ -150,8 +161,6 @@ async function fetchCountryTimeline(country) {
   if (!volRes.ok) {
     return { country, error: `volume: ${volRes.error}` };
   }
-
-  await sleep(STAGGER_MS);
 
   // 2. Tone timeline
   const toneRes = await gdeltFetchJSON({
@@ -305,8 +314,6 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
       if (t.error) {
         console.error(`[wm-gdelt-geo] ${c} fetch error: ${t.error}`);
         results.push({ country: c, error: t.error });
-        // Still wait stagger before next country to be polite
-        if (i < countries.length - 1) await sleep(STAGGER_MS);
         continue;
       }
       const volMap = timelineToMap(t.volume);
@@ -322,8 +329,8 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
       console.error(`[wm-gdelt-geo] ${c} unexpected error:`, err.message);
       results.push({ country: c, error: err.message });
     }
-    // Stagger between countries (skip after last)
-    if (i < countries.length - 1) await sleep(STAGGER_MS);
+    // No inter-country stagger: gdelt_throttle.acquire() in
+    // gdeltFetchJSON enforces global pacing across all callers.
   }
 
   const elapsedSec = Math.round((Date.now() - startedAt) / 1000);

@@ -22,26 +22,24 @@
 
 'use strict';
 
+const throttle = require('./gdelt_throttle');
+
 const GDELT_DOC_API = 'https://api.gdeltproject.org/api/v2/doc/doc';
 const CHROME_UA =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // Tuning notes:
-//  - 24 topics in a single back-to-back run gets the IP rate-limited by
-//    GDELT (observed 17/24 failures with stagger=6s / attempts=3 / timeout=20s).
-//  - Groups of 8 topics ALSO triggered ~6/8 failures (smoke 2026-04-08).
-//  - Split into 6 GROUPS of 4 topics each, scheduled every 10 min.
-//  - Inside one group, stagger 12s + 2 attempts (20s, 60s backoff) + 15s
-//    timeout keeps p50 ~60s and gives GDELT enough recovery between calls.
-//  - GDELT public DOC API has no documented rate limit but empirically
-//    blocks/timeouts beyond ~1 req per 8-10s sustained.
-const STAGGER_MS = 12_000;
+//  - 24 topics split into 6 GROUPS of 4, scheduled every 10 min.
+//  - Since 2026-04-10 the inter-request pacing is enforced by the
+//    shared `gdelt_throttle` module instead of an internal STAGGER_MS.
+//    The throttle coordinates with wm_gdelt_geo so that both callers
+//    respect a single process-wide GDELT rate bucket.
+//  - Retry is kept for transient failures; on 429/non-json the
+//    throttle's global cooldown absorbs the recovery window.
 const MAX_RECORDS = 20;
 const TIMESPAN = '24h';
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_ATTEMPTS = 2;
-const RETRY_BACKOFF_BASE_MS = 20_000;
-const RETRY_BACKOFF_FACTOR = 3;
 
 // ─── Topic catalog — covers full GDELT spectrum ──────────────
 // Each query uses GDELT boolean operators with `sourcelang:eng`
@@ -234,10 +232,6 @@ function parseSeendate(s) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
-
 /**
  * Fetch one topic from GDELT DOC 2.0 with retry/backoff.
  * Returns { topic, articles, error }.
@@ -256,6 +250,8 @@ async function fetchTopic(topic) {
 
   let lastErr = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Wait on the shared GDELT gate. Serializes with wm_gdelt_geo.
+    await throttle.acquire();
     try {
       const res = await fetch(url.toString(), {
         headers: { 'User-Agent': CHROME_UA, Accept: 'application/json' },
@@ -263,11 +259,8 @@ async function fetchTopic(topic) {
       });
 
       if (res.status === 429 || res.status >= 500) {
-        // exponential backoff with jitter: 20s, 60s
-        const base = RETRY_BACKOFF_BASE_MS * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1);
-        const jitter = Math.floor(Math.random() * 3000);
         lastErr = new Error(`GDELT HTTP ${res.status}`);
-        if (attempt < MAX_ATTEMPTS) await sleep(base + jitter);
+        throttle.reportThrottled(); // global cooldown
         continue;
       }
 
@@ -281,7 +274,11 @@ async function fetchTopic(topic) {
       try {
         data = JSON.parse(text);
       } catch {
-        // GDELT returned non-JSON (often empty body or HTML error page)
+        // GDELT returned non-JSON — treat as throttling signal and
+        // bail to retry via global cooldown.
+        lastErr = new Error('non-json response (likely throttled)');
+        throttle.reportThrottled();
+        if (attempt < MAX_ATTEMPTS) continue;
         return { topic, articles: [], error: 'non-json response' };
       }
 
@@ -300,12 +297,9 @@ async function fetchTopic(topic) {
 
       return { topic, articles, error: null };
     } catch (err) {
+      // Network error / timeout — apply short cooldown and retry.
       lastErr = err;
-      if (attempt < MAX_ATTEMPTS) {
-        const base = RETRY_BACKOFF_BASE_MS * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1);
-        const jitter = Math.floor(Math.random() * 3000);
-        await sleep(base + jitter);
-      }
+      throttle.reportThrottled(15_000);
     }
   }
 
@@ -320,7 +314,8 @@ async function fetchTopic(topic) {
 async function fetchTopicList(topics) {
   const results = [];
   for (let i = 0; i < topics.length; i++) {
-    if (i > 0) await sleep(STAGGER_MS);
+    // No internal stagger — pacing is enforced by gdelt_throttle
+    // inside fetchTopic() so it coordinates with other GDELT callers.
     const r = await fetchTopic(topics[i]);
     results.push(r);
   }
