@@ -6,6 +6,7 @@
 const Parser = require('rss-parser');
 const db = require('./db');
 const eventbus = require('./eventbus');
+const nlpEnrich = require('./nlp_enrich');
 
 const parser = new Parser({
   timeout: 15000,
@@ -259,6 +260,11 @@ async function fetchFeed(feedId) {
         // Si supera el umbral, guardar para alertar
         if (score >= SCORE_THRESHOLD) {
           highScoreArticles.push({ title, url: item.link, score, feed: feed.name });
+          // B8 NLP enrichment fire-and-forget. Bounded internally
+          // by ENRICH_MAX_INFLIGHT so a slow sidecar can't accumulate.
+          if (inserted?.id) {
+            nlpEnrich.enrichArticle({ articleId: inserted.id, title, summary }).catch(() => {});
+          }
         }
       }
     }

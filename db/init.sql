@@ -2157,3 +2157,22 @@ CREATE INDEX IF NOT EXISTS idx_wm_gdelt_alerts_country_date
 CREATE INDEX IF NOT EXISTS idx_wm_gdelt_alerts_pending
     ON wm_gdelt_volume_alerts(notified) WHERE notified = FALSE;
 
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 FINALIZATION B8 — NLP transformers enrichment
+--  2026-04-11: per-article enrichment row produced by the
+--  ultra_nlp sidecar (HF transformers) for high-score articles.
+--  Embeddings stored as JSONB float[] (no pgvector dependency
+--  yet — switch later if similarity search becomes hot).
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE IF NOT EXISTS rss_articles_enrichment (
+    article_id      INTEGER PRIMARY KEY REFERENCES rss_articles(id) ON DELETE CASCADE,
+    embedding       JSONB,
+    sentiment_label VARCHAR(32),
+    sentiment_score NUMERIC(5,4),
+    classify_topics JSONB,
+    summary         TEXT,
+    enriched_at     TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_rss_enr_sentiment ON rss_articles_enrichment(sentiment_label);
+CREATE INDEX IF NOT EXISTS idx_rss_enr_enriched ON rss_articles_enrichment(enriched_at DESC);
+

@@ -71,6 +71,7 @@ services:
       PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-changeme}
       OSRM_BASE_URL: http://osrm:5000
       SPACY_BASE_URL: http://spacy:8000
+      NLP_BASE_URL: http://nlp:8000
       PUPPETEER_BASE_URL: http://puppeteer:3000
       FIREFLY_BASE_URL: http://firefly_iii:8080
       FIREFLY_PERSONAL_TOKEN: ${FIREFLY_PERSONAL_TOKEN:-}
@@ -371,6 +372,37 @@ services:
       resources:
         limits:
           memory: 600M
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P1 B8 NLP — HF transformers sidecar
+  #  Lazy LRU loader (max 2 models in RAM):
+  #   classify  → distilbart-mnli-12-3
+  #   summarize → distilbart-cnn-12-6
+  #   sentiment → twitter-xlm-roberta-base-sentiment
+  #   embed     → paraphrase-multilingual-MiniLM-L12-v2
+  #   translate → opus-mt-mul-en (any → en)
+  #
+  #  Models cached on Hetzner volume sdb (32GB free) — root sda
+  #  has only 3.8GB free so we cannot put them there.
+  #  Called from engine via src/nlp.js for high-score articles.
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  nlp:
+    build: ./nlp-sidecar
+    container_name: ultra_nlp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8011:8000"
+    volumes:
+      - /mnt/HC_Volume_105271265/nlp_models:/models
+    environment:
+      NLP_MAX_MODELS: "2"
+      TORCH_THREADS: "2"
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 3G
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   #  Puppeteer sidecar (R5 P5/P6 — desbloquea SPAs)
