@@ -16,6 +16,8 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 const express = require('express');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 
 const db = require('./src/db');
@@ -47,14 +49,37 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ─── Middleware ────────────────────────────────────────────
+// trust loopback / docker bridge (compose port bind is 127.0.0.1:80:3000
+// + internal container-to-container, so trust=1 is safe and makes
+// express-rate-limit derive the real client from X-Forwarded-For/remote).
+app.set('trust proxy', 1);
+app.use(helmet({
+  contentSecurityPolicy: false, // dashboard usa inline styles + google fonts
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store, no-cache, must-revalidate'); next(); });
 
+// ─── Rate limits ───────────────────────────────────────────
+// Login: 5 intentos/min por IP (bruteforce defense).
+const loginLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 5,
+  standardHeaders: true, legacyHeaders: false,
+  message: { ok: false, error: 'Too many login attempts' },
+});
+// Webhooks: 60/min por IP (cdio/bsky/telethon legítimos caben holgados).
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 60,
+  standardHeaders: true, legacyHeaders: false,
+  message: { ok: false, error: 'Webhook rate limit' },
+});
+
 // ─── Archivos estáticos (Dashboard) ────────────────────────
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── Auth Routes (públicas) ───────────────────────────────
+// ─── Auth Routes (públicas, rate-limited en login) ───────
+app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth', authRouter);
 
 // ─── API Routes (protegidas con JWT) ──────────────────────
@@ -70,8 +95,8 @@ app.use('/api/bureaucracy', requireAuth, bureaucracyRouter);
 app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
 app.use('/api/wm', requireAuth, wmRouter);
 
-// ─── Webhooks (públicos, validados por shared secret) ────
-app.use('/webhooks', webhooksRouter);
+// ─── Webhooks (públicos, validados por shared secret + rate-limited) ──
+app.use('/webhooks', webhookLimiter, webhooksRouter);
 // ─── Public read-only API for map.html (sin JWT) ─────────
 app.use('/api/public', webhooksRouter);
 
@@ -104,30 +129,14 @@ app.get('/api/health', async (req, res) => {
   const uptimeHours = Math.floor(uptimeSec / 3600);
   const uptimeMinutes = Math.floor((uptimeSec % 3600) / 60);
 
+  // Health público mínimo — nada de métricas sensibles (db_size, table_count,
+  // uptime exacto, versión node, nombre db, lista de pilares). Solo lo
+  // imprescindible para un uptime checker externo.
   const health = {
     ok: dbHealth.ok && allPillarsLoaded,
-    uptime: `${uptimeHours}h ${uptimeMinutes}m`,
-    uptime_seconds: uptimeSec,
-    db: {
-      ok: dbHealth.ok,
-      time: dbHealth.time || null,
-      database: dbHealth.database || null,
-      db_size: dbHealth.db_size || null,
-      table_count: dbHealth.table_count || 0,
-      error: dbHealth.error || null,
-    },
-    telegram: {
-      ok: telegramOk,
-    },
-    pillars: {
-      loaded: pillars.filter(p => p.loaded).length,
-      total: 7,
-      all_loaded: allPillarsLoaded,
-      detail: pillars,
-    },
-    environment: process.env.NODE_ENV || 'development',
-    node_version: process.version,
-    timestamp: new Date().toISOString(),
+    db: dbHealth.ok,
+    telegram: telegramOk,
+    pillars_ok: allPillarsLoaded,
   };
 
   res.status(health.ok ? 200 : 503).json(health);

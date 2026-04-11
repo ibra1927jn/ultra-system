@@ -40,7 +40,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "80:3000"
+      - "127.0.0.1:80:3000"
     # env_file expone TODAS las API keys del .env (Currents, Newsdata, YouTube,
     # USAJobs, Wise, Akahu, OCM, USDA, etc) sin tener que listarlas una a una.
     # Las del bloque environment: sobreescriben/añaden sólo las que necesitan
@@ -96,7 +96,7 @@ services:
     container_name: ultra_wger
     restart: unless-stopped
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     environment:
       SECRET_KEY: ${WGER_SECRET_KEY:-change-me-please-with-random-string}
       SIGNING_KEY: ${WGER_SIGNING_KEY:-change-me-please-with-random-string-2}
@@ -120,7 +120,7 @@ services:
     container_name: ultra_mealie
     restart: unless-stopped
     ports:
-      - "8002:9000"
+      - "127.0.0.1:8002:9000"
     environment:
       ALLOW_SIGNUP: "false"
       PUID: "1000"
@@ -144,7 +144,7 @@ services:
     container_name: ultra_grocy
     restart: unless-stopped
     ports:
-      - "8003:80"
+      - "127.0.0.1:8003:80"
     environment:
       PUID: "1000"
       PGID: "1000"
@@ -160,7 +160,7 @@ services:
     container_name: ultra_fasten
     restart: unless-stopped
     ports:
-      - "8004:8080"
+      - "127.0.0.1:8004:8080"
     volumes:
       - fasten_data:/opt/fasten/db
       - fasten_cache:/opt/fasten/cache
@@ -177,7 +177,7 @@ services:
     container_name: ultra_jobspy
     restart: unless-stopped
     ports:
-      - "8005:8000"
+      - "127.0.0.1:8005:8000"
     environment:
       API_KEY: ${JOBSPY_API_KEY:-}
       ENABLE_API_KEY_AUTH: "false"
@@ -212,7 +212,7 @@ services:
     depends_on:
       - paperless-redis
     ports:
-      - "8007:8000"
+      - "127.0.0.1:8007:8000"
     environment:
       PAPERLESS_REDIS: redis://paperless-redis:6379
       PAPERLESS_DBENGINE: sqlite
@@ -257,7 +257,7 @@ services:
     volumes:
       - ./osrm/data:/data:ro
     ports:
-      - "5001:5000"
+      - "127.0.0.1:5001:5000"
     networks:
       - ultra_net
     deploy:
@@ -364,7 +364,7 @@ services:
     container_name: ultra_spacy
     restart: unless-stopped
     ports:
-      - "8009:8000"
+      - "127.0.0.1:8009:8000"
     networks:
       - ultra_net
     deploy:
@@ -384,7 +384,7 @@ services:
     restart: unless-stopped
     profiles: ["puppeteer"]
     ports:
-      - "8010:3000"
+      - "127.0.0.1:8010:3000"
     networks:
       - ultra_net
     # Chromium necesita SHM grande para tabs no triviales
@@ -403,7 +403,7 @@ services:
     restart: unless-stopped
     profiles: ["notify"]
     ports:
-      - "8008:8000"
+      - "127.0.0.1:8008:8000"
     environment:
       APPRISE_STATEFUL_MODE: simple
       APPRISE_CONFIG_LOCK: "no"
@@ -425,7 +425,7 @@ services:
     restart: unless-stopped
     profiles: ["automation"]
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       N8N_BASIC_AUTH_ACTIVE: "true"
       N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
@@ -458,7 +458,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       APP_KEY: ${FIREFLY_APP_KEY}
       APP_URL: ${FIREFLY_APP_URL:-http://localhost:8080}
@@ -503,7 +503,7 @@ services:
     depends_on:
       - firefly_iii
     ports:
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
     environment:
       APP_URL: http://localhost:8081
       FIREFLY_III_URL: http://firefly_iii:8080
