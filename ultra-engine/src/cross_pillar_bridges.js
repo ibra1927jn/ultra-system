@@ -125,18 +125,65 @@ async function onGdeltSpike({ data }) {
   }
 }
 
+// ─── B5 — intel.watch.change → telegram alert ──────────
+// Publicado por routes/webhooks.js cuando changedetection.io detecta
+// un cambio en uno de los 33 intel_watches. Tier A (policy + hotspots)
+// siempre alerta; tier B/C/D solo si el summary tiene señal explícita.
+// La persistencia del change ya la hace el webhook en intel_watch_changes,
+// este handler solo enruta el push al Telegram del usuario.
+const TIER_EMOJI = { A: '🔴', B: '🟠', C: '🟡', D: '⚪' };
+
+async function onIntelWatchChange({ data }) {
+  try {
+    const { watch_id, country, category, tier, topic, label, url, summary } = data;
+    // Tier A siempre. B/C/D solo si el summary parece sustantivo
+    // (>20 chars, no es solo whitespace/HTML chrome).
+    const summaryStr = String(summary || '').trim();
+    if (tier !== 'A' && summaryStr.length < 20) return;
+
+    const e = TIER_EMOJI[tier] || '📡';
+    const catTag = category === 'policy' ? 'policy' : `country/${country || '?'}`;
+    const topicTag = topic ? ` · #${topic}` : '';
+
+    const lines = [
+      `${e} *Intel watch change* — ${catTag}${topicTag}`,
+      ``,
+      `*${label}*`,
+    ];
+    if (summaryStr) lines.push(``, summaryStr.slice(0, 400));
+    if (url) lines.push(``, `🔗 ${url}`);
+
+    await telegram.sendAlert(lines.join('\n'));
+
+    // Mark in DB que ya alertamos este change (último por watch_id)
+    if (watch_id) {
+      await db.query(
+        `UPDATE intel_watch_changes
+         SET published_to_bus = TRUE
+         WHERE watch_id = $1
+           AND id = (SELECT MAX(id) FROM intel_watch_changes WHERE watch_id = $1)`,
+        [watch_id]
+      );
+    }
+  } catch (err) {
+    console.error('cross_pillar_bridges onIntelWatchChange error:', err.message);
+  }
+}
+
 function init() {
   if (_initialized) return;
   eventbus.subscribe('news.cpi', onCrossPillarNews);
   eventbus.subscribe('gdelt.spike', onGdeltSpike);
+  eventbus.subscribe('intel.watch.change', onIntelWatchChange);
   _initialized = true;
-  console.log('🌉 Cross-pillar news bridges activos: news.cpi → telegram (P2/P3/P4/P5), gdelt.spike → telegram (high/critical)');
+  console.log('🌉 Cross-pillar news bridges activos: news.cpi → telegram (P2/P3/P4/P5), gdelt.spike → telegram (high/critical), intel.watch.change → telegram (B5)');
 }
 
 module.exports = {
   init,
   onCrossPillarNews,
   onGdeltSpike,
+  onIntelWatchChange,
   shouldAlert,
   ALWAYS_ALERT_TOPICS,
 };

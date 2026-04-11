@@ -287,7 +287,12 @@ services:
     container_name: ultra_changedetection
     restart: unless-stopped
     ports:
-      - "8006:5000"
+      # Bind a localhost solamente. La UI no requiere auth por defecto y la
+      # exposición pública en 95.217.158.7:8006 era un riesgo (auditoría
+      # 2026-04-11). El engine alcanza CDIO via red interna ultra_net en
+      # http://changedetection:5000 sin necesidad de port mapping público.
+      # Para acceso UI desde fuera: SSH tunnel `ssh -L 8006:localhost:8006 root@95.217.158.7`.
+      - "127.0.0.1:8006:5000"
     environment:
       BASE_URL: http://localhost:8006
       PUID: "1000"
