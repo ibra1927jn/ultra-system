@@ -138,6 +138,63 @@ router.post('/intel-watch', async (req, res) => {
   }
 });
 
+// ─── POST /webhooks/telegram-channel ──────────────────────
+// P1 Lote B B9: telethon sidecar pushea mensajes nuevos de canales
+// públicos OSINT. Persiste en rss_articles bajo el pseudo-feed
+// 'pseudo://telegram' (category='telegram') para reusar la pipeline
+// downstream existente (B6 cross-pillar bridges, scoring, dashboard).
+let _telegramFeedId = null;
+async function loadTelegramFeedId() {
+  if (_telegramFeedId) return _telegramFeedId;
+  const row = await db.queryOne(
+    `SELECT id FROM rss_feeds WHERE url = 'pseudo://telegram' LIMIT 1`
+  );
+  if (!row) throw new Error("pseudo-feed 'pseudo://telegram' not found");
+  _telegramFeedId = row.id;
+  return _telegramFeedId;
+}
+
+router.post('/telegram-channel', async (req, res) => {
+  if (!verifySecret(req, res)) return;
+  try {
+    const p = req.body || {};
+    if (!p.url || !p.text) {
+      return res.status(400).json({ ok: false, error: 'missing url/text' });
+    }
+
+    // Dedup por URL antes de tocar el feed pseudo (cheap escape)
+    const existing = await db.queryOne(
+      `SELECT id FROM rss_articles WHERE url = $1`, [p.url]
+    );
+    if (existing) return res.json({ ok: true, dedup: true });
+
+    const feedId = await loadTelegramFeedId();
+    const channelTag = p.channel_username
+      ? '@' + p.channel_username
+      : (p.channel_title || 'tg');
+    const text = String(p.text);
+    const title = `[tg ${channelTag}] ${text.slice(0, 200)}`;
+    const summary = `Telegram · ${p.channel_title || channelTag} · views=${p.views ?? '?'}`;
+    const publishedAt = p.date ? new Date(p.date) : new Date();
+
+    let score = 5;
+    try {
+      const rss = require('../rss');
+      score = await rss.scoreArticle(text, '');
+    } catch { /* fall back to default 5 */ }
+
+    await db.query(
+      `INSERT INTO rss_articles (feed_id, title, url, summary, published_at, relevance_score)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [feedId, title, p.url, summary, publishedAt, score]
+    );
+    res.json({ ok: true, score });
+  } catch (err) {
+    console.error('❌ telegram-channel webhook:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ─── GET/POST /webhooks/gps ─ OsmAnd protocol direct push ──
 // Phone Traccar Client puede apuntar aquí en vez de a ultra_traccar:5055.
 // Soporta GET (Traccar Client default) y POST (OwnTracks-style).

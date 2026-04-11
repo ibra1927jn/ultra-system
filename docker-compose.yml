@@ -308,6 +308,52 @@ services:
           memory: 400M
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P1 Lote B B9 — Telegram Telethon sidecar
+  #  Listener MTProto user-session de canales públicos OSINT.
+  #  Auth interactivo único: docker compose run --rm telethon-auth
+  #  Operación normal: docker compose up -d telethon
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  telethon:
+    build: ./telethon-sidecar
+    container_name: ultra_telethon
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      ENGINE_URL: http://engine:3000
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      TELETHON_CHANNELS: "rybar,tass_agency,RVvoenkor,bbcrussian,meduzalive,kyivindependent_official,PressTV,AJEnglishNews,aboraboranet,inaborabora,SWA_channel,CGTNOfficial,SputnikInt,RTnews"
+      TZ: ${TZ:-Pacific/Auckland}
+    volumes:
+      - telethon_data:/data
+    networks:
+      - ultra_net
+    depends_on:
+      - engine
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
+  # Auth helper — one-shot interactive. NO restart, profile gated.
+  #   docker compose run --rm telethon-auth
+  telethon-auth:
+    build: ./telethon-sidecar
+    container_name: ultra_telethon_auth
+    profiles: ["telethon-auth"]
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      TZ: ${TZ:-Pacific/Auckland}
+    volumes:
+      - telethon_data:/data
+    networks:
+      - ultra_net
+    stdin_open: true
+    tty: true
+    entrypoint: ["python", "main.py", "auth"]
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   #  P1 NLP — spaCy NER sidecar
   #  Used opt-in for high-value content (high-score articles,
   #  opportunities, OCR'd documents). compromise.js sigue siendo
@@ -489,6 +535,7 @@ volumes:
   fasten_data:
   fasten_cache:
   changedetection_data:
+  telethon_data:
   paperless_export:
   traccar_data:
   traccar_logs:

@@ -447,8 +447,9 @@ WHERE a.category LIKE 'country-%' AND a.category = b.category AND a.id < b.id;
 -- rss.js getFeeds() los excluya con `url NOT LIKE 'pseudo:%'`. Las URLs
 -- HTTPS reales viven hardcodeadas en news_apis.js y wm_gdelt_intel.js.
 INSERT INTO rss_feeds (url, name, category) VALUES
-    ('pseudo://gdelt', 'GDELT DOC 2.0 (global)', 'gdelt'),
-    ('pseudo://bsky',  'Bluesky Search',         'bsky')
+    ('pseudo://gdelt',    'GDELT DOC 2.0 (global)',  'gdelt'),
+    ('pseudo://bsky',     'Bluesky Search',          'bsky'),
+    ('pseudo://telegram', 'Telegram Telethon (B9)',  'telegram')
 ON CONFLICT (url) DO NOTHING;
 -- Idempotent migration: si existían las URLs HTTPS legacy, las normalizamos.
 UPDATE rss_feeds SET url = 'pseudo://gdelt' WHERE url = 'https://api.gdeltproject.org/api/v2/doc/doc';
