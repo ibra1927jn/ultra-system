@@ -81,6 +81,63 @@ router.post('/changedetection', async (req, res) => {
   }
 });
 
+// ─── POST /webhooks/intel-watch ──────────────────────────
+// P1 Lote A B5: cdio webhook para intel_watches (separado de
+// /webhooks/changedetection que sirve a P4 burocracia personal).
+// Inserta en intel_watch_changes y publica intel.watch.change
+// al eventbus para que B6 bridges lo consuman.
+router.post('/intel-watch', async (req, res) => {
+  if (!verifySecret(req, res)) return;
+  try {
+    const payload = req.body || {};
+    const cdioUuid = payload.uuid || payload.watch_uuid || payload.watch_url || null;
+    const summary = payload.message || payload.title || payload.diff_full || payload.diff || '';
+
+    let watchId = null;
+    let watchMeta = null;
+    if (cdioUuid) {
+      watchMeta = await db.queryOne(
+        `SELECT id, label, url, country, category, tier, topic
+         FROM intel_watches WHERE cdio_uuid = $1`,
+        [cdioUuid]
+      );
+      watchId = watchMeta?.id || null;
+    }
+
+    await db.query(
+      `INSERT INTO intel_watch_changes
+         (watch_id, cdio_uuid, diff_summary, payload, published_to_bus)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [watchId, cdioUuid, String(summary).slice(0, 500), JSON.stringify(payload), watchId !== null]
+    );
+
+    if (watchId) {
+      await db.query(
+        `UPDATE intel_watches SET last_changed_at = NOW() WHERE id = $1`,
+        [watchId]
+      );
+
+      // Publish to eventbus → B6 bridges escuchan y enrutan
+      // a cross_pillar_intel + telegram /cpi.
+      await eventbus.publish('intel.watch.change', 'P1', {
+        watch_id: watchId,
+        country: watchMeta.country,
+        category: watchMeta.category,
+        tier: watchMeta.tier,
+        topic: watchMeta.topic,
+        label: watchMeta.label,
+        url: watchMeta.url,
+        summary: String(summary).slice(0, 200),
+      });
+    }
+
+    res.json({ ok: true, watch_id: watchId });
+  } catch (err) {
+    console.error('❌ intel-watch webhook error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ─── GET/POST /webhooks/gps ─ OsmAnd protocol direct push ──
 // Phone Traccar Client puede apuntar aquí en vez de a ultra_traccar:5055.
 // Soporta GET (Traccar Client default) y POST (OwnTracks-style).

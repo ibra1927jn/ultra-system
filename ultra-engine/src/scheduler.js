@@ -18,6 +18,7 @@ const externalHealth = require('./external_health');
 const oppFetchers = require('./opp_fetchers');
 const jobApis = require('./job_apis');
 const cdio = require('./changedetection');
+const intelWatches = require('./intel_watches');
 const recurring = require('./recurring');
 const cryptoMod = require('./crypto');
 const dedupRunner = require('./dedup_runner');
@@ -76,6 +77,17 @@ function init() {
   );
   // Boot sync diferido 30s para que cdio container esté listo
   setTimeout(() => syncCdioWatches().catch(() => {}), 30_000);
+
+  // ─── P1 Lote A B5: intel-watches sync (boot + diario 04:40) ───
+  // Comparte container CDIO con P4 pero usa tabla intel_watches
+  // (separación pillars). 23 country watches @3h + 10 policy @1h.
+  register(
+    'intel-watches-sync',
+    '40 4 * * *',
+    syncIntelWatchesJob,
+    'Diario 04:40 — Sync intel_watches → changedetection.io (33 watches B5)'
+  );
+  setTimeout(() => syncIntelWatchesJob().catch(() => {}), 35_000);
 
   // ─── P3 Fase 2: Recurring detection — semanal lunes 03:00 ───
   register(
@@ -2171,6 +2183,27 @@ async function syncCdioWatches() {
     }
   } catch (err) {
     console.error('❌ cdio-sync error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  P1 Lote A B5 — intel watches sync handler
+// ═══════════════════════════════════════════════════════════
+async function syncIntelWatchesJob() {
+  try {
+    const result = await intelWatches.syncIntelWatches();
+    if (result.ok === false) {
+      console.warn('⏭️  intel-watches-sync skipped:', result.error);
+      return;
+    }
+    if (result.created > 0) {
+      console.log(`🛰️  intel-watches-sync: ${result.created} watches creados, ${result.skipped} ya existían`);
+    }
+    if (result.errors && result.errors.length) {
+      console.warn(`⚠️  intel-watches-sync: ${result.errors.length} errores`, result.errors);
+    }
+  } catch (err) {
+    console.error('❌ intel-watches-sync error:', err.message);
   }
 }
 
