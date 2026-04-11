@@ -99,8 +99,62 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 
 ## PILLAR 1 — NEWS
 
-**Coverage real:** 3% (8-10 of ~350 investigated)
-**Worst pillar.** Custom NLP/dedup/sentiment built when mature OSS existed. 25/379 OSINT Monitor feeds (6.6%). Zero multilingual sources beyond English/Spanish. Zero social beyond Bluesky search.
+**Coverage real:** ~30%+ post P1 finalization 2026-04-11 (was 3% al snapshot inicial)
+~~Worst pillar.~~ Custom NLP/dedup/sentiment built when mature OSS existed. ~~25/379 OSINT Monitor feeds (6.6%)~~ → **390 osint_monitor activos** (target excedido). ~~Zero multilingual sources beyond English/Spanish~~ → 130+ países cobertura B3a-d. ~~Zero social beyond Bluesky search~~ → Bluesky firehose + Telethon 10 channels + Mastodon + YouTube.
+
+> **⚠️ STATUS UPDATE 2026-04-11** (los marks 🔴/✅ debajo NO están sincronizados línea a línea — leer este resumen primero):
+>
+> **Hecho desde último snapshot del BACKLOG:**
+> - ✅ OSINT Monitor port (B2): 238→390 feeds activos
+> - ✅ Bluesky firehose Jetstream (B7) — WS persistente sustituye polling REST
+> - ✅ Mastodon API + YouTube Data API v3 (Tier A R4 2026-04-07)
+> - ✅ Telegram via Telethon (B9): 10/14 OSINT channels live, sidecar `ultra_telethon`
+> - ✅ Currents + Newsdata + Finlight + YouTube keys activadas (2026-04-09, 7/8 fetchers Fase 4 LIVE)
+> - ✅ Apple Podcasts Search (R4)
+> - ✅ FEWS NET (R4) + WHO DONS (R4) + NOAA (R3)
+> - ✅ spaCy NER sidecar (`ultra_spacy` container, en/es models)
+> - ✅ MinHash+LSH dedup pure JS (`minhash.js`, Phase 2)
+> - 🟡 GDELT GEO 2.0 — **reinterpretación práctica**: NO es GEO 2.0 real (`/api/v2/geo/geo` está deprecada 404). Sustituido por `mode=TimelineVolInfo`+`TimelineTone` con z-score 28d → `wm_gdelt_geo_timeline` + `wm_gdelt_volume_alerts`. 25/29 países hotspot activos. Cron 6h. Commit 287d3d8 + 52c8b72.
+> - 🟡 GDELT CAST forecasting — **NO se ha hecho el real**. La z-score volume sirve como "CAST de pobre" pero no llega al AUC 86-94% del paper.
+> - 🟡 BART/PEGASUS/twitter-roberta → **B8 NLP sidecar 2026-04-11** (`ultra_nlp` FastAPI+transformers): sustituidos por `distilbart-mnli-12-3` + `distilbart-cnn-12-6` + `twitter-xlm-roberta-base-sentiment` + `paraphrase-multilingual-MiniLM-L12-v2` + `opus-mt-mul-en`. Lazy LRU max 2 modelos en RAM. Modelos cacheados en `/mnt/HC_Volume_105271265/nlp_models` (3.9GB). Hook fire-and-forget en `rss.js` cuando `score >= SCORE_THRESHOLD`. Tabla `rss_articles_enrichment` (JSONB embedding). Commit 1f366ae.
+> - ✅ Cross-pillar feeds layer (B1): 25 feeds con `target_pillar`/`pillar_topic` → routed via `cross_pillar_intel` table + `news.cpi` eventbus + telegram `/cpi` (B6).
+> - ✅ Regional aggregators (B3 a+b+c+d): 98 feeds en 4 sub-bloques. Cobertura 49→130 países, footprint 79→157.
+> - ✅ Intel watches CDIO (B5): 33 watches en `intel_watches` (10 policy 1h + 23 country 3h), webhook `/webhooks/intel-watch` → `intel.watch.change` event.
+> - ✅ Multilingual Sentence-BERT — cubierto por B8 `paraphrase-multilingual-MiniLM-L12-v2` (384d).
+> - ✅ Helsinki OPUS-MT — cubierto por B8 `opus-mt-mul-en` (any→en).
+> - ✅ bart-large-mnli zero-shot — cubierto por B8 `distilbart-mnli-12-3` (versión ligera).
+>
+> **Reclasificado a Hetzner-blocked (NO son rotos, auto-recovery post-migración Windows):** ver `HETZNER_BLOCKED.md`
+> - 🟡 Reddit RSS (`reddit.com/r/*/.rss`) — 403 datacenter
+> - 🟡 ProMED-mail — Cloudflare block
+> - 🟡 Smartraveller AU — Cloudflare block
+> - 🟡 ReliefWeb UN OCHA — HTTP 406 bot activity
+> - 🟡 MAEC España travel advisories — HTML antibot challenge
+> - 🟡 Adam Isacson OPML LatAm 140+ feeds — pivot a 16 curados manualmente
+>
+> **Verdaderamente desactivados como rotos (saneado 2026-04-11):**
+> - ❌ FXStreet [CF] — 403 Cloudflare crónico
+> - ❌ BOE Sección II.B — `boe.es/rss/canal.php` devuelve 200 con body vacío en TODAS las secciones (RSS upstream roto)
+> - ❌ FundsForNGOs — `www2.` 301 → `www.` 403 CF
+> - ❌ Vanuatu Daily Post — 429 IP-rate-limit en todas las paths
+>
+> **Pendientes Tier A P1 NO tocados (oportunidad próxima sesión):**
+> - GDELT CAST real (no z-score) — Tier A
+> - GDELT Context 2.0 (topic expansion) — Tier C (no Tier A en realidad)
+> - RSS-Bridge container (B14 deferred) — Tier A
+> - Kill the Newsletter (email→Atom/RSS) — Tier A, existe `docs/NEWSLETTER_TO_RSS.md`
+> - GDACS (6min update floods/cyclones/fires) — Tier A
+> - International Crisis Group — Tier A, URL rota R4 verificar
+> - US State Dept Travel Advisories — Tier A
+> - CDC Outbreaks RSS — Tier A
+> - Podcast Index — Tier A bloqueado por email empresa
+>
+> **Bloqueados externamente (esperando aprobación/credenciales):**
+> - Reddit PRAW (B10): OAuth client signup pendiente
+> - Metaculus aggregation_explorer (B11): email a `support@metaculus.com` pendiente
+> - ACLED (B12): cuenta `ibraboutereg@gmail.com` autentica OK pero `/api/acled/read` → 403. Necesita aprobación de `access@acleddata.com`. OAuth+cookie ambos verificados 2026-04-11.
+> - EventRegistry / NewsAPI.ai: necesita email empresa
+> - PodcastIndex: necesita email empresa
 
 ### News APIs — Tier 1 (free best)
 | Item | Status | Cat | Notes |

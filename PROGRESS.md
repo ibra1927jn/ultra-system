@@ -811,3 +811,127 @@ Continuación masiva del Tier A. Plan: ejecutar todo lo que NO requiere keys, de
 | Endpoints HTTP P3+P4+P7 nuevos | — | **25** (5 finanzas + 12 burocracia + 7 bio + 1 receipt) |
 | Telegram commands nuevos | — | **8** (apostillas, licencias, militar, macros, sueno + helpers) |
 
+
+---
+
+## P1 Finalization Lote A+B (2026-04-09 → 2026-04-11)
+
+Selección curada de 9 bloques del BACKLOG.md priorizados como prerrequisito para cerrar P1 antes de Lote C (Crawl4AI/news-please/Fundus). Nomenclatura B1-B9 es de sesión, no aparece en BACKLOG.
+
+### B1 — Cross-pillar feeds layer (2026-04-09)
+- 25 feeds RSS/HTML añadidos a `rss_feeds` con `target_pillar` (P2/P3/P4/P5) + `pillar_topic`. Engine route via `cross_pillar_intel` table en B6.
+
+### B2 — OSINT Monitor port (2026-04-09)
+- De 238 → 410 feeds osint_monitor activos (target original BACKLOG: 379). **Excedido.**
+- Bug fix `rss.js title-as-object` para feeds con HTML anidado en `<title>`.
+- Commit bf1c55a.
+
+### B3 (a+b+c+d) — Regional aggregators (2026-04-09)
+- 98 feeds en 4 sub-bloques: Pacific/Caribbean/MENA/CA/Africa/Arctic/Balkans/post-Soviet.
+- Cobertura países 49 → 130 (footprint total 79 → 157).
+- Hallazgo crítico: Google News country feeds devuelven fallback inglés global silencioso cuando no tienen feed nativo. Verificación md5 obligatoria (B1+B3 lessons memory).
+- Reddit r/<country> rescata 8 países pequeños. Algunos r/* IP-blocked en Hetzner (ver HETZNER_BLOCKED.md).
+- Commit 9fe189b.
+
+### B4 — GDELT GEO timelines + z-score alerts (2026-04-09 → 2026-04-11)
+- **NO es B4 original del BACKLOG** (CAST forecasting AUC 86-94% + GEO 2.0 + Context 2.0). Las APIs `/api/v2/geo/geo` y `/cast/cast` están deprecadas (404). Sustituido por:
+  - `mode=TimelineVolInfo` → daily volume intensity por país
+  - `mode=TimelineTone` → daily average tone
+  - z-score volume vs 28d baseline → "CAST de pobre" para anomaly detection
+- 29 países hotspot HOTSPOT_COUNTRIES en `wm_gdelt_geo_timeline` + `wm_gdelt_volume_alerts`.
+- Bug FIPS 10-4 (no ISO 3166): GB→UK, RU→RS, CN→CH, etc. Fix 287d3d8.
+- Bug AE→TC mapping: TC no es FIPS válido para UAE. Fix 2026-04-11.
+- Bug tail-bias del cycle: SY/LB/AE caían siempre en cooldown 429 al final del ciclo. Fix Fisher-Yates shuffle 2026-04-11.
+- Commit 52c8b72.
+
+### B5 — Intel watches CDIO (2026-04-11)
+- 33 watches en `intel_watches` (separada de `bur_gov_watches` por pillars): 10 policy 1h + 23 country 3h.
+- Webhook `/webhooks/intel-watch` → eventbus `intel.watch.change` → B6 bridges.
+- B5 seed cleanup 12/12 URLs rotas (CDIO errors 19→7, los 7 son out-of-scope bur_gov).
+- Commit fa4b49d + e53d7cb.
+
+### B6 — Cross-pillar bridges (2026-04-09)
+- `cross_pillar_intel` table + eventbus `news.cpi` event + telegram `/cpi` command.
+- Subscriber `intel.watch.change` añadido (P0.1 audit).
+- 653+ rows en `cross_pillar_intel`.
+- Commit 212df58.
+
+### B7 — Bluesky Jetstream firehose (2026-04-11)
+- Sustituye polling REST hourly por WebSocket persistente al firehose Jetstream.
+- 14 inserts naturales/90s post-deploy validados.
+- Commit a7acf9a.
+
+### B8 — NLP transformers sidecar (2026-04-11)
+- **Sustituye los modelos del BACKLOG** (BART-large, twitter-roberta, MiniLM-L6) por versiones distil/multilingual para caber en RAM:
+  - classify → `valhalla/distilbart-mnli-12-3`
+  - summarize → `sshleifer/distilbart-cnn-12-6`
+  - sentiment → `cardiffnlp/twitter-xlm-roberta-base-sentiment`
+  - embed → `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384d)
+  - translate → `Helsinki-NLP/opus-mt-mul-en` (any → en)
+- Container `ultra_nlp` FastAPI + transformers + torch CPU. Lazy LRU max 2 modelos en RAM, peak ~1.8GB. Disco ~3.9GB cacheado en `/mnt/HC_Volume_105271265/nlp_models` (sda root al 90%).
+- Tabla `rss_articles_enrichment` (JSONB embedding, sin pgvector aún).
+- Hook fire-and-forget en `rss.js` cuando `score >= SCORE_THRESHOLD (8)`.
+- 5 endpoints validados E2E con artículo real.
+- Commit 1f366ae.
+
+### B9 — Telegram Telethon polling (2026-04-11)
+- 10/14 OSINT channels LIVE via `iter_messages` (events.NewMessage dispatcher no funcionaba).
+- Sidecar `ultra_telethon` con session @Allan persistida en volumen.
+- Commit 213ad9e.
+
+### Bloqueados externamente (no se han movido)
+- **B10 Reddit PRAW**: OAuth signup pendiente
+- **B11 Metaculus**: email a `support@metaculus.com` pendiente de enviar
+- **B12 ACLED**: investigación 2026-04-11 confirmó OAuth+cookie auth funcionan, pero la cuenta `ibraboutereg@gmail.com` devuelve 403 en `/api/acled/read`. Necesita aprobación de `access@acleddata.com`.
+
+### P0 hardening (2026-04-11)
+- helmet + rate-limit + WEBHOOK_SECRET + health trim + 127.0.0.1 binds + ufw solo 22.
+- Commit 62594e7.
+
+### Saneado P1 (2026-04-11)
+- Triaje 109 feeds activos silentes >48h. Solo 6 con errores crónicos reales (17 errores/24h cada uno).
+- Fix Telegram parse entities con retry plain.
+- Fix B4 AE FIPS + Fisher-Yates shuffle.
+- 4 feeds desactivados como verdaderamente rotos: FXStreet [CF], BOE Sección II.B, FundsForNGOs, Vanuatu Daily Post.
+- 2 feeds Reddit r/Dominica + r/russia inicialmente desactivados como "rotos" pero RECATEGORIZADOS como `regional_hetzner_blocked` tras descubrir que están documentados en HETZNER_BLOCKED.md como IP-block de datacenter (auto-recovery post-migración a IP residencial Windows).
+- Commit 52c8b72.
+
+## Estado post-P1 finalization
+
+| Métrica | Pre-Lote A | Post-B8 |
+|---|---|---|
+| rss_articles total | ~16K | **97,717** |
+| rss_feeds activos | 298 | **708** |
+| osint_monitor activos | 238 | **390** |
+| Países cobertura GDELT GEO | 0 | **25/29** (4 deberían rellenarse en próximo ciclo 00:55 UTC tras shuffle fix) |
+| intel_watches B5 | 0 | **33** |
+| cross_pillar_intel rows | 0 | **653** |
+| Cron jobs engine | ~39 | **80+** |
+| DB tablas | 230 | **268** |
+| Containers running | 15 | **16** (+ultra_nlp) |
+| rss_articles_enrichment B8 | n/a | **1** (validación manual; primer ciclo natural pendiente) |
+
+## Pendiente real del BACKLOG P1 (no tocado por Lote A+B)
+
+### Tier A no hecho
+- GDELT CAST real (forecasting AUC, no z-score)
+- GDELT Context 2.0 (topic expansion)
+- RSS-Bridge container
+- Kill the Newsletter (email→RSS) — existe `docs/NEWSLETTER_TO_RSS.md`
+- GDACS (6min floods/cyclones/fires)
+- US State Dept Travel Advisories
+- CDC Outbreaks RSS
+- International Crisis Group (URL rota R4)
+- Podcast Index (bloqueado email empresa)
+
+### Tier B no hecho (Lote C deferred)
+- Crawl4AI / news-please / Fundus / Newspaper4k (B13)
+- Reemplazo `rss.js` parser por `news-please`
+
+### Tier C/D no hecho
+- ~30 items adicionales (NewsBlur, BERTopic, GLiNER, Pushshift, Listen Notes, etc)
+
+## Hallazgos sesión 2026-04-11
+1. Memoria de sesión NO sustituye docs del repo. CLAUDE.md dice literalmente "Read ERRORES.md and PROGRESS.md before starting any task" — desobedecerlo causó el incidente Reddit.
+2. ct4-bot ES la prod box Hetzner CX43 con IP `95.217.158.7`. Verificado con `curl -4 ifconfig.me` desde host y desde container engine. Toda HETZNER_BLOCKED.md aplica aquí.
+3. Nomenclatura B1-B17 es puramente de sesión, NO aparece en docs. El P1 finalization roadmap es subset curado del BACKLOG, no replacement.
