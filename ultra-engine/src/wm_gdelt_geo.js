@@ -87,9 +87,11 @@ const ISO_TO_FIPS = {
   TR: 'TU', // Turkey
   LB: 'LE', // Lebanon
   YE: 'YM', // Yemen
-  AE: 'TC', // United Arab Emirates (Trucial Coast historical)
-  // Codes coincidentally identical (BE, ET, ML, VE, IR, QA, US, SO,
-  // SA, EG, TW, SY, GL) need no entry — fall through to identity.
+  // 2026-04-11: AE removed. Comment claimed FIPS=TC (Trucial Coast)
+  // but GDELT returns "Invalid/Unsupported Country" for TC. Empirically
+  // sourcecountry:AE returns valid data, so identity fall-through is correct.
+  // Codes coincidentally identical (AE, BE, ET, ML, VE, IR, QA, US,
+  // SO, SA, EG, TW, SY, GL) need no entry — fall through to identity.
 };
 
 function isoToFips(iso) {
@@ -356,6 +358,17 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
   let totalAlerts = 0;
   // Per-country outcome buckets for end-of-cycle diagnostic
   const buckets = { ok: [], empty: [], fetch_err: [], unexpected: [], partial_tone: [] };
+
+  // 2026-04-11: shuffle so the tail (which catches GDELT 429 cooldowns
+  // toward end of cycle) rotates instead of always burning the same
+  // last ~6 countries. Pre-shuffle bias left SY/LB/AE permanently
+  // unpersisted at positions 22/26/29.
+  const shuffled = countries.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  countries = shuffled;
 
   for (let i = 0; i < countries.length; i++) {
     const c = countries[i];

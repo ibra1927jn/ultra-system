@@ -2490,6 +2490,18 @@ async function send(chatId, text, parseMode) {
     const opts = parseMode ? { parse_mode: parseMode } : {};
     await bot.sendMessage(target, text, opts);
   } catch (err) {
+    // 2026-04-11: titles with unescaped *, _, [ etc. break Markdown
+    // parsing ("can't parse entities"). Retry once as plain text so
+    // the message still gets through instead of being silently lost.
+    if (parseMode && /parse entities|can't find end/i.test(err.message)) {
+      try {
+        await bot.sendMessage(target, text);
+        return;
+      } catch (err2) {
+        console.error('❌ Error enviando Telegram (plain retry):', err2.message);
+        return;
+      }
+    }
     console.error('❌ Error enviando Telegram:', err.message);
   }
 }
