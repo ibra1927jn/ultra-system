@@ -185,13 +185,11 @@ function init() {
     'Cada 30 min — Buscar noticias + scoring keywords'
   );
 
-  // ─── P1: Bluesky search cada 1h (free, no auth) ───
-  register(
-    'bsky-search',
-    '15 * * * *',
-    fetchBlueskySearch,
-    'Cada hora — Bluesky social-as-news'
-  );
+  // ─── P1: Bluesky → Jetstream firehose (B7) ─────────────
+  // El polling 'bsky-search' fue sustituido por bsky_jetstream.js,
+  // un WebSocket persistente al firehose Jetstream que se arranca
+  // desde server.js. Sin cron — la conexión vive durante todo el
+  // uptime del engine y reconecta sola con backoff.
 
   // ─── P2: Empleo — Scrape webs cada 6 horas ───
   register(
@@ -1323,25 +1321,6 @@ async function fetchRssFeeds() {
     // Modulo P1 puede no estar listo
     console.warn('⚠️ RSS fetch falló:', err.message);
   }
-}
-
-/**
- * P1: Bluesky search por keywords (social-as-news)
- */
-async function fetchBlueskySearch() {
-  const { newCount, highScoreArticles } = await newsApis.fetchBlueskySearch();
-  if (highScoreArticles.length > 0) {
-    const lines = ['🦋 *ULTRA SYSTEM — Bluesky Relevant*', '━━━━━━━━━━━━━━━━━━━━━━━━', ''];
-    for (const a of highScoreArticles.slice(0, 5)) {
-      lines.push(`⭐ ${a.title.substring(0, 200)}`);
-      lines.push(`   📊 Score: ${a.score}`);
-      lines.push(`   🔗 ${a.url}`);
-      lines.push('');
-    }
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
-    await telegram.sendAlert(lines.join('\n'));
-  }
-  console.log(`🦋 Bluesky: ${newCount} nuevos, ${highScoreArticles.length} alertados`);
 }
 
 /**

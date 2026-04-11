@@ -11,8 +11,6 @@
 // ╚══════════════════════════════════════════════════════════╝
 
 const db = require('./db');
-const rss = require('./rss');
-
 // ─── Resuelve el ID del pseudo-feed por categoría ─────────
 async function pseudoFeedId(category) {
   const row = await db.queryOne(
@@ -49,91 +47,12 @@ async function insertArticle(feedId, title, url, summary, publishedAt, score) {
 // 24 topic queries with stagger + retry/backoff and persists to
 // wm_intel_articles instead of the legacy `articles` table.
 
-// ═══════════════════════════════════════════════════════════
-//  BLUESKY SEARCH — social-as-news (xrpc public, free, no auth)
-//  Endpoint: https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts
-//  Docs: https://docs.bsky.app/docs/api/app-bsky-feed-search-posts
-//
-//  NOTA: La spec original P1 mencionaba "Jetstream firehose" (WebSocket
-//  persistente con TODO el contenido). Para personal monitoring de keywords
-//  específicas el search-poll es mucho más eficiente y encaja con cron.
-//  Si en el futuro se quiere ingesta masiva real, sustituir por jetstream2
-//  vía paquete `ws`.
-// ═══════════════════════════════════════════════════════════
-
-// NOTA: 'public.api.bsky.app' devuelve 403 desde rangos IP de Hetzner (Cloudflare block).
-// 'api.bsky.app' funciona sin auth. Verificado 2026-04-07.
-const BSKY_SEARCH = 'https://api.bsky.app/xrpc/app.bsky.feed.searchPosts';
-
-/**
- * Hace una búsqueda Bluesky por cada keyword top-N y guarda posts nuevos.
- */
-async function fetchBlueskySearch() {
-  try {
-    const kws = await db.queryAll('SELECT keyword FROM rss_keywords ORDER BY weight DESC LIMIT 5');
-    if (!kws.length) return { newCount: 0, highScoreArticles: [] };
-
-    const feedId = await pseudoFeedId('bsky');
-    let totalNew = 0;
-    const highScore = [];
-
-    for (let i = 0; i < kws.length; i++) {
-      const { keyword } = kws[i];
-      if (i > 0) await new Promise(r => setTimeout(r, 500)); // throttle suave
-      const params = new URLSearchParams({ q: keyword, limit: '15', sort: 'latest' });
-      try {
-        const res = await fetch(`${BSKY_SEARCH}?${params}`, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; UltraSystem/1.0)',
-            'Accept': 'application/json',
-          },
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok) {
-          console.warn(`⚠️ [Bsky:${keyword}] HTTP ${res.status}`);
-          continue;
-        }
-        const data = await res.json();
-        const posts = data.posts || [];
-
-        for (const p of posts) {
-          const text = p.record?.text || '';
-          if (!text) continue;
-          const handle = p.author?.handle || 'unknown';
-          const did = p.author?.did || '';
-          // Construye URL canónica del post Bluesky
-          const rkey = p.uri?.split('/').pop();
-          const url = `https://bsky.app/profile/${handle}/post/${rkey}`;
-          const title = `[@${handle}] ${text.substring(0, 200)}`;
-          const summary = `Bsky · keyword: ${keyword} · likes:${p.likeCount || 0} reposts:${p.repostCount || 0} · ${did}`;
-          const publishedAt = p.record?.createdAt ? new Date(p.record.createdAt) : new Date();
-
-          // Score: usa rss scorer + bonus por engagement
-          const baseScore = await rss.scoreArticle(text, '');
-          const engagementBonus = Math.min(3, Math.floor((p.likeCount || 0) / 10));
-          const score = baseScore + engagementBonus;
-
-          const inserted = await insertArticle(feedId, title, url, summary, publishedAt, score);
-          if (inserted) {
-            totalNew++;
-            if (score >= rss.SCORE_THRESHOLD) {
-              highScore.push({ title, url, score, feed: 'Bluesky' });
-            }
-          }
-        }
-      } catch (err) {
-        console.warn(`⚠️ [Bsky:${keyword}]`, err.message);
-      }
-    }
-
-    await db.query('UPDATE rss_feeds SET last_fetched = NOW() WHERE id = $1', [feedId]);
-    console.log(`🦋 [Bluesky] ${totalNew} nuevos, ${highScore.length} relevantes`);
-    return { newCount: totalNew, highScoreArticles: highScore };
-  } catch (err) {
-    console.error('❌ [Bluesky] Error:', err.message);
-    return { newCount: 0, highScoreArticles: [] };
-  }
-}
+// NOTA: el polling REST `fetchBlueskySearch` (xrpc app.bsky.feed.searchPosts)
+// fue eliminado en P1 Lote A B7 (2026-04-11) y sustituido por
+// `src/bsky_jetstream.js` — un WebSocket persistente al firehose
+// Jetstream que arranca desde server.js. El pseudo-feed con
+// category='bsky' sigue siendo el destino de los inserts (continuidad
+// histórica con los 2331 artículos previos).
 
 // ═══════════════════════════════════════════════════════════
 //  STUBS comentados — requieren API keys del usuario
@@ -479,7 +398,6 @@ async function fetchPodcastIndex() {
 }
 
 module.exports = {
-  fetchBlueskySearch,
   fetchCurrents,
   fetchNewsdata,
   fetchFinlight,

@@ -24,6 +24,7 @@ const scheduler = require('./src/scheduler');
 const bridges = require('./src/bridges');
 const crossPillarBridges = require('./src/cross_pillar_bridges');
 const aisstream = require('./src/aisstream_subscriber');
+const bskyJetstream = require('./src/bsky_jetstream');
 const { apiKeyAuth } = require('./src/middleware/auth');
 const { requireAuth } = require('./src/middleware/jwt-auth');
 
@@ -176,6 +177,13 @@ async function start() {
   // AISSTREAM_API_KEY is missing. Reconnect + duty cycle handled
   // internally by the subscriber.
   aisstream.start();
+
+  // 3d. Bluesky Jetstream WebSocket subscriber (P1 Lote A B7).
+  // Sustituye el polling REST hourly. Persistent firehose con keyword
+  // matching in-memory. Reconnect interno con backoff.
+  bskyJetstream.start().catch(err =>
+    console.error('❌ bsky jetstream start failed:', err.message)
+  );
 
   // 4. Iniciar servidor HTTP
   app.listen(PORT, '0.0.0.0', () => {
