@@ -104,6 +104,24 @@ router.post('/intel-watch', async (req, res) => {
       watchId = watchMeta?.id || null;
     }
 
+    // Fallback: CDIO Apprise default payload no trae uuid, pero sí el URL
+    // embebido en title/message. Extraer el primer https?:// y matchear
+    // por intel_watches.url — mantiene B5→B6 bridges funcionales sin
+    // tocar la config de notificación en CDIO.
+    if (!watchId) {
+      const blob = `${payload.title || ''} ${payload.message || ''}`;
+      const m = blob.match(/https?:\/\/[^\s<>"']+/);
+      if (m) {
+        const extractedUrl = m[0].replace(/[),.;]+$/, '');
+        watchMeta = await db.queryOne(
+          `SELECT id, label, url, country, category, tier, topic
+           FROM intel_watches WHERE url = $1`,
+          [extractedUrl]
+        );
+        watchId = watchMeta?.id || null;
+      }
+    }
+
     await db.query(
       `INSERT INTO intel_watch_changes
          (watch_id, cdio_uuid, diff_summary, payload, published_to_bus)
