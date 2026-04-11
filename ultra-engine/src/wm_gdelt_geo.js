@@ -51,9 +51,55 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_ATTEMPTS = 4;
 const TIMESPAN = '30d';
 
+// ─── ISO-3166 → FIPS 10-4 mapping ──────────────────────────
+// GDELT DOC API uses FIPS 10-4 country codes for `sourcecountry:`,
+// not ISO 3166. Empirically verified 2026-04-11:
+//   sourcecountry:CN → 0 results, sourcecountry:CH → 30 days of data
+//   sourcecountry:KP → 0 results, sourcecountry:KN → 30 days of data
+//
+// Until 2026-04-11 we sent ISO codes blindly. Result was a two-pronged
+// silent bug:
+//   1. 14 hotspots with ISO≠FIPS returned empty timelines (RU, CN, UA,
+//      IL, KP, TR, IQ, LB, YE, HT, SD, DK + SY/TW/GL coincidentally
+//      same in both schemes).
+//   2. 4 hotspots whose ISO codes happen to be valid FIPS for *other*
+//      countries persisted GARBAGE under the wrong label:
+//        GB (UK in ISO) → FIPS Gabon
+//        NE (Niger ISO) → FIPS Niue
+//        BF (Burkina ISO) → FIPS Bahamas
+//        AE (UAE ISO)   → FIPS something else
+//      Their rows were purged in this commit so the next cycle re-seeds
+//      them with the correct FIPS code.
+const ISO_TO_FIPS = {
+  // Hotspots that DIFFER between ISO and FIPS
+  BF: 'UV', // Burkina Faso
+  NE: 'NG', // Niger
+  HT: 'HA', // Haiti
+  SD: 'SU', // Sudan
+  RU: 'RS', // Russia
+  CN: 'CH', // China  (verified)
+  UA: 'UP', // Ukraine
+  IL: 'IS', // Israel
+  KP: 'KN', // DPRK    (verified)
+  GB: 'UK', // United Kingdom
+  DK: 'DA', // Denmark
+  IQ: 'IZ', // Iraq
+  TR: 'TU', // Turkey
+  LB: 'LE', // Lebanon
+  YE: 'YM', // Yemen
+  AE: 'TC', // United Arab Emirates (Trucial Coast historical)
+  // Codes coincidentally identical (BE, ET, ML, VE, IR, QA, US, SO,
+  // SA, EG, TW, SY, GL) need no entry — fall through to identity.
+};
+
+function isoToFips(iso) {
+  return ISO_TO_FIPS[iso] || iso;
+}
+
 // 29 países hotspot — sincronizados con wm_hotspot_escalation.HOTSPOTS.
 // Si añades hotspots ahí, replicarlos aquí (mismo patrón que el módulo
-// hermano).
+// hermano). Storage stays in ISO; we translate to FIPS only when
+// querying GDELT (see fetchCountryTimeline).
 const HOTSPOT_COUNTRIES = [
   'ML', 'NE', 'BF',          // sahel
   'HT',                       // haiti
@@ -148,7 +194,9 @@ function parseGdeltDate(s) {
 
 // ─── Fetch one country's full timeline (vol + tone) ─────────
 async function fetchCountryTimeline(country) {
-  const sourceCountryQuery = `sourcecountry:${country}`;
+  // Translate ISO → FIPS for GDELT (DOC API uses FIPS 10-4).
+  // We persist the original ISO `country` in the DB for consistency.
+  const sourceCountryQuery = `sourcecountry:${isoToFips(country)}`;
 
   // 1. Volume intensity timeline (+top URLs per day). The global
   //    throttle inside gdeltFetchJSON enforces pacing between this
@@ -356,6 +404,8 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
 module.exports = {
   runOnce,
   HOTSPOT_COUNTRIES,
+  ISO_TO_FIPS,
+  isoToFips,
   severityFromZ,
   // exposed for tests
   timelineToMap,
