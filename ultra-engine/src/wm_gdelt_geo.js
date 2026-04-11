@@ -48,7 +48,7 @@ const CHROME_UA =
 // report throttling back on 429/non-json so the throttle applies a
 // global cooldown that also holds back intel calls.
 const REQUEST_TIMEOUT_MS = 20_000;
-const MAX_ATTEMPTS = 2;
+const MAX_ATTEMPTS = 4;
 const TIMESPAN = '30d';
 
 // 29 países hotspot — sincronizados con wm_hotspot_escalation.HOTSPOTS.

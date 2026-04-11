@@ -35,12 +35,15 @@
 
 'use strict';
 
-// GDELT official minimum is 5s. We use 8s as baseline to cover
-// GDELT's own jitter tolerance, and add up to 2s random jitter on
-// top to break predictable burst patterns.
-const MIN_GAP_MS = 8_000;
-const JITTER_MS = 2_000;
-const DEFAULT_COOLDOWN_MS = 30_000;
+// GDELT official minimum is 5s but empirically the IP gets flagged
+// at any pace below ~15s once a burst has already triggered a 429.
+// 2026-04-11: bumped from 8s→16s baseline + 4s jitter (→16-20s real
+// gap) after B4 validation showed only 15/29 countries persisting
+// per cycle with 8s pacing. Cooldown also bumped 30s→60s so a single
+// 429 pushes the whole pool out of GDELT's penalty window.
+const MIN_GAP_MS = 16_000;
+const JITTER_MS = 4_000;
+const DEFAULT_COOLDOWN_MS = 60_000;
 
 let lastSentAt = 0;
 let cooldownUntil = 0;
