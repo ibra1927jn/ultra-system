@@ -148,11 +148,13 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 > - ✅ **CDC Travel Notices** YA implementado en `fetchCDCTravelNotices()`, URL `https://wwwnc.cdc.gov/travel/rss/notices.xml` funciona. **22 rows source='cdc_travel'.** Stale 18 días pero **es upstream** (CDC publica irregular, último pubDate=2026-03-24 confirmado).
 > - 🟡 **Kill the Newsletter** NO necesita implementación: `docs/NEWSLETTER_TO_RSS.md` documenta workflow manual usando instancia pública kill-the-newsletter.com. `rss.js` ya consume Atom feeds. Solo workflow del usuario (generar email KtN → añadir Atom URL a `rss_feeds`).
 > - ❌ **GDELT CAST forecasting (AUC 86-94%)** ENDPOINT DEPRECADO permanentemente. Verificado 2026-04-11: `api.gdeltproject.org/api/v2/cast/cast`, `/v1/cast`, `www/cast/`, `/forecast/forecast` todos devuelven 404. El z-score de B4 NO es "sustituto" — es la única opción real. Item se queda como `imposible_upstream_dead`.
-> - 🔴 **GDELT Context 2.0** SÍ vivo: `api.gdeltproject.org/api/v2/context/context` devuelve 200 ("Invalid format" sin params, endpoint válido). Implementable, ~2h.
+> - ❌ **GDELT Context 2.0** vivo pero sin value-add. Verificado 2026-04-11 con 6 queries: el endpoint `/api/v2/context/context?query=X&format=JSON` devuelve schema `{"articles":[{url,title,seendate}]}`, **idéntico a `/doc/doc?mode=ArtList`** que ya consumimos en `wm_intel_articles`. No hace topic expansion / topic modeling como decía el BACKLOG. `mode=ContextSimple/ContextThemes` → "Invalid mode". Marcado `endpoint_alive_but_no_value_add` — implementarlo sería duplicar `/doc/doc` con peor schema.
 > - 🔴 **RSS-Bridge container** NO existe en repo. Ningún sidecar nuevo añadido. Implementable, ~1.5h. Multiplicador alto: una vez instalado, decenas de fuentes nuevas accesibles vía bridges (Twitter/X, Telegram channels, Substacks, Reddit alt, etc).
 > - 🔴 **Podcast Index** bloqueado por email empresa (sin solución corto plazo).
 >
-> **Conclusión**: el "Tier A pendiente" real son solo **RSS-Bridge + GDELT Context 2.0** (~3.5h total). Los otros 6 items o están hechos, o son workflow manual, o son upstream-dead.
+> **Conclusión**: el "Tier A pendiente" real era solo **RSS-Bridge** (✅ done @ 204d795) + GDELT Context 2.0 (descartado tras verificación, no es topic expansion). Los otros 6 items o están hechos, o son workflow manual, o son upstream-dead.
+>
+> **Tier A P1 implementable = 0 items.** Lo que queda pendiente son bloqueos externos (B10/B11/B12 + EventRegistry/PodcastIndex emails empresa) o trabajo de Lote C (Crawl4AI/news-please/Fundus, frontend, deprecar legacy) o B17 re-sourcing (alternativas BOE/Vanuatu/FXStreet/FundsForNGOs).
 >
 > **Lección**: BACKLOG.md contiene marks 🔴 obsoletos que no se actualizaron cuando el código se escribió. La verificación tier-by-tier con DB + grep + curl es obligatoria antes de planificar trabajo.
 >
