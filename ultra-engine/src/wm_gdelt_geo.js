@@ -194,7 +194,7 @@ function timelineToMap(data, seriesKey = 'data') {
 // ─── UPSERT timeline rows + compute z-score for latest day ──
 async function persistAndAnalyze(country, volMap, toneMap) {
   if (!volMap || !volMap.size) {
-    return { country, persisted: 0, alert: null };
+    return { country, persisted: 0, alert: null, reason: 'empty_timeline' };
   }
 
   const dates = [...volMap.keys()].sort(); // ascending
@@ -306,6 +306,8 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
   const results = [];
   let totalPersisted = 0;
   let totalAlerts = 0;
+  // Per-country outcome buckets for end-of-cycle diagnostic
+  const buckets = { ok: [], empty: [], fetch_err: [], unexpected: [], partial_tone: [] };
 
   for (let i = 0; i < countries.length; i++) {
     const c = countries[i];
@@ -314,6 +316,7 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
       if (t.error) {
         console.error(`[wm-gdelt-geo] ${c} fetch error: ${t.error}`);
         results.push({ country: c, error: t.error });
+        buckets.fetch_err.push(`${c}(${t.error.slice(0, 20)})`);
         continue;
       }
       const volMap = timelineToMap(t.volume);
@@ -321,6 +324,13 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
       const r = await persistAndAnalyze(c, volMap, toneMap);
       results.push(r);
       totalPersisted += r.persisted || 0;
+      if (r.reason === 'empty_timeline') {
+        buckets.empty.push(c);
+        console.log(`[wm-gdelt-geo] ${c} skip: empty_timeline (vol_series=${(t.volume?.timeline || []).length})`);
+      } else {
+        buckets.ok.push(`${c}=${r.persisted}`);
+        if (t.partial) buckets.partial_tone.push(c);
+      }
       if (r.alert) {
         totalAlerts++;
         console.log(`[wm-gdelt-geo] 🚨 ${c} alert z=${r.alert.z.toFixed(2)} sev=${r.alert.severity}`);
@@ -328,6 +338,7 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
     } catch (err) {
       console.error(`[wm-gdelt-geo] ${c} unexpected error:`, err.message);
       results.push({ country: c, error: err.message });
+      buckets.unexpected.push(c);
     }
     // No inter-country stagger: gdelt_throttle.acquire() in
     // gdeltFetchJSON enforces global pacing across all callers.
@@ -335,9 +346,11 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
 
   const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
   console.log(
-    `[wm-gdelt-geo] cycle done: countries=${countries.length} persisted=${totalPersisted} alerts=${totalAlerts} elapsed=${elapsedSec}s`
+    `[wm-gdelt-geo] cycle done: countries=${countries.length} ok=${buckets.ok.length} empty=${buckets.empty.length} fetch_err=${buckets.fetch_err.length} unexpected=${buckets.unexpected.length} persisted=${totalPersisted} alerts=${totalAlerts} elapsed=${elapsedSec}s`
   );
-  return { countries: countries.length, persisted: totalPersisted, alerts: totalAlerts, elapsedSec, results };
+  if (buckets.empty.length) console.log(`[wm-gdelt-geo] empty_timeline countries: ${buckets.empty.join(',')}`);
+  if (buckets.fetch_err.length) console.log(`[wm-gdelt-geo] fetch_err countries: ${buckets.fetch_err.join(',')}`);
+  return { countries: countries.length, persisted: totalPersisted, alerts: totalAlerts, elapsedSec, results, buckets };
 }
 
 module.exports = {
