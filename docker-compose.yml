@@ -386,6 +386,33 @@ services:
   #  has only 3.8GB free so we cannot put them there.
   #  Called from engine via src/nlp.js for high-score articles.
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P1 B14 RSS-Bridge — generador de RSS para sites sin feed
+  #  Whitelist en rss-bridge/whitelist.txt (16 bridges enabled).
+  #  Engine consume las URLs como feeds normales en rss_feeds.
+  #  Multiplicador: una vez instalado, decenas de fuentes nuevas
+  #  accesibles vía bridges sin código adicional.
+  #
+  #  Uso:
+  #    GET http://rss-bridge:80/?action=display&bridge=Telegram&username=foo&format=Atom
+  #
+  #  Imagen oficial rssbridge/rss-bridge ~50MB.
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  rss-bridge:
+    image: rssbridge/rss-bridge:latest
+    container_name: ultra_rss_bridge
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8013:80"
+    volumes:
+      - ./rss-bridge/whitelist.txt:/app/whitelist.txt:ro
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   nlp:
     build: ./nlp-sidecar
     container_name: ultra_nlp
