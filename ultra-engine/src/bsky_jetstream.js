@@ -125,12 +125,12 @@ async function handlePost(post) {
   let score;
   try {
     const baseScore = await rss.scoreArticle(post.text, '');
-    // 2026-04-12 — Penalty ×0.5: social media posts are high-noise/low-signal
-    // compared to curated RSS. A bsky post needs double the keyword weight to
-    // reach enrichment (≥3) or alert (≥8) thresholds.
-    score = Math.max(1, Math.floor(baseScore * 0.5));
+    // Social media ×0.3 + hard cap at 5 (never reaches NLP backfill
+    // threshold ≥3 unless very keyword-dense, never reaches alert ≥8).
+    // Bluesky value is volume signal for trending, not per-post quality.
+    score = Math.min(5, Math.max(1, Math.floor(baseScore * 0.3)));
   } catch {
-    score = 2;
+    score = 1;
   }
 
   try {

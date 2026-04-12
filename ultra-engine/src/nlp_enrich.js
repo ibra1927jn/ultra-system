@@ -18,6 +18,7 @@
 
 const db = require('./db');
 const nlp = require('./nlp_sidecar');
+const spacy = require('./spacy');
 
 // 2026-04-12: cap raised 3→8 + wait-with-bounded-queue. Previous logic
 // dropped any call above the inflight cap silently, which on a long
@@ -31,7 +32,8 @@ const nlp = require('./nlp_sidecar');
 // NLP sidecar has lazy LRU max 2 models in RAM; 8 concurrent calls
 // will serialize there naturally but engine no longer drops silently.
 const ENRICH_MAX_INFLIGHT = Number(process.env.NLP_ENRICH_MAX_INFLIGHT || 12);
-const ENRICH_MAX_QUEUE = Number(process.env.NLP_ENRICH_MAX_QUEUE || 200);
+const ENRICH_MAX_QUEUE = Number(process.env.NLP_ENRICH_MAX_QUEUE || 2000);
+const BACKFILL_CONCURRENCY = Number(process.env.NLP_BACKFILL_CONCURRENCY || 6);
 // 25 broad labels for zero-shot classify. Covers 69 taxonomy topics.
 // Feed primary_topic provides granular sub-topic; NLP provides article-level.
 const ENRICH_TOPICS = (process.env.NLP_ENRICH_TOPICS ||
@@ -58,7 +60,7 @@ async function _waitForSlot() {
   }
 }
 
-async function enrichArticle({ articleId, title, summary }) {
+async function enrichArticle({ articleId, title, summary, lang = 'en', skipEmbedding = false, skipClassify = false }) {
   if (!articleId || !title) return null;
   if (_waiting >= ENRICH_MAX_QUEUE) {
     _dropped += 1;
@@ -74,27 +76,54 @@ async function enrichArticle({ articleId, title, summary }) {
   try {
     const fullText = `${title}. ${summary || ''}`.trim();
 
-    // 2026-04-12 — Parallel. NLP_MAX_MODELS raised to 4 so all enrichment
-    // models stay warm (no LRU thrashing). Promise.all cuts per-article
-    // latency ~4× vs sequential. Each call returns null on failure
-    // independently — partial enrichment still persisted.
-    const [embRes, sentRes, classRes, sumRes] = await Promise.all([
-      nlp.embed([fullText.slice(0, 2000)]),
+    // Translate non-English text before summarize (which is English-only).
+    // Sentiment model (xlm-roberta) is multilingual — works on original text.
+    let enText = fullText;
+    if (lang && lang !== 'en') {
+      const tr = await nlp.translate(fullText.slice(0, 1500));
+      if (tr?.translation) enText = tr.translation;
+    }
+
+    const calls = [
+      skipEmbedding ? Promise.resolve(null) : nlp.embed([fullText.slice(0, 2000)]),
       nlp.sentiment(fullText.slice(0, 1500)),
-      nlp.classify(fullText.slice(0, 2000), ENRICH_TOPICS, { multiLabel: true }),
-      fullText.length >= 200 ? nlp.summarize(fullText.slice(0, 4000)) : Promise.resolve(null),
-    ]);
+      skipClassify ? Promise.resolve(null) : nlp.classify(enText.slice(0, 2000), ENRICH_TOPICS, { multiLabel: true }),
+      enText.length >= 200 ? nlp.summarize(enText.slice(0, 4000)) : Promise.resolve(null),
+    ];
+    const [embRes, sentRes, classRes, sumRes] = await Promise.all(calls);
 
     const embedding = embRes?.vectors?.[0] ?? null;
     const sentimentLabel = sentRes?.label ?? null;
     const sentimentScore = sentRes?.score ?? null;
+    // Only keep top labels with score > 0.3 (max 5) — the rest is noise.
+    // Reduces JSONB from ~2KB (26 labels) to ~200B (3-5 labels).
     const classifyTopics = classRes
-      ? classRes.labels.map((l, i) => ({ label: l, score: classRes.scores[i] }))
+      ? classRes.labels
+          .map((l, i) => ({ label: l, score: classRes.scores[i] }))
+          .filter(t => t.score > 0.3)
+          .slice(0, 5)
       : null;
     const summaryText = sumRes?.summary ?? null;
 
+    // spaCy NER — extract real named entities (people, places, orgs)
+    // Uses en or es model. Deduplicates by text+label.
+    const spacyLang = (lang === 'es') ? 'es' : 'en';
+    const nerText = (spacyLang === 'en') ? enText : fullText;
+    const nerRes = await spacy.ner(nerText.slice(0, 5000), spacyLang);
+    let namedEntities = null;
+    if (nerRes?.entities?.length > 0) {
+      // Dedupe and keep only PERSON, ORG, GPE, LOC, NORP, EVENT, FAC
+      const keep = new Set(['PERSON','ORG','GPE','LOC','NORP','EVENT','FAC','PER']);
+      const seen = new Set();
+      namedEntities = nerRes.entities
+        .filter(e => keep.has(e.label))
+        .filter(e => { const k = `${e.text}|${e.label}`; if (seen.has(k)) return false; seen.add(k); return true; })
+        .map(e => ({ text: e.text, label: e.label }));
+      if (namedEntities.length === 0) namedEntities = null;
+    }
+
     // If everything failed, don't write a no-op row
-    if (!embedding && !sentimentLabel && !classifyTopics && !summaryText) {
+    if (!embedding && !sentimentLabel && !classifyTopics && !summaryText && !namedEntities) {
       return null;
     }
 
@@ -118,6 +147,25 @@ async function enrichArticle({ articleId, title, summary }) {
         summaryText,
       ]
     );
+
+    // Mirror to rss_articles for unified queries
+    const updates = [];
+    const vals = [];
+    let idx = 1;
+    if (sentimentLabel) { updates.push(`sentiment_label = $${idx++}`); vals.push(sentimentLabel); }
+    if (sentimentScore != null) { updates.push(`sentiment_score = $${idx++}`); vals.push(sentimentScore); }
+    if (summaryText) { updates.push(`auto_summary = $${idx++}`); vals.push(summaryText); }
+    // entities = spaCy NER (people, places, orgs). Falls back to classify_topics if NER empty.
+    const entitiesJson = namedEntities || classifyTopics;
+    if (entitiesJson) { updates.push(`entities = $${idx++}`); vals.push(JSON.stringify(entitiesJson)); }
+    if (updates.length > 0) {
+      vals.push(articleId);
+      await db.query(
+        `UPDATE rss_articles SET ${updates.join(', ')} WHERE id = $${idx}`,
+        vals
+      );
+    }
+
     _processed += 1;
     return { articleId, hasEmbedding: !!embedding, sentimentLabel };
   } catch (err) {
@@ -129,30 +177,48 @@ async function enrichArticle({ articleId, title, summary }) {
 }
 
 /**
- * Backfill enrichment for high-score articles missing it.
- * Designed for nightly cron OR manual catch-up.
+ * Backfill enrichment for articles missing it.
  *
  * @param {object} opts
- * @param {number} opts.minScore default SCORE_THRESHOLD (8)
- * @param {number} opts.limit max articles to process per call (default 200)
- * @param {number} opts.sinceHours look-back window (default 168 = 7d)
+ * @param {number} opts.minScore default 3
+ * @param {number} opts.limit max articles per call (default 500)
+ * @param {number} opts.sinceHours 0 = no time limit (default)
+ * @param {number} opts.concurrency parallel enrichments (default BACKFILL_CONCURRENCY)
  */
-async function enrichBackfill({ minScore = 8, limit = 200, sinceHours = 168 } = {}) {
+async function enrichBackfill({ minScore = 3, limit = 500, sinceHours = 0, concurrency = BACKFILL_CONCURRENCY } = {}) {
+  const params = [minScore, limit];
+  let timeClause = '';
+  if (sinceHours > 0) {
+    timeClause = `AND a.created_at > NOW() - ($3 || ' hours')::INTERVAL`;
+    params.push(String(sinceHours));
+  }
   const rows = await db.queryAll(
-    `SELECT a.id, a.title, a.summary
+    `SELECT a.id, a.title, a.summary, f.lang
      FROM rss_articles a
      LEFT JOIN rss_articles_enrichment e ON e.article_id = a.id
+     JOIN rss_feeds f ON f.id = a.feed_id
      WHERE a.relevance_score >= $1
-       AND a.created_at > NOW() - ($2 || ' hours')::INTERVAL
        AND e.article_id IS NULL
+       AND f.category != 'bsky'
+       ${timeClause}
      ORDER BY a.relevance_score DESC, a.created_at DESC
-     LIMIT $3`,
-    [minScore, String(sinceHours), limit]
+     LIMIT $2`,
+    params
   );
   let ok = 0, fail = 0;
-  for (const r of rows) {
-    const result = await enrichArticle({ articleId: r.id, title: r.title, summary: r.summary });
-    if (result) ok++; else fail++;
+
+  // Process in chunks of `concurrency` for parallel throughput
+  // Skip embeddings + classify in backfill — heavy to compute on CPU.
+  // Classify (26-label zero-shot) = 26 forward passes per article.
+  // Feed primary_topic already provides topic info.
+  for (let i = 0; i < rows.length; i += concurrency) {
+    const chunk = rows.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      chunk.map(r => enrichArticle({ articleId: r.id, title: r.title, summary: r.summary, lang: r.lang || 'en', skipEmbedding: true, skipClassify: true }))
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value) ok++; else fail++;
+    }
   }
   return { candidates: rows.length, enriched: ok, failed: fail, stats: _stats() };
 }

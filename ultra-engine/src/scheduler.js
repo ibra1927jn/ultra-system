@@ -153,13 +153,16 @@ function init() {
     'Diario 06:30 — BOE ayudas + CDTI + ENISA → opportunities'
   );
 
-  // ─── P1 Fase 3b: NLP processing — cada hora ───
-  register(
-    'nlp-process',
-    '20 * * * *',
-    runNlpProcess,
-    'Cada hora :20 — AFINN sentiment + TextRank summary para articles sin procesar'
-  );
+  // ─── P1 Fase 3b: NLP processing — DISABLED ───
+  // Superseded by B8 nlp-enrich-backfill (transformers sidecar).
+  // Legacy AFINN/TextRank was lower quality and conflicted with the
+  // mirror write from nlp_enrich.js to rss_articles.
+  // register(
+  //   'nlp-process',
+  //   '20 * * * *',
+  //   runNlpProcess,
+  //   'Cada hora :20 — AFINN sentiment + TextRank summary para articles sin procesar'
+  // );
 
   // ─── P4 Fase 3c: Paperless OCR sync — cada 6h ───
   register(
@@ -1049,32 +1052,24 @@ function init() {
     'Cada 6h :17 — Audit RSS feeds health (silent unless degraded)'
   );
 
-  // ─── P1 B8 — NLP enrichment backfill (two tiers) ──────
-  // Tier 1 (every 20 min): score≥8 recent articles — highest priority
-  // Tier 2 (every 40 min): score≥3 — broader coverage for classify/sentiment
+  // ─── P1 B8 — NLP enrichment backfill ──────
+  // Every 10 min: score≥3, no time window, 500/batch, parallel concurrency 6
+  // Catches up the full backlog then stays current
   register(
     'nlp-enrich-backfill',
-    '*/20 * * * *',
+    '*/10 * * * *',
     async () => {
       try {
         const nlpEnrich = require('./nlp_enrich');
-        // Tier 1: hi-score, tight window
-        const t1 = await nlpEnrich.enrichBackfill({ minScore: 8, limit: 200, sinceHours: 3 });
-        if (t1.candidates > 0) {
-          console.log(`🧠 nlp-backfill T1 (≥8): ${t1.enriched}/${t1.candidates} enriched`);
-        }
-        // Tier 2: broader threshold, longer window — only when T1 left capacity
-        if (t1.candidates < 100) {
-          const t2 = await nlpEnrich.enrichBackfill({ minScore: 3, limit: 300, sinceHours: 6 });
-          if (t2.candidates > 0) {
-            console.log(`🧠 nlp-backfill T2 (≥3): ${t2.enriched}/${t2.candidates} enriched`);
-          }
+        const r = await nlpEnrich.enrichBackfill({ minScore: 3, limit: 500, sinceHours: 0 });
+        if (r.candidates > 0) {
+          console.log(`🧠 nlp-backfill: ${r.enriched}/${r.candidates} enriched (pending queue: ${r.stats.waiting}, dropped: ${r.stats.dropped})`);
         }
       } catch (err) {
         console.error('❌ nlp-enrich-backfill:', err.message);
       }
     },
-    'Cada 20 min — Tiered NLP backfill: T1 score≥8 then T2 score≥3'
+    'Cada 10 min — NLP backfill score≥3, no time limit, 500/batch parallel'
   );
 
   console.log(`✅ ${jobs.length} jobs registrados`);

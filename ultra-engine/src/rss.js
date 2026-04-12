@@ -304,7 +304,7 @@ async function fetchFeed(feedId) {
         // NLP enrichment for score≥3 (classify/sentiment/embed)
         // Queue is bounded by ENRICH_MAX_INFLIGHT+QUEUE — excess silently dropped
         if (score >= 3 && inserted?.id) {
-          nlpEnrich.enrichArticle({ articleId: inserted.id, title, summary }).catch(() => {});
+          nlpEnrich.enrichArticle({ articleId: inserted.id, title, summary, lang: feed.lang || 'en' }).catch(() => {});
         }
 
         // Si supera el umbral alto, guardar para alertar via Telegram

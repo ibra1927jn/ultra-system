@@ -449,7 +449,7 @@ services:
       - /mnt/HC_Volume_105271265/nlp_models:/models
     environment:
       NLP_MAX_MODELS: "4"
-      TORCH_THREADS: "2"
+      TORCH_THREADS: "4"
     networks:
       - ultra_net
     deploy:
