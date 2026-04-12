@@ -1049,26 +1049,32 @@ function init() {
     'Cada 6h :17 — Audit RSS feeds health (silent unless degraded)'
   );
 
-  // ─── P1 B8 — NLP enrichment backfill (safety net) ──────
-  // El hot-path en rss.js puede perder enrichments durante restarts del
-  // sidecar o bursts del fetchAll cycle (queue lleno o circuit breaker
-  // abierto). Este backfill recoge cualquier hi-score article missing
-  // enrichment en las últimas 2h.
+  // ─── P1 B8 — NLP enrichment backfill (two tiers) ──────
+  // Tier 1 (every 20 min): score≥8 recent articles — highest priority
+  // Tier 2 (every 40 min): score≥3 — broader coverage for classify/sentiment
   register(
     'nlp-enrich-backfill',
-    '*/30 * * * *',
+    '*/20 * * * *',
     async () => {
       try {
         const nlpEnrich = require('./nlp_enrich');
-        const r = await nlpEnrich.enrichBackfill({ minScore: 8, limit: 200, sinceHours: 2 });
-        if (r.candidates > 0) {
-          console.log(`🧠 nlp-enrich-backfill: ${r.enriched}/${r.candidates} enriched (${r.failed} failed)`);
+        // Tier 1: hi-score, tight window
+        const t1 = await nlpEnrich.enrichBackfill({ minScore: 8, limit: 200, sinceHours: 3 });
+        if (t1.candidates > 0) {
+          console.log(`🧠 nlp-backfill T1 (≥8): ${t1.enriched}/${t1.candidates} enriched`);
+        }
+        // Tier 2: broader threshold, longer window — only when T1 left capacity
+        if (t1.candidates < 100) {
+          const t2 = await nlpEnrich.enrichBackfill({ minScore: 3, limit: 300, sinceHours: 6 });
+          if (t2.candidates > 0) {
+            console.log(`🧠 nlp-backfill T2 (≥3): ${t2.enriched}/${t2.candidates} enriched`);
+          }
         }
       } catch (err) {
         console.error('❌ nlp-enrich-backfill:', err.message);
       }
     },
-    'Cada 30 min — Backfill missed B8 enrichments (last 2h hi-score)'
+    'Cada 20 min — Tiered NLP backfill: T1 score≥8 then T2 score≥3'
   );
 
   console.log(`✅ ${jobs.length} jobs registrados`);

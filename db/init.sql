@@ -2200,7 +2200,9 @@ SELECT
   f.name AS source_name,
   e.sentiment_label,
   e.summary AS nlp_summary,
-  e.classify_topics
+  e.classify_topics,
+  e.classify_topics::jsonb->0->>'label' AS top_topic,
+  (e.classify_topics::jsonb->0->>'score')::numeric AS topic_confidence
 FROM rss_articles a
 JOIN rss_feeds f ON f.id = a.feed_id
 LEFT JOIN rss_articles_enrichment e ON e.article_id = a.id
