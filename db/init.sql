@@ -2176,3 +2176,62 @@ CREATE TABLE IF NOT EXISTS rss_articles_enrichment (
 CREATE INDEX IF NOT EXISTS idx_rss_enr_sentiment ON rss_articles_enrichment(sentiment_label);
 CREATE INDEX IF NOT EXISTS idx_rss_enr_enriched ON rss_articles_enrichment(enriched_at DESC);
 
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  P1 country expansion 2026-04-12 — indexes + helper view + function
+--  Tras seedear ~350 feeds nativos en 124 países (yavuz + plenary OPMLs),
+--  añadimos índices para queries por país/idioma + helper para
+--  "top news of country X in last N hours".
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE INDEX IF NOT EXISTS idx_rss_feeds_category ON rss_feeds(category) WHERE is_active=true;
+CREATE INDEX IF NOT EXISTS idx_rss_feeds_lang ON rss_feeds(lang) WHERE is_active=true;
+CREATE INDEX IF NOT EXISTS idx_rss_articles_feed_score_pub ON rss_articles(feed_id, relevance_score DESC, published_at DESC);
+
+-- View: top news per country (last 24h, dedup-aware)
+CREATE OR REPLACE VIEW v_country_top_news AS
+SELECT
+  SUBSTRING(f.category FROM 9) AS country_iso,
+  f.lang,
+  a.id AS article_id,
+  a.title,
+  a.url,
+  a.summary,
+  a.relevance_score,
+  a.published_at,
+  f.name AS source_name,
+  e.sentiment_label,
+  e.summary AS nlp_summary,
+  e.classify_topics
+FROM rss_articles a
+JOIN rss_feeds f ON f.id = a.feed_id
+LEFT JOIN rss_articles_enrichment e ON e.article_id = a.id
+WHERE f.is_active = true
+  AND f.category LIKE 'country-%'
+  AND a.created_at > NOW() - INTERVAL '24 hours'
+  AND a.duplicate_of IS NULL;
+
+-- Function: top N news for country X in last p_hours hours
+CREATE OR REPLACE FUNCTION top_news_country(p_iso TEXT, p_limit INT DEFAULT 20, p_hours INT DEFAULT 24)
+RETURNS TABLE(
+  article_id INT,
+  title TEXT,
+  url TEXT,
+  source_name VARCHAR(255),
+  lang VARCHAR(5),
+  relevance_score INT,
+  published_at TIMESTAMPTZ,
+  sentiment_label VARCHAR(32),
+  nlp_summary TEXT
+)
+LANGUAGE SQL STABLE AS $$
+  SELECT a.id, a.title, a.url, f.name, f.lang, a.relevance_score, a.published_at, e.sentiment_label, e.summary
+  FROM rss_articles a
+  JOIN rss_feeds f ON f.id = a.feed_id
+  LEFT JOIN rss_articles_enrichment e ON e.article_id = a.id
+  WHERE f.is_active = true
+    AND f.category = 'country-' || lower(p_iso)
+    AND a.created_at > NOW() - (p_hours || ' hours')::INTERVAL
+    AND a.duplicate_of IS NULL
+  ORDER BY a.relevance_score DESC NULLS LAST, a.published_at DESC NULLS LAST
+  LIMIT p_limit;
+$$;
+
