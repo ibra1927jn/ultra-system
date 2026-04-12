@@ -286,15 +286,18 @@ async function persistAndAnalyze(country, volMap, toneMap) {
   const variance = baselineVols.reduce((a, b) => a + (b - mean) ** 2, 0) / baselineVols.length;
   const std = Math.sqrt(variance);
 
-  // Floor std to 5% of mean to prevent spurious alerts when baseline
-  // variance is near-zero (immature data). Without this, z-scores of
-  // 30-50 appear for trivial fluctuations (e.g. AE std=0.02, IR std=0.01).
-  const STD_FLOOR_PCT = 0.05;
-  const stdFloor = Math.max(std, mean * STD_FLOOR_PCT, 0.001);
-
-  if (std === 0 && mean === 0) {
-    return { country, persisted, alert: null, reason: 'zero_std' };
+  // Skip alert computation when baseline volume is negligible — countries
+  // with mean<0.3 have so little GDELT coverage that any fluctuation
+  // produces z-scores of 30-50 (e.g. AE mean=0.12 → z=51 on a normal day).
+  const MIN_BASELINE_MEAN = 0.3;
+  if (mean < MIN_BASELINE_MEAN) {
+    return { country, persisted, alert: null, reason: 'baseline_too_low' };
   }
+
+  // Floor std to 10% of mean to prevent spurious alerts when baseline
+  // variance is near-zero (immature data).
+  const STD_FLOOR_PCT = 0.10;
+  const stdFloor = Math.max(std, mean * STD_FLOOR_PCT, 0.01);
 
   const z = (currentVolume - mean) / stdFloor;
 
