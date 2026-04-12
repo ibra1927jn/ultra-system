@@ -72,6 +72,7 @@ services:
       OSRM_BASE_URL: http://osrm:5000
       SPACY_BASE_URL: http://spacy:8000
       NLP_BASE_URL: http://nlp:8000
+      EXTRACT_BASE_URL: http://extract:8000
       PUPPETEER_BASE_URL: http://puppeteer:3000
       FIREFLY_BASE_URL: http://firefly_iii:8080
       FIREFLY_PERSONAL_TOKEN: ${FIREFLY_PERSONAL_TOKEN:-}
@@ -406,6 +407,31 @@ services:
       - "127.0.0.1:8013:80"
     volumes:
       - ./rss-bridge/whitelist.txt:/app/whitelist.txt:ro
+    networks:
+      - ultra_net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  #  P1 B13-lite — HTML article extractor sidecar
+  #  Pivot from Crawl4AI (4-6GB Playwright/chromium) to
+  #  trafilatura (~250MB pure python). Same goal: extract
+  #  clean article text from sites where rss-parser fails.
+  #
+  #  ADDITIVE — does NOT replace rss.js. Engine integration
+  #  pending: future call from rss.js fallback path when
+  #  _parseUrlWithPuppeteerFallback returns "no rss markers".
+  #
+  #  Endpoint: POST /extract {url} → {title,text,author,...}
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  extract:
+    build: ./extract-sidecar
+    container_name: ultra_extract
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8014:8000"
     networks:
       - ultra_net
     deploy:
