@@ -324,7 +324,7 @@ services:
       TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
       ENGINE_URL: http://engine:3000
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
-      TELETHON_CHANNELS: "rybar,tass_agency,RVvoenkor,bbcrussian,meduzalive,kyivindependent_official,PressTV,AJEnglishNews,aboraboranet,inaborabora,SWA_channel,CGTN,SputnikInt,RTnews"
+      TELETHON_CHANNELS: "rybar,tass_agency,RVvoenkor,bbcrussian,meduzalive,kyivindependent_official,PressTV,AJEnglishNews,CGTN,SputnikInt,RTnews"
       TZ: ${TZ:-Pacific/Auckland}
     volumes:
       - telethon_data:/data
