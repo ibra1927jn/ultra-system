@@ -125,10 +125,12 @@ async function handlePost(post) {
   let score;
   try {
     const baseScore = await rss.scoreArticle(post.text, '');
-    // Bonus per matched keyword (capped) — multiple hits indicate higher relevance
-    score = baseScore + Math.min(3, hits.length - 1);
+    // 2026-04-12 — Penalty ×0.5: social media posts are high-noise/low-signal
+    // compared to curated RSS. A bsky post needs double the keyword weight to
+    // reach enrichment (≥3) or alert (≥8) thresholds.
+    score = Math.max(1, Math.floor(baseScore * 0.5));
   } catch {
-    score = 5;
+    score = 2;
   }
 
   try {

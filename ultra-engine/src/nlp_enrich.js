@@ -30,8 +30,8 @@ const nlp = require('./nlp_sidecar');
 //
 // NLP sidecar has lazy LRU max 2 models in RAM; 8 concurrent calls
 // will serialize there naturally but engine no longer drops silently.
-const ENRICH_MAX_INFLIGHT = Number(process.env.NLP_ENRICH_MAX_INFLIGHT || 8);
-const ENRICH_MAX_QUEUE = Number(process.env.NLP_ENRICH_MAX_QUEUE || 100);
+const ENRICH_MAX_INFLIGHT = Number(process.env.NLP_ENRICH_MAX_INFLIGHT || 12);
+const ENRICH_MAX_QUEUE = Number(process.env.NLP_ENRICH_MAX_QUEUE || 200);
 // 25 broad labels for zero-shot classify. Covers 69 taxonomy topics.
 // Feed primary_topic provides granular sub-topic; NLP provides article-level.
 const ENRICH_TOPICS = (process.env.NLP_ENRICH_TOPICS ||
@@ -74,16 +74,16 @@ async function enrichArticle({ articleId, title, summary }) {
   try {
     const fullText = `${title}. ${summary || ''}`.trim();
 
-    // 2026-04-12 — Serialized instead of Promise.all. With NLP_MAX_MODELS≤3
-    // four parallel calls thrash the sidecar LRU (each call loads/evicts
-    // a different model, multiplying load latency). Sequential lets the
-    // LRU keep the just-loaded model warm long enough for the next batch
-    // of articles, and reduces peak RSS spikes that were OOM-killing the
-    // container. Each call still returns null on failure independently.
-    const embRes = await nlp.embed([fullText.slice(0, 2000)]);
-    const sentRes = await nlp.sentiment(fullText.slice(0, 1500));
-    const classRes = await nlp.classify(fullText.slice(0, 2000), ENRICH_TOPICS, { multiLabel: true });
-    const sumRes = fullText.length >= 200 ? await nlp.summarize(fullText.slice(0, 4000)) : null;
+    // 2026-04-12 — Parallel. NLP_MAX_MODELS raised to 4 so all enrichment
+    // models stay warm (no LRU thrashing). Promise.all cuts per-article
+    // latency ~4× vs sequential. Each call returns null on failure
+    // independently — partial enrichment still persisted.
+    const [embRes, sentRes, classRes, sumRes] = await Promise.all([
+      nlp.embed([fullText.slice(0, 2000)]),
+      nlp.sentiment(fullText.slice(0, 1500)),
+      nlp.classify(fullText.slice(0, 2000), ENRICH_TOPICS, { multiLabel: true }),
+      fullText.length >= 200 ? nlp.summarize(fullText.slice(0, 4000)) : Promise.resolve(null),
+    ]);
 
     const embedding = embRes?.vectors?.[0] ?? null;
     const sentimentLabel = sentRes?.label ?? null;

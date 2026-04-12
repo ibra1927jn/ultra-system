@@ -22,7 +22,7 @@ log = logging.getLogger("ultra_nlp")
 # torch CPU defaults — single thread keeps RAM predictable
 torch.set_num_threads(int(os.getenv("TORCH_THREADS", "2")))
 
-MAX_MODELS = int(os.getenv("NLP_MAX_MODELS", "2"))
+MAX_MODELS = int(os.getenv("NLP_MAX_MODELS", "4"))
 
 # Model registry. Keys are short ids exposed via the API; values are
 # (loader_fn, hf_model_id) so that loaders can be heterogeneous
@@ -102,7 +102,7 @@ def health():
 # ──────────────── classify ────────────────
 class ClassifyReq(BaseModel):
     text: str = Field(..., max_length=20000)
-    labels: list[str] = Field(..., min_length=2, max_length=20)
+    labels: list[str] = Field(..., min_length=2, max_length=50)
     multi_label: bool = False
 
 
