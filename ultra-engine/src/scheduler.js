@@ -2208,4 +2208,17 @@ async function syncIntelWatchesJob() {
   }
 }
 
+  // ─── Taxonomy materialized views refresh ──────────────────────────
+  register('taxonomy-refresh', '5 */2 * * *', async () => {
+    try {
+      const t0 = Date.now();
+      const db = require('./db');
+      await db.queryOne(`REFRESH MATERIALIZED VIEW CONCURRENTLY v_news_by_topic`);
+      await db.queryOne(`REFRESH MATERIALIZED VIEW CONCURRENTLY v_news_by_region`);
+      await db.queryOne(`REFRESH MATERIALIZED VIEW CONCURRENTLY v_news_by_country_topic`);
+      await db.queryOne(`REFRESH MATERIALIZED VIEW CONCURRENTLY v_feed_quality`);
+      console.log(`📊 taxonomy-refresh: 4 views refreshed ${Date.now() - t0}ms`);
+    } catch (err) { console.error('❌ taxonomy-refresh:', err.message); }
+  }, 'Cada 2h :05 — refresh taxonomy materialized views');
+
 module.exports = { init, listJobs };
