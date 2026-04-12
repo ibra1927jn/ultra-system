@@ -42,6 +42,22 @@
 // ════════════════════════════════════════════════════════════
 
 const db = require('./db');
+const path = require('path');
+
+// Lazy-loaded point-in-polygon geocoder (Natural Earth 110m, ~800KB).
+// Returns ISO_A2 for a (lat, lon) pair, or null if ocean/unmapped.
+let _geoQuery = null;
+function geocodeFire(lat, lon) {
+  if (!_geoQuery) {
+    const whichPolygon = require('which-polygon');
+    const fs = require('fs');
+    const geo = JSON.parse(fs.readFileSync(
+      path.join(__dirname, '..', 'data', 'ne_110m_countries.geojson'), 'utf8'));
+    _geoQuery = whichPolygon(geo);
+  }
+  const r = _geoQuery([lon, lat]); // which-polygon expects [lon, lat]
+  return r ? r.ISO_A2 : null;
+}
 
 // ─── lazy require para que el módulo cargue rápido y solo invoque tsx
 //      cuando alguien efectivamente llame a un job ──────────────────
@@ -1545,7 +1561,7 @@ async function persistSatelliteFires(fires, observedAt) {
         f.version ? String(f.version).slice(0, 20) : null,
         Number(f.frp) || null,
         f.daynight ? String(f.daynight).slice(0, 2) : null,
-        null,  // region — could be derived from lat/lon, left null for now
+        geocodeFire(Number(f.lat), Number(f.lon)),  // region from Natural Earth PIP
         null,  // raw — would explode storage if we keep full per-fire payload
         observedAt,
       ]
@@ -2668,21 +2684,43 @@ async function persistPredictionMarkets(rows) {
     if (upsert.inserted === true) inserted++;
     else updated++;
 
-    // Always append a snapshot row — one row per cron tick per market.
-    await db.queryOne(
-      `INSERT INTO wm_prediction_market_snapshots
-         (market_id, captured_at, probability, outcomes, volume, liquidity)
-       VALUES ($1, NOW(), $2, $3, $4, $5)
-       RETURNING id`,
-      [
-        upsert.id,
-        Number.isFinite(r.probability) ? Number(r.probability) : null,
-        r.outcomes ? JSON.stringify(r.outcomes) : null,
-        Number.isFinite(r.volume) ? Number(r.volume) : null,
-        Number.isFinite(r.liquidity) ? Number(r.liquidity) : null,
-      ]
+    // Delta-only snapshot: skip if probability and volume unchanged vs last snapshot.
+    // Cuts ~90% of rows (most markets don't move between 15-min ticks).
+    const prob = Number.isFinite(r.probability) ? Number(r.probability) : null;
+    const vol  = Number.isFinite(r.volume) ? Number(r.volume) : null;
+    const liq  = Number.isFinite(r.liquidity) ? Number(r.liquidity) : null;
+
+    const prev = await db.queryOne(
+      `SELECT probability, volume FROM wm_prediction_market_snapshots
+       WHERE market_id = $1 ORDER BY captured_at DESC LIMIT 1`,
+      [upsert.id]
     );
-    snapshotted++;
+
+    const probChanged = !prev
+      || (prev.probability === null) !== (prob === null)
+      || (prev.probability !== null && prob !== null
+          && Math.abs(Number(prev.probability) - prob) >= 0.005);
+    const volChanged = !prev
+      || (prev.volume === null) !== (vol === null)
+      || (prev.volume !== null && vol !== null
+          && Math.abs(Number(prev.volume) - vol) >= 1);
+
+    if (probChanged || volChanged) {
+      await db.queryOne(
+        `INSERT INTO wm_prediction_market_snapshots
+           (market_id, captured_at, probability, outcomes, volume, liquidity)
+         VALUES ($1, NOW(), $2, $3, $4, $5)
+         RETURNING id`,
+        [
+          upsert.id,
+          prob,
+          r.outcomes ? JSON.stringify(r.outcomes) : null,
+          vol,
+          liq,
+        ]
+      );
+      snapshotted++;
+    }
   }
   return { inserted, updated, snapshotted, skipped };
 }
