@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ULTRA SYSTEM — Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@600;700&display=swap" rel="stylesheet">
+    <style>
+:root {
+    --bg-deep: #0a0e1a;
+    --bg-surface: rgba(255,255,255,0.03);
+    --border: rgba(255,255,255,0.06);
+    --text-primary: #e8ecf4;
+    --text-secondary: #8892a8;
+    --accent-teal: #00d4aa;
+    --accent-coral: #ef4444;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.login-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 48px 40px;
+    width: 100%;
+    max-width: 400px;
+    backdrop-filter: blur(20px);
+}
+.logo {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 8px;
+    letter-spacing: 2px;
+}
+.subtitle {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-bottom: 32px;
+}
+label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+input {
+    width: 100%;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+input:focus { border-color: var(--accent-teal); }
+button {
+    width: 100%;
+    padding: 14px;
+    background: var(--accent-teal);
+    color: #0a0e1a;
+    border: none;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: opacity 0.2s;
+}
+button:hover { opacity: 0.9; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.error {
+    color: var(--accent-coral);
+    font-size: 0.8rem;
+    text-align: center;
+    margin-top: 16px;
+    min-height: 20px;
+}
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="logo">ULTRA SYSTEM</div>
+        <div class="subtitle">Mission Control Access</div>
+        <form id="loginForm">
+            <label for="email">Email</label>
+            <input type="email" id="email" autocomplete="email" required autofocus>
+            <label for="password">Password</label>
+            <input type="password" id="password" autocomplete="current-password" required>
+            <button type="submit" id="btn">Authenticate</button>
+        </form>
+        <div class="error" id="error"></div>
+    </div>
+    <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('btn');
+        const errEl = document.getElementById('error');
+        errEl.textContent = '';
+        btn.disabled = true;
+        btn.textContent = 'Authenticating...';
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: document.getElementById('email').value,
+                    password: document.getElementById('password').value,
+                }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                // Cookie is set by server (httpOnly) — just redirect
+                window.location.href = '/';
+            } else {
+                errEl.textContent = data.error || 'Login failed';
+            }
+        } catch (err) {
+            errEl.textContent = 'Connection error';
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Authenticate';
+        }
+    });
+    </script>
+</body>
+</html>

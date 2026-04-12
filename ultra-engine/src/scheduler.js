@@ -22,6 +22,7 @@ const intelWatches = require('./intel_watches');
 const recurring = require('./recurring');
 const cryptoMod = require('./crypto');
 const dedupRunner = require('./dedup_runner');
+const { runInWorker } = require('./worker_runner');
 const earlyWarning = require('./early_warning');
 const govJobs = require('./gov_jobs');
 const traccar = require('./traccar');
@@ -103,6 +104,33 @@ function init() {
     '30 3 * * *',
     runMinhashDedup,
     'Diario 03:30 — Dedup cross-table (rss + opps + jobs) MinHash threshold 0.7'
+  );
+
+  // ─── P1: Article retention by score — daily 04:00 ───
+  // score=0 articles deleted after 7d (noise, never enriched)
+  // score 1-2 kept 30d, score≥3 kept forever
+  register(
+    'article-retention',
+    '0 4 * * *',
+    async () => {
+      const r0 = await db.query(
+        `DELETE FROM rss_articles
+         WHERE relevance_score = 0
+           AND created_at < NOW() - INTERVAL '7 days'
+           AND id NOT IN (SELECT article_id FROM rss_articles_enrichment)`
+      );
+      const r1 = await db.query(
+        `DELETE FROM rss_articles
+         WHERE relevance_score BETWEEN 1 AND 2
+           AND created_at < NOW() - INTERVAL '30 days'
+           AND id NOT IN (SELECT article_id FROM rss_articles_enrichment)`
+      );
+      const total = (r0.rowCount || 0) + (r1.rowCount || 0);
+      if (total > 0) {
+        console.log(`🗑️  article-retention: purged ${r0.rowCount} score=0 (>7d) + ${r1.rowCount} score=1-2 (>30d)`);
+      }
+    },
+    'Diario 04:00 — purge score=0 >7d, score 1-2 >30d'
   );
 
   // ─── P1 Fase 2: Early warning fetch — cada 6h ───
@@ -2305,10 +2333,12 @@ async function fetchEarlyWarning() {
 // ═══════════════════════════════════════════════════════════
 async function runMinhashDedup() {
   try {
-    const r = await dedupRunner.runAll({ lookbackDays: 30, threshold: 0.7 });
+    // Run in worker thread — CPU-heavy hashing doesn't block event loop
+    const r = await runInWorker('dedup_runner', 'runAll', { lookbackDays: 30, threshold: 0.7 });
+    if (r?.__workerError) throw new Error(r.message);
     const total = (r.rss?.marked || 0) + (r.opportunities?.marked || 0) + (r.job_listings?.marked || 0);
     console.log(
-      `🧬 minhash-dedup: rss=${r.rss?.marked || 0}/${r.rss?.scanned || 0} ` +
+      `🧬 minhash-dedup [worker]: rss=${r.rss?.marked || 0}/${r.rss?.scanned || 0} ` +
       `opps=${r.opportunities?.marked || 0}/${r.opportunities?.scanned || 0} ` +
       `jobs=${r.job_listings?.marked || 0}/${r.job_listings?.scanned || 0} ` +
       `(total marked: ${total})`

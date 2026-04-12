@@ -59,6 +59,13 @@ app.use(helmet({
 }));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+// Lightweight cookie parser (no external dependency)
+app.use((req, _res, next) => {
+  req.cookies = {};
+  const hdr = req.headers.cookie;
+  if (hdr) hdr.split(';').forEach(c => { const [k, ...v] = c.split('='); req.cookies[k.trim()] = v.join('=').trim(); });
+  next();
+});
 app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store, no-cache, must-revalidate'); next(); });
 
 // ─── Rate limits ───────────────────────────────────────────
@@ -76,7 +83,21 @@ const webhookLimiter = rateLimit({
 });
 
 // ─── Archivos estáticos (Dashboard) ────────────────────────
-app.use(express.static(path.join(__dirname, 'public')));
+// login.html + CSS/JS/fonts always public (needed for login page).
+// index.html and other HTML pages require auth (cookie or Bearer).
+app.use('/login.html', express.static(path.join(__dirname, 'public', 'login.html')));
+app.use('/css', express.static(path.join(__dirname, 'public', 'css')));
+app.use('/js', express.static(path.join(__dirname, 'public', 'js')));
+app.use('/sw.js', express.static(path.join(__dirname, 'public', 'sw.js')));
+// Protected static: HTML files require auth
+app.use((req, res, next) => {
+  // Allow non-HTML static assets through
+  if (req.path.match(/\.(css|js|png|jpg|svg|ico|woff2?|ttf|json)$/)) {
+    return express.static(path.join(__dirname, 'public'))(req, res, next);
+  }
+  // HTML paths: require auth
+  next();
+});
 
 // ─── Auth Routes (públicas, rate-limited en login) ───────
 app.use('/api/auth/login', loginLimiter);
@@ -143,7 +164,8 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ─── SPA Fallback (Dashboard) ──────────────────────────────
-app.get('/{*path}', (req, res) => {
+// Protected: must be logged in (cookie or Bearer) to access dashboard
+app.get('/{*path}', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 

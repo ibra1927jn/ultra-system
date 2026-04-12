@@ -7,7 +7,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
-const { generateToken, requireAuth } = require('../middleware/jwt-auth');
+const { generateToken, requireAuth, setSessionCookie, clearSessionCookie } = require('../middleware/jwt-auth');
 
 const router = express.Router();
 
@@ -26,7 +26,15 @@ router.post('/login', async (req, res) => {
   }
 
   const token = generateToken(user.id, user.email);
+  // Set httpOnly cookie for dashboard auto-auth
+  setSessionCookie(res, token);
   res.json({ ok: true, token, email: user.email });
+});
+
+// POST /api/auth/logout
+router.post('/logout', (req, res) => {
+  clearSessionCookie(res);
+  res.json({ ok: true });
 });
 
 // GET /api/auth/me
