@@ -19,20 +19,50 @@
 const db = require('./db');
 const nlp = require('./nlp_sidecar');
 
-const ENRICH_MAX_INFLIGHT = Number(process.env.NLP_ENRICH_MAX_INFLIGHT || 3);
+// 2026-04-12: cap raised 3→8 + wait-with-bounded-queue. Previous logic
+// dropped any call above the inflight cap silently, which on a long
+// fetchAll cycle (700+ feeds, ~2400 high-score articles bursting) gave
+// an enrichment ratio of 0.17% (4/2400) — almost everything was lost.
+// New behavior:
+//   - up to ENRICH_MAX_INFLIGHT concurrent in-flight calls (default 8)
+//   - up to ENRICH_MAX_QUEUE additional callers waiting (default 100)
+//   - above queue cap → drop (preserves catastrophic load protection)
+//
+// NLP sidecar has lazy LRU max 2 models in RAM; 8 concurrent calls
+// will serialize there naturally but engine no longer drops silently.
+const ENRICH_MAX_INFLIGHT = Number(process.env.NLP_ENRICH_MAX_INFLIGHT || 8);
+const ENRICH_MAX_QUEUE = Number(process.env.NLP_ENRICH_MAX_QUEUE || 100);
 const ENRICH_TOPICS = (process.env.NLP_ENRICH_TOPICS ||
   'geopolitics,economy,security,technology,health,climate,migration,human-rights,science,sports'
 ).split(',').map(s => s.trim()).filter(Boolean);
 
 let _inflight = 0;
+let _waiting = 0;
+let _dropped = 0;
+let _processed = 0;
 
 function _stats() {
-  return { inflight: _inflight };
+  return { inflight: _inflight, waiting: _waiting, dropped: _dropped, processed: _processed };
+}
+
+async function _waitForSlot() {
+  while (_inflight >= ENRICH_MAX_INFLIGHT) {
+    await new Promise(r => setTimeout(r, 150 + Math.random() * 200));
+  }
 }
 
 async function enrichArticle({ articleId, title, summary }) {
   if (!articleId || !title) return null;
-  if (_inflight >= ENRICH_MAX_INFLIGHT) return null;
+  if (_waiting >= ENRICH_MAX_QUEUE) {
+    _dropped += 1;
+    return null;
+  }
+  _waiting += 1;
+  try {
+    await _waitForSlot();
+  } finally {
+    _waiting -= 1;
+  }
   _inflight += 1;
   try {
     const fullText = `${title}. ${summary || ''}`.trim();
@@ -80,6 +110,7 @@ async function enrichArticle({ articleId, title, summary }) {
         summaryText,
       ]
     );
+    _processed += 1;
     return { articleId, hasEmbedding: !!embedding, sentimentLabel };
   } catch (err) {
     console.error('nlp_enrich error:', err.message);
@@ -89,4 +120,33 @@ async function enrichArticle({ articleId, title, summary }) {
   }
 }
 
-module.exports = { enrichArticle, _stats, ENRICH_TOPICS };
+/**
+ * Backfill enrichment for high-score articles missing it.
+ * Designed for nightly cron OR manual catch-up.
+ *
+ * @param {object} opts
+ * @param {number} opts.minScore default SCORE_THRESHOLD (8)
+ * @param {number} opts.limit max articles to process per call (default 200)
+ * @param {number} opts.sinceHours look-back window (default 168 = 7d)
+ */
+async function enrichBackfill({ minScore = 8, limit = 200, sinceHours = 168 } = {}) {
+  const rows = await db.queryAll(
+    `SELECT a.id, a.title, a.summary
+     FROM rss_articles a
+     LEFT JOIN rss_articles_enrichment e ON e.article_id = a.id
+     WHERE a.relevance_score >= $1
+       AND a.created_at > NOW() - ($2 || ' hours')::INTERVAL
+       AND e.article_id IS NULL
+     ORDER BY a.relevance_score DESC, a.created_at DESC
+     LIMIT $3`,
+    [minScore, String(sinceHours), limit]
+  );
+  let ok = 0, fail = 0;
+  for (const r of rows) {
+    const result = await enrichArticle({ articleId: r.id, title: r.title, summary: r.summary });
+    if (result) ok++; else fail++;
+  }
+  return { candidates: rows.length, enriched: ok, failed: fail, stats: _stats() };
+}
+
+module.exports = { enrichArticle, enrichBackfill, _stats, ENRICH_TOPICS };
