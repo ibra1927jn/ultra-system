@@ -93,7 +93,7 @@ app.use('/api/logistics', requireAuth, logisticsRouter);
 app.use('/api/bio', requireAuth, bioRouter);
 app.use('/api/bureaucracy', requireAuth, bureaucracyRouter);
 app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
-app.use('/api/wm', requireAuth, wmRouter);
+app.use('/api/wm', apiKeyAuth, wmRouter);
 
 // ─── Webhooks (públicos, validados por shared secret + rate-limited) ──
 app.use('/webhooks', webhookLimiter, webhooksRouter);

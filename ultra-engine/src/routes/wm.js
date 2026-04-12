@@ -87,4 +87,30 @@ router.get('/summary', async (req, res) => {
   }
 });
 
+// ─── GET /api/wm/news/country/:iso ─ Top news per country ──────────
+//
+// Wraps the SQL function top_news_country(iso, limit, hours).
+// Returns enriched articles with NLP data for a given country.
+// Usage: GET /api/wm/news/country/PK?limit=20&hours=24
+router.get('/news/country/:iso', async (req, res) => {
+  try {
+    const iso = String(req.params.iso).toUpperCase().slice(0, 2);
+    if (!/^[A-Z]{2}$/.test(iso)) {
+      return res.status(400).json({ ok: false, error: 'invalid ISO code' });
+    }
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+    const hours = Math.min(parseInt(req.query.hours, 10) || 24, 168);
+
+    const rows = await db.queryAll(
+      `SELECT * FROM top_news_country($1, $2, $3)`,
+      [iso, limit, hours]
+    );
+
+    res.json({ ok: true, country: iso, count: rows.length, data: rows });
+  } catch (err) {
+    console.error(`❌ /api/wm/news/country error:`, err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;
