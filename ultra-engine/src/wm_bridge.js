@@ -920,7 +920,7 @@ async function runTrendingKeywordsJob({ lookbackHours = 24, limit = 1000 } = {})
 
 const MILITARY_FLIGHTS_RETENTION_DAYS = Math.max(
   1,
-  parseInt(process.env.MILITARY_FLIGHTS_RETENTION_DAYS || '30', 10) || 30
+  parseInt(process.env.MILITARY_FLIGHTS_RETENTION_DAYS || '14', 10) || 14
 );
 
 /**

@@ -1132,7 +1132,7 @@ function init() {
     async () => {
       try {
         const nlpEnrich = require('./nlp_enrich');
-        const r = await nlpEnrich.enrichBackfill({ minScore: 3, limit: 500, sinceHours: 0 });
+        const r = await nlpEnrich.enrichBackfill({ minScore: 1, limit: 500, sinceHours: 0 });
         if (r.candidates > 0) {
           console.log(`🧠 nlp-backfill: ${r.enriched}/${r.candidates} enriched (pending queue: ${r.stats.waiting}, dropped: ${r.stats.dropped})`);
         }

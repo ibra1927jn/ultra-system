@@ -301,9 +301,9 @@ async function fetchFeed(feedId) {
           }
         }
 
-        // NLP enrichment for score≥3 (classify/sentiment/embed)
+        // NLP enrichment for score≥1 (sentiment/summarize/NER)
         // Queue is bounded by ENRICH_MAX_INFLIGHT+QUEUE — excess silently dropped
-        if (score >= 3 && inserted?.id) {
+        if (score >= 1 && inserted?.id) {
           nlpEnrich.enrichArticle({ articleId: inserted.id, title, summary, lang: feed.lang || 'en' }).catch(() => {});
         }
 
