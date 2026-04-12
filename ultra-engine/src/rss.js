@@ -131,6 +131,47 @@ async function getFeeds() {
 // `extract: text` (que devolvía body.innerText sin tags XML). Tras goto()
 // los cookies CF están resueltos, fetch() desde la página los reutiliza
 // y devuelve el RSS raw — el viewer XML de Chrome no contamina el body.
+// 2026-04-12: Tier 3 fallback. When both rss-parser AND puppeteer fail
+// to produce a feed with <item>/<entry>, the trafilatura extract sidecar
+// (B13-lite) is queried as last resort. It returns a single article from
+// the URL, which we wrap as a 1-item pseudo-feed. This rescues SPAs and
+// sites where the RSS is genuinely broken but the page has content.
+const EXTRACT_BASE_URL = process.env.EXTRACT_BASE_URL || 'http://extract:8000';
+const EXTRACT_TIMEOUT_MS = Number(process.env.EXTRACT_TIMEOUT_MS || 25_000);
+
+async function _extractSidecarFallback(url) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), EXTRACT_TIMEOUT_MS);
+  try {
+    const r = await fetch(`${EXTRACT_BASE_URL}/extract`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url }),
+      signal: ctl.signal,
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data?.title && !data?.text) return null;
+    // Wrap as a 1-item rss-parser-shaped feed so the rest of fetchFeed
+    // can consume it without changes.
+    return {
+      title: data.sitename || data.title || url,
+      items: [{
+        title: data.title || url,
+        link: data.url || url,
+        contentSnippet: (data.text || '').slice(0, 500),
+        content: data.text || '',
+        isoDate: data.date || new Date().toISOString(),
+        creator: data.author || null,
+      }],
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function _parseUrlWithPuppeteerFallback(url) {
   try {
     return await parser.parseURL(url);
@@ -158,8 +199,11 @@ async function _parseUrlWithPuppeteerFallback(url) {
       }
       return await parser.parseString(xml);
     } catch (err2) {
-      // Preferimos el error original — más informativo para debugging
-      throw new Error(`${msg} (puppeteer fallback: ${err2.message})`);
+      // Tier 3: extract sidecar last resort. Best-effort, returns a
+      // 1-item pseudo-feed if the URL has any extractable article.
+      const extracted = await _extractSidecarFallback(url);
+      if (extracted) return extracted;
+      throw new Error(`${msg} (puppeteer fallback: ${err2.message}) (extract fallback: no article)`);
     }
   }
 }
