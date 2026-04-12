@@ -642,7 +642,7 @@ function init() {
   register('wm-gdelt-intel-f', '52 * * * *', wmGdeltGroupHandler('f'), 'HH:52 — GDELT F (human_rights, food_security, water, ai_policy) + retention cleanup');
 
   // ─── P1 finalization B4 — GDELT GEO timelines + z-score alerts ──
-  // 29 países hotspot, paced por gdelt_throttle (~8-10s/req global).
+  // 28 países hotspot, paced por gdelt_throttle (~8-10s/req global).
   // Cron cada 6h en :55 (no :22) para no arrancar encima de
   // wm-gdelt-intel-c (HH:22). El throttle compartido coordinaría
   // igualmente, pero arrancar en una ventana donde intel está idle
@@ -660,7 +660,7 @@ function init() {
         console.log(`🌍 wm-gdelt-geo: countries=${r.countriesProcessed} persisted=${r.rowsPersisted} alerts=${r.alertsTriggered} ${r.elapsedSec}s`);
       } catch (err) { console.error('❌ wm-gdelt-geo:', err.message); }
     },
-    'Cada 6h :55 — GDELT GEO timelines + volume z-score alerts (29 hotspots)'
+    'Cada 6h :55 — GDELT GEO timelines + volume z-score alerts (28 hotspots)'
   );
 
   // ─── P1 WM Phase 2 step 13: hotspot dynamic escalation ──

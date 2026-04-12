@@ -42,7 +42,7 @@ const HOTSPOTS = [
   { id: 'london',         lat: 51.5,  lon:  -0.12, baseline: 3, countries: ['GB'],           keywords: ['london','britain','gchq','mi6'] },
   { id: 'brussels',       lat: 50.85, lon:   4.35, baseline: 3, countries: ['BE'],           keywords: ['nato','brussels','european union'] },
   { id: 'caracas',        lat: 10.5,  lon: -66.9,  baseline: 3, countries: ['VE'],           keywords: ['venezuela','maduro','caracas'] },
-  { id: 'nuuk',           lat: 64.18, lon: -51.7,  baseline: 3, countries: ['GL','DK'],      keywords: ['greenland','nuuk','arctic'] },
+  { id: 'nuuk',           lat: 64.18, lon: -51.7,  baseline: 3, countries: ['DK'],           keywords: ['greenland','nuuk','arctic'] },
   { id: 'riyadh',         lat: 24.7,  lon:  46.7,  baseline: 3, countries: ['SA'],           keywords: ['saudi arabia','riyadh','aramco','opec'] },
   { id: 'cairo',          lat: 30.0,  lon:  31.2,  baseline: 3, countries: ['EG'],           keywords: ['egypt','cairo','sisi','suez'] },
   { id: 'baghdad',        lat: 33.3,  lon:  44.4,  baseline: 3, countries: ['IQ'],           keywords: ['iraq','baghdad','iraqi','pmf'] },

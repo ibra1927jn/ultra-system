@@ -98,7 +98,7 @@ function isoToFips(iso) {
   return ISO_TO_FIPS[iso] || iso;
 }
 
-// 29 países hotspot — sincronizados con wm_hotspot_escalation.HOTSPOTS.
+// 28 países hotspot — sincronizados con wm_hotspot_escalation.HOTSPOTS.
 // Si añades hotspots ahí, replicarlos aquí (mismo patrón que el módulo
 // hermano). Storage stays in ISO; we translate to FIPS only when
 // querying GDELT (see fetchCountryTimeline).
@@ -117,7 +117,7 @@ const HOTSPOT_COUNTRIES = [
   'GB',                       // london
   'BE',                       // brussels
   'VE',                       // caracas
-  'GL', 'DK',                 // nuuk
+  'DK',                        // nuuk (GL removed: GDELT returns {} for Greenland)
   'SA',                       // riyadh
   'EG',                       // cairo
   'IQ',                       // baghdad
@@ -130,9 +130,9 @@ const HOTSPOT_COUNTRIES = [
 ];
 
 // Z-score thresholds
-const Z_MEDIUM = 2.0;
-const Z_HIGH = 3.0;
-const Z_CRITICAL = 4.0;
+const Z_MEDIUM = 2.5;   // raised from 2.0 — immature baseline (30d) triggers noise at 2.0
+const Z_HIGH = 3.5;
+const Z_CRITICAL = 5.0;
 const BASELINE_DAYS = 28;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -286,11 +286,17 @@ async function persistAndAnalyze(country, volMap, toneMap) {
   const variance = baselineVols.reduce((a, b) => a + (b - mean) ** 2, 0) / baselineVols.length;
   const std = Math.sqrt(variance);
 
-  if (std === 0) {
+  // Floor std to 5% of mean to prevent spurious alerts when baseline
+  // variance is near-zero (immature data). Without this, z-scores of
+  // 30-50 appear for trivial fluctuations (e.g. AE std=0.02, IR std=0.01).
+  const STD_FLOOR_PCT = 0.05;
+  const stdFloor = Math.max(std, mean * STD_FLOOR_PCT, 0.001);
+
+  if (std === 0 && mean === 0) {
     return { country, persisted, alert: null, reason: 'zero_std' };
   }
 
-  const z = (currentVolume - mean) / std;
+  const z = (currentVolume - mean) / stdFloor;
 
   if (z < Z_MEDIUM) {
     return { country, persisted, alert: null, z };
@@ -326,7 +332,7 @@ async function persistAndAnalyze(country, volMap, toneMap) {
        top_url        = EXCLUDED.top_url,
        top_title      = EXCLUDED.top_title
      RETURNING id, notified`,
-    [country, latestDate, currentVolume, mean, std, z, currentTone, baselineTone, severity, topUrl, topTitle]
+    [country, latestDate, currentVolume, mean, stdFloor, z, currentTone, baselineTone, severity, topUrl, topTitle]
   );
 
   // Fire-and-forget event publish — let downstream handlers (telegram,
