@@ -14,6 +14,7 @@ Every feed has: `primary_topic`, optional `secondary_topic`, `geo_scope` + `geo_
 
 | topic_id | Name | Description |
 |----------|------|-------------|
+| **ORIGINAL 20 — Security & Geopolitics** | | |
 | conflict | Conflict & War | Armed conflicts, wars, ceasefires, peace processes |
 | geopolitics | Geopolitics & Diplomacy | International relations, alliances, diplomatic crises |
 | economy_finance | Economy & Finance | GDP, markets, central banks, inflation, debt |
@@ -34,11 +35,68 @@ Every feed has: `primary_topic`, optional `secondary_topic`, `geo_scope` + `geo_
 | elections_governance | Elections & Governance | Elections, coups, constitutional changes, protests |
 | crime_organized | Organized Crime | Drug trafficking, money laundering, cartels |
 | military_defense | Military & Defense | Military spending, arms deals, exercises, intelligence |
+| **CULTURE & ENTERTAINMENT** | | |
+| cinema_tv | Cinema & Television | Film, TV series, streaming, festivals, box office |
+| music | Music | Music industry, albums, concerts, festivals, artists |
+| literature_books | Literature & Books | Publishing, book reviews, literary awards, authors |
+| theater_performing_arts | Theater & Performing Arts | Theater, dance, opera, live performance |
+| art_museums | Art & Museums | Visual arts, museums, exhibitions, art market |
+| fashion | Fashion | Fashion industry, design, luxury brands, trends |
+| gaming_esports | Gaming & Esports | Video games, esports, game industry |
+| celebrity_entertainment | Celebrity & Entertainment | Celebrity news, pop culture, entertainment industry |
+| **SPORTS** | | |
+| football_soccer | Football / Soccer | FIFA, leagues, World Cup, transfers |
+| basketball_nba | Basketball & NBA | NBA, FIBA, EuroLeague, basketball |
+| tennis | Tennis | Grand Slams, ATP, WTA, tennis |
+| olympics | Olympics | Olympic Games, IOC, Paralympics |
+| motorsport_f1 | Motorsport & F1 | Formula 1, MotoGP, WRC, NASCAR, IndyCar |
+| rugby_cricket | Rugby & Cricket | Rugby union/league, cricket, ICC, Six Nations |
+| combat_sports | Combat Sports | Boxing, MMA, UFC, wrestling |
+| athletics_other | Athletics & Other Sports | Track & field, swimming, cycling, winter sports |
+| **SCIENCE & KNOWLEDGE** | | |
+| science_research | Science & Research | Scientific discoveries, research papers, labs |
+| space_astronomy | Space & Astronomy | Space exploration, NASA, ESA, satellites, astronomy |
+| medicine_pharma | Medicine & Pharma | Pharmaceutical industry, drug approvals, clinical trials |
+| archaeology_history | Archaeology & History | Archaeological discoveries, historical research |
+| philosophy_ethics | Philosophy & Ethics | Ethical debates, bioethics, philosophy |
+| education_academia | Education & Academia | Universities, education policy, research funding |
+| **SOCIETY** | | |
+| poverty_inequality | Poverty & Inequality | Income inequality, poverty, social mobility |
+| demographics | Demographics | Population trends, aging, birth rates, census |
+| religion_spirituality | Religion & Spirituality | Religious affairs, interfaith, Vatican, clergy |
+| gender_lgbtq | Gender & LGBTQ+ | Gender equality, LGBTQ+ rights, feminism |
+| indigenous_peoples | Indigenous Peoples | Indigenous rights, land claims, cultural preservation |
+| urbanism_housing | Urbanism & Housing | Urban planning, housing crisis, smart cities |
+| labor_unions | Labor & Unions | Workers rights, strikes, union activity, gig economy |
+| **INTERNATIONAL ORGANIZATIONS** | | |
+| united_nations | United Nations | UN General Assembly, Security Council, UN agencies |
+| treaties_diplomacy | Treaties & Diplomacy | International treaties, diplomatic agreements |
+| development_aid | Development Aid | Foreign aid, development finance, World Bank, IMF |
+| ngos_humanitarian | NGOs & Humanitarian | NGO operations, humanitarian crises, aid delivery |
+| **ECONOMY EXTENDED** | | |
+| startups_venture | Startups & Venture Capital | Startups, VC funding, unicorns, accelerators |
+| real_estate | Real Estate | Property markets, REITs, housing data |
+| agriculture_farming | Agriculture & Farming | Farming, agribusiness, crop science, livestock |
+| tourism_travel | Tourism & Travel | Travel industry, hospitality, airlines, destinations |
+| transportation_logistics | Transportation & Logistics | Freight, rail, trucking, ports, last-mile |
+| supply_chain | Supply Chain | Supply chain disruptions, reshoring, logistics tech |
+| **ENVIRONMENT EXTENDED** | | |
+| biodiversity_wildlife | Biodiversity & Wildlife | Species conservation, wildlife trafficking, habitats |
+| oceans_marine | Oceans & Marine | Ocean conservation, marine science, coral reefs |
+| pollution_waste | Pollution & Waste | Air/water pollution, waste management, plastics |
+| **OTHER** | | |
+| gastronomy_food_culture | Gastronomy & Food Culture | Cuisine, restaurants, food trends, culinary arts |
+| automotive | Automotive | Car industry, EVs, autonomous driving |
+| aviation | Aviation | Airlines, aircraft, airports, air safety |
+| legal_justice | Legal & Justice | Courts, landmark cases, justice reform |
+| media_journalism | Media & Journalism | Press freedom, media industry, journalism trends |
+| weather_forecast | Weather & Forecast | Weather events, forecasting, meteorology |
+| general_world_news | General World News | Broad coverage media — topic assigned per-article by NLP |
 
 ### Classification rules for new feeds
 
 1. **Specialist feeds** (cyber blogs, defense magazines, shipping trackers): assign the obvious topic.
-2. **General news feeds** (country newspapers, wire services): assign `geopolitics` — the specific topic comes from NLP classification at the article level (`rss_articles_enrichment.classify_topics`).
+2. **General news feeds** (country newspapers, wire services): assign `general_world_news` — the specific topic comes from NLP classification at the article level (`rss_articles_enrichment.classify_topics`).
 3. **secondary_topic**: only assign when the feed has a clear dual focus (e.g. a defense blog that also covers geopolitics).
 
 ---

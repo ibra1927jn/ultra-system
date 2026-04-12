@@ -32,8 +32,15 @@ const nlp = require('./nlp_sidecar');
 // will serialize there naturally but engine no longer drops silently.
 const ENRICH_MAX_INFLIGHT = Number(process.env.NLP_ENRICH_MAX_INFLIGHT || 8);
 const ENRICH_MAX_QUEUE = Number(process.env.NLP_ENRICH_MAX_QUEUE || 100);
+// 25 broad labels for zero-shot classify. Covers 69 taxonomy topics.
+// Feed primary_topic provides granular sub-topic; NLP provides article-level.
 const ENRICH_TOPICS = (process.env.NLP_ENRICH_TOPICS ||
-  'geopolitics,economy,security,technology,health,climate,migration,human-rights,science,sports'
+  'conflict and war,geopolitics and diplomacy,economy and finance,trade and sanctions,' +
+  'energy,climate and environment,health and disease,cybersecurity,maritime and shipping,' +
+  'migration and refugees,terrorism,nuclear proliferation,food security,natural disaster,' +
+  'technology and AI,human rights,elections and governance,military and defense,' +
+  'science and research,space and astronomy,sports,entertainment and culture,' +
+  'education,law and justice,religion,society and demographics'
 ).split(',').map(s => s.trim()).filter(Boolean);
 
 let _inflight = 0;
