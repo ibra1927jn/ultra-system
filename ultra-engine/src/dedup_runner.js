@@ -56,9 +56,16 @@ async function dedupTable({ table, idCol = 'id', textCols, lookbackDays = 30, th
   const dups = [];
   let langFiltered = 0;
 
+  let tooShort = 0;
   for (const row of rows) {
+    const shingles = MinHash.shingle(row.text);
+    if (shingles.size < MinHash.MIN_SHINGLES) {
+      // Too few shingles for reliable MinHash — skip dedup, insert as unique
+      tooShort++;
+      continue;
+    }
     const m = new MinHash(DEFAULTS.numHashes);
-    m.updateBatch(MinHash.shingle(row.text));
+    m.updateBatch(shingles);
     const matches = lsh.queryWithThreshold(m, threshold);
 
     let matched = false;
@@ -98,7 +105,7 @@ async function dedupTable({ table, idCol = 'id', textCols, lookbackDays = 30, th
     }
   }
 
-  return { table, scanned: rows.length, duplicates: dups.length, marked, threshold, langFiltered };
+  return { table, scanned: rows.length, duplicates: dups.length, marked, threshold, langFiltered, tooShort };
 }
 
 async function runAll({ lookbackDays = 30, threshold = 0.7 } = {}) {

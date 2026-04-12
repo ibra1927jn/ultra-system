@@ -38,22 +38,29 @@ class MinHash {
     this.signature = new Uint32Array(numHashes).fill(MAX_UINT32);
   }
 
+  // Minimum shingles required for a meaningful MinHash signature.
+  // Below this, Jaccard estimates are unreliable and produce false positives.
+  static MIN_SHINGLES = 4;
+
   /**
    * Tokeniza texto en shingles de k=3 palabras (o caracteres si short).
+   * Unicode-aware: preserves CJK, Hangul, Arabic, Cyrillic, Devanagari, etc.
    */
   static shingle(text, k = 3) {
     if (!text) return new Set();
-    const norm = String(text).toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-    const words = norm.split(' ');
+    // \p{L} = any Unicode letter, \p{N} = any Unicode digit
+    const norm = String(text).toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+    const words = norm.split(' ').filter(w => w.length > 0);
     const shingles = new Set();
-    if (words.length < k) {
-      // Fall back to char-grams
-      for (let i = 0; i <= norm.length - k; i++) {
-        shingles.add(norm.slice(i, i + k));
-      }
-    } else {
+    if (words.length >= k) {
       for (let i = 0; i <= words.length - k; i++) {
         shingles.add(words.slice(i, i + k).join(' '));
+      }
+    }
+    // Always add char-grams for CJK/short text (complementary to word shingles)
+    if (shingles.size < MinHash.MIN_SHINGLES) {
+      for (let i = 0; i <= norm.length - k; i++) {
+        shingles.add(norm.slice(i, i + k));
       }
     }
     return shingles;
