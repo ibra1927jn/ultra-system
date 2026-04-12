@@ -26,36 +26,63 @@ async function dedupTable({ table, idCol = 'id', textCols, lookbackDays = 30, th
   if (!table || !textCols || !textCols.length) {
     throw new Error('table y textCols obligatorios');
   }
-  const concatCols = textCols.map(c => `COALESCE(${c}::text, '')`).join(" || ' ' || ");
+  const concatCols = textCols.map(c => `COALESCE(t.${c}::text, '')`).join(" || ' ' || ");
   const dateCol = (table === 'rss_articles' ? 'created_at' :
                    table === 'opportunities' ? 'created_at' :
                    table === 'job_listings' ? 'scraped_at' : 'created_at');
 
+  // For rss_articles, JOIN with rss_feeds to get lang for same-language guard.
+  // Cross-language MinHash produces false positives (short titles in different
+  // scripts collide). Only mark as duplicate if languages match.
+  const hasLang = (table === 'rss_articles');
+  const langSelect = hasLang ? `, COALESCE(f.lang, 'xx') AS lang` : '';
+  const langJoin = hasLang ? `LEFT JOIN rss_feeds f ON f.id = t.feed_id` : '';
+
   const rows = await db.queryAll(
-    `SELECT ${idCol} AS id, (${concatCols}) AS text
-     FROM ${table}
-     WHERE duplicate_of IS NULL
-       AND ${dateCol} >= NOW() - INTERVAL '${parseInt(lookbackDays, 10)} days'
-     ORDER BY ${idCol} ASC`
+    `SELECT t.${idCol} AS id, (${concatCols}) AS text${langSelect}
+     FROM ${table} t
+     ${langJoin}
+     WHERE t.duplicate_of IS NULL
+       AND t.${dateCol} >= NOW() - INTERVAL '${parseInt(lookbackDays, 10)} days'
+     ORDER BY t.${idCol} ASC`
   );
 
   if (rows.length < 2) {
-    return { table, scanned: rows.length, duplicates: 0, marked: 0 };
+    return { table, scanned: rows.length, duplicates: 0, marked: 0, langFiltered: 0 };
   }
 
   const lsh = new MinHashLSH({ numHashes: DEFAULTS.numHashes, bands: DEFAULTS.bands, rows: DEFAULTS.rows });
+  const langMap = new Map(); // docId → lang (for same-language guard)
   const dups = [];
+  let langFiltered = 0;
 
   for (const row of rows) {
     const m = new MinHash(DEFAULTS.numHashes);
     m.updateBatch(MinHash.shingle(row.text));
     const matches = lsh.queryWithThreshold(m, threshold);
-    if (matches.length > 0) {
-      // Marcar como duplicado del primer match (por ID más bajo = canonical)
+
+    let matched = false;
+    if (matches.length > 0 && hasLang) {
+      // Same-language guard: only accept match if languages are compatible
+      for (const match of matches) {
+        const canonLang = langMap.get(match.docId);
+        if (canonLang === row.lang || canonLang === 'xx' || row.lang === 'xx') {
+          dups.push({ id: row.id, duplicate_of: match.docId, similarity: match.similarity });
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) langFiltered++;
+    } else if (matches.length > 0) {
+      // Non-rss_articles tables: no lang guard needed
       const canonical = matches[0].docId;
       dups.push({ id: row.id, duplicate_of: canonical, similarity: matches[0].similarity });
-    } else {
+      matched = true;
+    }
+
+    if (!matched) {
       lsh.insert(row.id, m);
+      if (hasLang) langMap.set(row.id, row.lang);
     }
   }
 
@@ -71,7 +98,7 @@ async function dedupTable({ table, idCol = 'id', textCols, lookbackDays = 30, th
     }
   }
 
-  return { table, scanned: rows.length, duplicates: dups.length, marked, threshold };
+  return { table, scanned: rows.length, duplicates: dups.length, marked, threshold, langFiltered };
 }
 
 async function runAll({ lookbackDays = 30, threshold = 0.7 } = {}) {
