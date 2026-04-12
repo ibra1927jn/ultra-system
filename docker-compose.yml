@@ -40,7 +40,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "127.0.0.1:80:3000"
+      - "80:3000"
     # env_file expone TODAS las API keys del .env (Currents, Newsdata, YouTube,
     # USAJobs, Wise, Akahu, OCM, USDA, etc) sin tener que listarlas una a una.
     # Las del bloque environment: sobreescriben/añaden sólo las que necesitan

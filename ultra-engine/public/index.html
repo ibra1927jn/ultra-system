@@ -275,6 +275,151 @@ body::before {
 }
 .btn-ghost:hover { border-color: var(--accent-teal); color: var(--accent-teal); }
 
+/* ═══ NEWS SECTION ═══ */
+.news-stats {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+}
+.news-stat {
+    flex: 1; min-width: 110px;
+    background: var(--bg-elevated); border-radius: var(--radius-md);
+    padding: 10px 14px; text-align: center;
+}
+.news-stat-value {
+    font-family: var(--font-data); font-size: 1.3rem; font-weight: 700;
+    color: #fff;
+}
+.news-stat-label {
+    font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 0.6px; margin-top: 2px;
+}
+.news-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+}
+.news-card {
+    background: var(--bg-elevated); border-radius: var(--radius-md);
+    padding: 14px 16px; border-left: 3px solid var(--text-muted);
+    transition: border-color 0.2s, background 0.2s;
+}
+.news-card:hover { background: var(--bg-surface-hover); }
+.news-card.sentiment-positive { border-left-color: var(--accent-teal); }
+.news-card.sentiment-negative { border-left-color: var(--accent-coral); }
+.news-card.sentiment-neutral  { border-left-color: var(--text-muted); }
+.news-card-title {
+    font-size: 0.88rem; color: var(--text-primary); line-height: 1.4;
+    margin-bottom: 6px;
+}
+.news-card-title a {
+    color: var(--text-primary); text-decoration: none;
+}
+.news-card-title a:hover { color: var(--accent-teal); }
+.news-card-summary {
+    font-size: 0.78rem; color: var(--text-secondary); line-height: 1.5;
+    margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical; overflow: hidden;
+}
+.news-card-meta {
+    font-family: var(--font-data); font-size: 0.68rem; color: var(--text-muted);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.news-card-meta .sentiment-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.news-entity-tag {
+    display: inline-block; font-family: var(--font-data); font-size: 0.62rem;
+    padding: 2px 7px; border-radius: 10px; margin: 2px 2px 0 0;
+    background: var(--accent-blue-dim); color: var(--accent-blue);
+    white-space: nowrap;
+}
+.cluster-card {
+    background: var(--bg-elevated); border-radius: var(--radius-md);
+    padding: 14px 16px; border-left: 3px solid var(--accent-purple);
+    margin-bottom: 10px;
+}
+.cluster-card:hover { background: var(--bg-surface-hover); }
+.cluster-card-title {
+    font-size: 0.88rem; color: var(--text-primary); line-height: 1.4;
+    margin-bottom: 6px;
+}
+.cluster-card-badges {
+    display: flex; gap: 8px; flex-wrap: wrap;
+}
+.cluster-badge {
+    font-family: var(--font-data); font-size: 0.68rem; padding: 3px 10px;
+    border-radius: 10px; background: var(--accent-purple-dim); color: var(--accent-purple);
+}
+.trending-container {
+    display: flex; flex-wrap: wrap; gap: 10px;
+}
+.trending-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 20px;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    font-family: var(--font-data); font-size: 0.78rem; color: var(--text-primary);
+    transition: border-color 0.2s, background 0.2s;
+}
+.trending-pill:hover { border-color: var(--border-hover); background: var(--bg-surface-hover); }
+.trending-pill .pill-count {
+    font-size: 0.68rem; color: var(--accent-teal); font-weight: 600;
+}
+.trending-pill .pill-mult {
+    font-size: 0.62rem; color: var(--accent-amber); font-weight: 600;
+}
+.alert-card {
+    background: var(--bg-elevated); border-radius: var(--radius-md);
+    padding: 14px 16px; margin-bottom: 10px;
+    border-left: 3px solid var(--text-muted);
+}
+.alert-card.urgency-high, .alert-card.urgency-critical { border-left-color: var(--accent-coral); }
+.alert-card.urgency-medium { border-left-color: var(--accent-amber); }
+.alert-card.urgency-low    { border-left-color: var(--accent-teal); }
+.alert-card:hover { background: var(--bg-surface-hover); }
+.alert-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+}
+.alert-card-name {
+    font-size: 0.88rem; color: var(--text-primary); font-weight: 500;
+}
+.alert-urgency {
+    font-family: var(--font-data); font-size: 0.65rem; font-weight: 600;
+    padding: 2px 8px; border-radius: 10px; text-transform: uppercase;
+}
+.alert-urgency.high, .alert-urgency.critical { background: var(--accent-coral-dim); color: var(--accent-coral); }
+.alert-urgency.medium { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.alert-urgency.low    { background: var(--accent-teal-dim); color: var(--accent-teal); }
+.alert-headline {
+    font-size: 0.78rem; color: var(--text-secondary); line-height: 1.4;
+    padding: 3px 0;
+}
+.alert-score {
+    font-family: var(--font-data); font-size: 0.68rem; color: var(--text-muted);
+    margin-top: 4px;
+}
+.sentiment-chart {
+    display: flex; flex-direction: column; gap: 14px;
+}
+.sentiment-bar-row {
+    display: flex; align-items: center; gap: 12px;
+}
+.sentiment-bar-label {
+    font-family: var(--font-data); font-size: 0.75rem; color: var(--text-secondary);
+    min-width: 80px; text-align: right;
+}
+.sentiment-bar-track {
+    flex: 1; height: 24px; background: rgba(255,255,255,0.04);
+    border-radius: 4px; overflow: hidden; position: relative;
+}
+.sentiment-bar-fill {
+    height: 100%; border-radius: 4px; transition: width 0.6s ease;
+    display: flex; align-items: center; padding-left: 8px;
+    font-family: var(--font-data); font-size: 0.68rem; color: #fff; font-weight: 600;
+    min-width: 28px;
+}
+.sentiment-bar-fill.positive { background: var(--accent-teal); }
+.sentiment-bar-fill.negative { background: var(--accent-coral); }
+.sentiment-bar-fill.neutral  { background: var(--text-muted); }
+#news-content { min-height: 120px; }
+
 /* ═══ RESPONSIVE ═══ */
 @media (max-width: 1200px) {
     .dashboard { padding: 16px; }
@@ -286,6 +431,8 @@ body::before {
     .kanban { grid-template-columns: repeat(2, 1fr); }
     .metric-row { flex-direction: column; }
     .header-right .status-pill span.hide-mobile { display: none; }
+    .news-grid { grid-template-columns: 1fr; }
+    .news-stats { flex-direction: column; }
 }
     </style>
 </head>
@@ -315,13 +462,13 @@ body::before {
     <div class="grid-2col" id="main-grid">
 
         <!-- ═══ P1: NOTICIAS ═══ -->
-        <div class="card" id="card-news">
+        <div class="card grid-full" id="card-news">
             <div class="card-header" onclick="toggleCard('card-news')">
                 <div class="card-header-left">
                     <div class="card-icon" style="background:var(--accent-teal-dim)">
                         <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-teal)" stroke-width="2"><path d="M4 22h16a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 01-2 2zm0 0a2 2 0 01-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/></svg>
                     </div>
-                    <span class="card-title">News Feed</span>
+                    <span class="card-title">News Intelligence</span>
                 </div>
                 <div class="card-header-right">
                     <span class="card-meta" id="news-count">0 articles</span>
@@ -329,14 +476,20 @@ body::before {
                 </div>
             </div>
             <div class="card-body">
-                <div class="tab-bar" id="news-tabs">
-                    <button class="tab-btn active" data-src="all">All</button>
-                    <button class="tab-btn" data-src="hn">HN</button>
-                    <button class="tab-btn" data-src="rnz">RNZ</button>
-                    <button class="tab-btn" data-src="bbc">BBC</button>
-                    <button class="tab-btn" data-src="nyt">NYT</button>
+                <div class="news-stats" id="news-stats">
+                    <div class="news-stat"><div class="news-stat-value" id="ns-total">--</div><div class="news-stat-label">Articles 24h</div></div>
+                    <div class="news-stat"><div class="news-stat-value" id="ns-enriched">--</div><div class="news-stat-label">Enriched</div></div>
+                    <div class="news-stat"><div class="news-stat-value" id="ns-feeds">--</div><div class="news-stat-label">Active Feeds</div></div>
+                    <div class="news-stat"><div class="news-stat-value" id="ns-trending">--</div><div class="news-stat-label">Trending</div></div>
                 </div>
-                <div id="news-list"></div>
+                <div class="tab-bar" id="news-tabs">
+                    <button class="tab-btn active" data-tab="latest">Latest</button>
+                    <button class="tab-btn" data-tab="clusters">Clusters</button>
+                    <button class="tab-btn" data-tab="trending">Trending</button>
+                    <button class="tab-btn" data-tab="alerts">Alerts</button>
+                    <button class="tab-btn" data-tab="sentiment">Sentiment</button>
+                </div>
+                <div id="news-content"></div>
             </div>
         </div>
 
@@ -511,7 +664,7 @@ document.querySelectorAll('.tab-bar').forEach(bar => {
         if (!e.target.classList.contains('tab-btn')) return;
         bar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         e.target.classList.add('active');
-        if (bar.id === 'news-tabs') loadNews(e.target.dataset.src);
+        if (bar.id === 'news-tabs') switchNewsTab(e.target.dataset.tab);
     });
 });
 
@@ -553,31 +706,183 @@ async function api(path, opts) {
    DATA LOADERS
    ═══════════════════════════════════════════════════ */
 
-/* ─── P1: News ─── */
-async function loadNews(src) {
-    const res = await api('/api/feeds/articles?limit=8');
-    const el = document.getElementById('news-list');
+/* ─── P1: News Intelligence ─── */
+let _newsActiveTab = 'latest';
+let _wmCache = null;
+let _wmCacheTs = 0;
+
+async function getWmSummary() {
+    if (_wmCache && Date.now() - _wmCacheTs < 30000) return _wmCache;
+    _wmCache = await api('/api/wm/summary');
+    _wmCacheTs = Date.now();
+    return _wmCache;
+}
+
+function switchNewsTab(tab) {
+    _newsActiveTab = tab || 'latest';
+    const loaders = { latest: loadNewsLatest, clusters: loadNewsClusters, trending: loadNewsTrending, alerts: loadNewsAlerts, sentiment: loadNewsSentiment };
+    (loaders[_newsActiveTab] || loadNewsLatest)();
+}
+
+function sentimentClass(label) {
+    if (!label) return 'sentiment-neutral';
+    const l = label.toLowerCase();
+    if (l === 'positive') return 'sentiment-positive';
+    if (l === 'negative') return 'sentiment-negative';
+    return 'sentiment-neutral';
+}
+
+function sentimentDotColor(label) {
+    if (!label) return 'var(--text-muted)';
+    const l = label.toLowerCase();
+    if (l === 'positive') return 'var(--accent-teal)';
+    if (l === 'negative') return 'var(--accent-coral)';
+    return 'var(--text-muted)';
+}
+
+function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function loadNewsStats() {
+    const [articlesRes, wmRes] = await Promise.allSettled([
+        api('/api/feeds/articles?limit=1'),
+        getWmSummary()
+    ]);
+    const articles = articlesRes.status === 'fulfilled' ? articlesRes.value : null;
+    const wm = wmRes.status === 'fulfilled' ? wmRes.value : null;
+    const total = articles && articles.total ? articles.total : (articles && articles.data ? articles.data.length : '--');
+    const enriched = articles && articles.enriched_count != null ? articles.enriched_count : '--';
+    const feeds = articles && articles.active_feeds != null ? articles.active_feeds : '--';
+    const trending = wm && wm.trending ? wm.trending.length : '--';
+    document.getElementById('ns-total').textContent = total;
+    document.getElementById('ns-enriched').textContent = enriched;
+    document.getElementById('ns-feeds').textContent = feeds;
+    document.getElementById('ns-trending').textContent = trending;
+    document.getElementById('news-count').textContent = (total !== '--' ? total : 0) + ' articles';
+}
+
+async function loadNewsLatest() {
+    const el = document.getElementById('news-content');
+    el.innerHTML = '<div class="empty-state">Loading...</div>';
+    const res = await api('/api/feeds/articles?limit=20');
     const items = res && res.data ? res.data : (res && res.articles ? res.articles : null);
-    if (!items || items.length === 0) {
-        el.innerHTML = emptyState('No articles yet');
-        document.getElementById('news-count').textContent = '0 articles';
-        return;
-    }
-    let articles = items;
-    if (src && src !== 'all') articles = articles.filter(a => (a.feed_name||a.source||'').toLowerCase().includes(src));
-    document.getElementById('news-count').textContent = articles.length + ' articles';
-    el.innerHTML = articles.map(a => {
-        const url = (a.url||'#').replace(/"/g,'&quot;');
-        const scoreColor = a.relevance_score > 7 ? 'var(--accent-teal)' : a.relevance_score > 4 ? 'var(--accent-amber)' : 'var(--text-muted)';
-        return `
-        <div class="list-item" style="cursor:pointer;">
-            <div class="list-dot" style="background:${scoreColor}"></div>
-            <div class="list-content">
-                <div class="list-title"><a href="${url}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none;">${(a.title||'').replace(/\b(AI|NZ|tech|crypto|startup)\b/gi, '<span class="kw">$1</span>')}</a></div>
-                <div class="list-sub">${a.feed_name||a.source||'?'} · ${relTime(a.published_at||a.created_at)} ${a.relevance_score ? '· score:'+a.relevance_score : ''}</div>
+    if (!items || items.length === 0) { el.innerHTML = emptyState('No articles yet'); return; }
+    el.innerHTML = '<div class="news-grid">' + items.map(a => {
+        const url = escHtml(a.url || '#');
+        const sClass = sentimentClass(a.sentiment_label);
+        const dotColor = sentimentDotColor(a.sentiment_label);
+        const summary = a.auto_summary || a.summary || '';
+        const entities = Array.isArray(a.entities) ? a.entities.slice(0, 5) : [];
+        const entitiesHtml = entities.map(e => {
+            const name = typeof e === 'string' ? e : (e.text || e.name || '');
+            return name ? `<span class="news-entity-tag">${escHtml(name)}</span>` : '';
+        }).join('');
+        return `<div class="news-card ${sClass}">
+            <div class="news-card-title"><a href="${url}" target="_blank" rel="noopener">${escHtml(a.title)}</a></div>
+            ${summary ? `<div class="news-card-summary">${escHtml(summary)}</div>` : ''}
+            <div class="news-card-meta">
+                <span class="sentiment-dot" style="background:${dotColor}"></span>
+                <span>${escHtml(a.feed_name || a.source || '?')}</span>
+                <span>${relTime(a.published_at || a.created_at)}</span>
+                ${a.relevance_score ? `<span>score:${a.relevance_score}</span>` : ''}
+                ${a.sentiment_score != null ? `<span>${a.sentiment_label || 'neutral'} (${(+a.sentiment_score).toFixed(2)})</span>` : ''}
+            </div>
+            ${entitiesHtml ? `<div style="margin-top:6px">${entitiesHtml}</div>` : ''}
+        </div>`;
+    }).join('') + '</div>';
+}
+
+async function loadNewsClusters() {
+    const el = document.getElementById('news-content');
+    el.innerHTML = '<div class="empty-state">Loading clusters...</div>';
+    const wm = await getWmSummary();
+    const clusters = wm && wm.clusters ? wm.clusters : [];
+    if (clusters.length === 0) { el.innerHTML = emptyState('No clusters detected'); return; }
+    el.innerHTML = clusters.map(c => {
+        return `<div class="cluster-card">
+            <div class="cluster-card-title">${escHtml(c.primary_title || c.cluster_key)}</div>
+            <div class="cluster-card-badges">
+                <span class="cluster-badge">${c.source_count || 0} sources</span>
+                <span class="cluster-badge">${c.member_count || 0} articles</span>
             </div>
         </div>`;
     }).join('');
+}
+
+async function loadNewsTrending() {
+    const el = document.getElementById('news-content');
+    el.innerHTML = '<div class="empty-state">Loading trending...</div>';
+    const wm = await getWmSummary();
+    const trending = wm && wm.trending ? wm.trending : [];
+    if (trending.length === 0) { el.innerHTML = emptyState('No trending keywords'); return; }
+    el.innerHTML = '<div class="trending-container">' + trending.map(t => {
+        return `<div class="trending-pill">
+            <span>${escHtml(t.term)}</span>
+            <span class="pill-count">${t.mention_count || 0}</span>
+            ${t.multiplier ? `<span class="pill-mult">${(+t.multiplier).toFixed(1)}x</span>` : ''}
+        </div>`;
+    }).join('') + '</div>';
+}
+
+async function loadNewsAlerts() {
+    const el = document.getElementById('news-content');
+    el.innerHTML = '<div class="empty-state">Loading alerts...</div>';
+    const wm = await getWmSummary();
+    const focals = wm && wm.top_focal_points ? wm.top_focal_points : [];
+    if (focals.length === 0) { el.innerHTML = emptyState('No active alerts'); return; }
+    el.innerHTML = focals.map(f => {
+        const urg = (f.urgency || 'low').toLowerCase();
+        const headlines = Array.isArray(f.top_headlines) ? f.top_headlines.slice(0, 3) : [];
+        return `<div class="alert-card urgency-${urg}">
+            <div class="alert-card-header">
+                <span class="alert-card-name">${escHtml(f.display_name)}</span>
+                <span class="alert-urgency ${urg}">${urg}</span>
+            </div>
+            ${headlines.map(h => `<div class="alert-headline">${escHtml(typeof h === 'string' ? h : h.title || '')}</div>`).join('')}
+            <div class="alert-score">Focal score: ${f.focal_score != null ? (+f.focal_score).toFixed(1) : '--'}</div>
+        </div>`;
+    }).join('');
+}
+
+async function loadNewsSentiment() {
+    const el = document.getElementById('news-content');
+    el.innerHTML = '<div class="empty-state">Loading sentiment...</div>';
+    const res = await api('/api/feeds/sentiment-stats');
+    if (!res) { el.innerHTML = emptyState('No sentiment data'); return; }
+    const pos = res.positive || res.positive_count || 0;
+    const neg = res.negative || res.negative_count || 0;
+    const neu = res.neutral || res.neutral_count || 0;
+    const total = pos + neg + neu || 1;
+    const pPct = ((pos / total) * 100).toFixed(1);
+    const nPct = ((neg / total) * 100).toFixed(1);
+    const uPct = ((neu / total) * 100).toFixed(1);
+    el.innerHTML = `<div class="sentiment-chart">
+        <div class="sentiment-bar-row">
+            <span class="sentiment-bar-label">Positive</span>
+            <div class="sentiment-bar-track">
+                <div class="sentiment-bar-fill positive" style="width:${pPct}%">${pos}</div>
+            </div>
+        </div>
+        <div class="sentiment-bar-row">
+            <span class="sentiment-bar-label">Neutral</span>
+            <div class="sentiment-bar-track">
+                <div class="sentiment-bar-fill neutral" style="width:${uPct}%">${neu}</div>
+            </div>
+        </div>
+        <div class="sentiment-bar-row">
+            <span class="sentiment-bar-label">Negative</span>
+            <div class="sentiment-bar-track">
+                <div class="sentiment-bar-fill negative" style="width:${nPct}%">${neg}</div>
+            </div>
+        </div>
+        <div style="font-family:var(--font-data);font-size:0.72rem;color:var(--text-muted);margin-top:8px;text-align:center;">
+            Total analyzed: ${total} articles | Positive ${pPct}% | Neutral ${uPct}% | Negative ${nPct}%
+        </div>
+    </div>`;
+}
+
+async function loadNews() {
+    await loadNewsStats();
+    switchNewsTab(_newsActiveTab);
 }
 
 /* ─── P2: Jobs ─── */
@@ -837,7 +1142,7 @@ async function loadBus() {
 /* ═══ INIT ═══ */
 async function refreshAll() {
     await Promise.allSettled([
-        loadNews('all'), loadJobs(), loadFinances(),
+        loadNews(), loadJobs(), loadFinances(),
         loadDocs(), loadLogistics(), loadOpps(), loadBio(), loadBus(),
     ]);
     const rssEl = document.getElementById('hdr-rss');
