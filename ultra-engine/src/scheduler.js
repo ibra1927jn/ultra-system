@@ -1250,6 +1250,10 @@ function register(name, schedule, handler, description) {
     } catch (err) {
       console.error(`❌ [${name}] Error:`, err.message);
       await logJob(name, 'error', Date.now() - start, err.message);
+      // Alert via Telegram on failure (best-effort, don't crash)
+      try {
+        await telegram.sendAlert(`❌ Cron *${name}* failed:\n\`${(err.message || '').slice(0, 200)}\``);
+      } catch (_) {}
     }
   }, { timezone: tz });
 
