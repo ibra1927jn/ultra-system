@@ -67,15 +67,16 @@ async function enrichArticle({ articleId, title, summary }) {
   try {
     const fullText = `${title}. ${summary || ''}`.trim();
 
-    // Run all 4 calls in parallel. Each returns null on failure;
-    // we proceed with whatever succeeded.
-    const [embRes, sentRes, classRes, sumRes] = await Promise.all([
-      nlp.embed([fullText.slice(0, 2000)]),
-      nlp.sentiment(fullText.slice(0, 1500)),
-      nlp.classify(fullText.slice(0, 2000), ENRICH_TOPICS, { multiLabel: true }),
-      // Only summarize if there's enough text to be worth it
-      fullText.length >= 200 ? nlp.summarize(fullText.slice(0, 4000)) : Promise.resolve(null),
-    ]);
+    // 2026-04-12 — Serialized instead of Promise.all. With NLP_MAX_MODELS≤3
+    // four parallel calls thrash the sidecar LRU (each call loads/evicts
+    // a different model, multiplying load latency). Sequential lets the
+    // LRU keep the just-loaded model warm long enough for the next batch
+    // of articles, and reduces peak RSS spikes that were OOM-killing the
+    // container. Each call still returns null on failure independently.
+    const embRes = await nlp.embed([fullText.slice(0, 2000)]);
+    const sentRes = await nlp.sentiment(fullText.slice(0, 1500));
+    const classRes = await nlp.classify(fullText.slice(0, 2000), ENRICH_TOPICS, { multiLabel: true });
+    const sumRes = fullText.length >= 200 ? await nlp.summarize(fullText.slice(0, 4000)) : null;
 
     const embedding = embRes?.vectors?.[0] ?? null;
     const sentimentLabel = sentRes?.label ?? null;

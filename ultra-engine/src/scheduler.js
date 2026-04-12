@@ -1049,6 +1049,28 @@ function init() {
     'Cada 6h :17 — Audit RSS feeds health (silent unless degraded)'
   );
 
+  // ─── P1 B8 — NLP enrichment backfill (safety net) ──────
+  // El hot-path en rss.js puede perder enrichments durante restarts del
+  // sidecar o bursts del fetchAll cycle (queue lleno o circuit breaker
+  // abierto). Este backfill recoge cualquier hi-score article missing
+  // enrichment en las últimas 2h.
+  register(
+    'nlp-enrich-backfill',
+    '*/30 * * * *',
+    async () => {
+      try {
+        const nlpEnrich = require('./nlp_enrich');
+        const r = await nlpEnrich.enrichBackfill({ minScore: 8, limit: 200, sinceHours: 2 });
+        if (r.candidates > 0) {
+          console.log(`🧠 nlp-enrich-backfill: ${r.enriched}/${r.candidates} enriched (${r.failed} failed)`);
+        }
+      } catch (err) {
+        console.error('❌ nlp-enrich-backfill:', err.message);
+      }
+    },
+    'Cada 30 min — Backfill missed B8 enrichments (last 2h hi-score)'
+  );
+
   console.log(`✅ ${jobs.length} jobs registrados`);
 }
 

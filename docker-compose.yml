@@ -448,14 +448,14 @@ services:
     volumes:
       - /mnt/HC_Volume_105271265/nlp_models:/models
     environment:
-      NLP_MAX_MODELS: "2"
+      NLP_MAX_MODELS: "3"
       TORCH_THREADS: "2"
     networks:
       - ultra_net
     deploy:
       resources:
         limits:
-          memory: 3G
+          memory: 6G
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   #  Puppeteer sidecar (R5 P5/P6 — desbloquea SPAs)
