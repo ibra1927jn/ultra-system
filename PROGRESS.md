@@ -935,3 +935,72 @@ Selección curada de 9 bloques del BACKLOG.md priorizados como prerrequisito par
 1. Memoria de sesión NO sustituye docs del repo. CLAUDE.md dice literalmente "Read ERRORES.md and PROGRESS.md before starting any task" — desobedecerlo causó el incidente Reddit.
 2. ct4-bot ES la prod box Hetzner CX43 con IP `95.217.158.7`. Verificado con `curl -4 ifconfig.me` desde host y desde container engine. Toda HETZNER_BLOCKED.md aplica aquí.
 3. Nomenclatura B1-B17 es puramente de sesión, NO aparece en docs. El P1 finalization roadmap es subset curado del BACKLOG, no replacement.
+
+---
+
+## P1 Seed Expansion Fase 1+2 (2026-04-11 sesión final)
+
+Tras cerrar B14 RSS-Bridge, segunda tanda de seeds verificados uno por uno
+para llenar gaps regionales y cross-pillar del BACKLOG. Cada URL probada
+con curl ANTES de seedear para evitar el patrón "200 con body vacío" de
+BOE II.B / Vanuatu detectado en el saneado.
+
+### Fase 1 — Country/regional gaps + 2 deferred fixed (11 inserts)
+- DB-only changes (no code), todos category='regional' / 'multilingual-XX' / 'country-XX' / 'cross-pillar':
+  - Times of Central Asia (Central Asia gap)
+  - elDiario.es (multilingual-es)
+  - Agência Brasil (multilingual-pt)
+  - Caribbean360 + WIC News (Caribbean gap)
+  - AllAfrica Comoros (KM) + AllAfrica Equatorial Guinea (GQ)
+  - PINA Pacific
+  - Maritime Executive (P2 cross-pillar maritime — sector primario user)
+- Fixes a deferred placeholders (eran pseudo://):
+  - id 815 Challenger Gray → URL real `https://www.challengergray.com/feed/`, P2 layoffs
+  - id 834 GrantWatch → URL real `https://www.grantwatch.com/grantnews/feed/`, P5 grants
+- Cleanup: id 813 Layoffs.fyi pseudo://deferred borrado (duplicado de id 453 activo)
+- Validación: 125 rows nuevos en rss_articles primer ciclo
+
+### Fase 2 — Cross-pillar P2/P3/P4 expansion (7 inserts)
+- Atlantic Council Econographics (P3 macro-finance) — 19 rows
+- ForexLive (P3 forex) — 20 rows
+- VisaGuide.world News (P4 visa-info) — 10 rows + **2 high-score reales primer fetch**:
+  - "New Zealand Receives Nearly 200 Golden Visa Applications in Just 3 Months" (score 17)
+  - "Morocco Adds Temporary E-Travel Pass for AFCON 2025 Fans" (score 16)
+- Splash247 (P2 maritime) — 10 rows
+- gCaptain (P2 maritime) — 12 rows
+- MarineLink (P2 maritime industry) — 10 rows
+- Hellenic Shipping News (P2 maritime) — 20 rows
+
+**Total Fase 1+2**: 226 rows nuevos en rss_articles, 2 alertas high-score P4
+disparadas, B6 cross-pillar bridges + B8 NLP enrichment validados E2E sobre
+datos reales.
+
+### Verificadas pero descartadas (no se seedearon)
+Razones documentadas para no romper la regla "no añadir feeds que erroran crónicamente":
+- MENA: MENAFN (302 redirect), Middle East Eye (403 CF), The New Arab (403),
+  Al Arabiya English (403), Mideastwire (404)
+- SkillSyncer (P2): 404 ambas variantes
+- TrueUp Layoffs (P2): 403 CF crónico (id 814 sigue placeholder)
+- CryptoSlate (P3): 403 CF, CryptoSlate /regulation/ idem
+- CentralBanking RSS, ForexNewsAPI: 404/000
+- Henley Passport Index, Digital Nomad World, Nomad List visa-index: 404
+- USCIS direct: 403 (Federal Register USCIS ya cubre)
+- Atlantic Council CBDC tracker: 403 (subdir blocked)
+- Pacific Island Times, Pacnews, Loop Caribbean, Loop TT: 404/000
+- AllAfrica Swaziland, AllAfrica Sao Tome: 404
+- RFE/RL Turkmen (azathabar), Tajik (ozodi): 404
+- DLNews: ya existía como id 818
+
+### 5 fuentes maritime LIVE
+P2 sector primario del usuario estaba al 0% según BACKLOG. Esta sesión
+añade Maritime Executive + Splash247 + gCaptain + MarineLink + Hellenic
+Shipping News = **5 fuentes industria maritime activas**, cada una con
+10-66 items por ciclo.
+
+### Hallazgo recurrente
+Inserts vía `rss.fetchFeed()` después del INSERT en `rss_feeds` se
+contabilizaron como "0 nuevos" en la segunda invocación porque la primera
+(que el usuario interrumpió) llegó a meter las filas antes del cancel.
+El segundo run detectó duplicados via `WHERE url = $1`. Confirmado por
+timestamps: inserts a 23:40:01-08, fetchFeed run posterior reportó 0
+porque dedup-by-URL ya tenía las filas. **Funcionalidad correcta, no bug.**

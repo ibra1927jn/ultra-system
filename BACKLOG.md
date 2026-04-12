@@ -156,6 +156,43 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 >
 > **Tier A P1 implementable = 0 items.** Lo que queda pendiente son bloqueos externos (B10/B11/B12 + EventRegistry/PodcastIndex emails empresa) o trabajo de Lote C (Crawl4AI/news-please/Fundus, frontend, deprecar legacy) o B17 re-sourcing (alternativas BOE/Vanuatu/FXStreet/FundsForNGOs).
 >
+> **── Fase 1+2 seed expansion 2026-04-11 (sesión final P1) ──**
+>
+> Tras cerrar B14 RSS-Bridge, push adicional de seeds verificados uno por uno:
+>
+> **Country/regional gaps (Fase 1)** — 9 feeds nuevos + 2 deferred fixed:
+>  - ✅ Times of Central Asia (regional, Central Asia)
+>  - ✅ elDiario.es (multilingual-es)
+>  - ✅ Agência Brasil (multilingual-pt)
+>  - ✅ Caribbean360, WIC News (regional Caribbean)
+>  - ✅ AllAfrica Comoros (KM), AllAfrica Equatorial Guinea (GQ)
+>  - ✅ PINA Pacific Islands News Association
+>  - ✅ Maritime Executive (cross-pillar P2 maritime — sector primario)
+>  - ✅ Challenger Gray (id 815, era pseudo://deferred → URL real, P2 layoffs)
+>  - ✅ GrantWatch (id 834, era pseudo://deferred → URL real, P5 grants)
+>  - 🗑️ Layoffs.fyi pseudo://deferred (id 813) borrado — duplicado de id 453 activo
+>
+> **Cross-pillar P2/P3/P4 (Fase 2)** — 7 feeds nuevos:
+>  - ✅ Atlantic Council Econographics (P3 macro-finance)
+>  - ✅ ForexLive (P3 forex)
+>  - ✅ VisaGuide.world News (P4 visa-info — disparó 2 high-score primer fetch: NZ Golden Visa, Morocco AFCON)
+>  - ✅ Splash247 (P2 maritime)
+>  - ✅ gCaptain (P2 maritime)
+>  - ✅ MarineLink (P2 maritime industry)
+>  - ✅ Hellenic Shipping News (P2 maritime)
+>
+> **Resultado E2E**: 226 rows nuevos en rss_articles primer ciclo (125 Fase 1 + 101 Fase 2), 2 alertas high-score P4 reales, B6 bridges + B8 NLP enrichment validados sobre datos reales.
+>
+> **Descartados durante verificación** (CF block, 404, dead, 403):
+>  - MENA: MENAFN, Middle East Eye, The New Arab, Al Arabiya, Mideastwire — todos CF/404 desde Hetzner. → B17 re-sourcing
+>  - SkillSyncer (P2): 404 ambas variantes
+>  - TrueUp Layoffs (P2): 403 CF crónico (id 814 sigue como deferred placeholder)
+>  - CryptoSlate, CentralBanking, ForexNewsAPI, Henley Passport, Digital Nomad World, USCIS direct, Nomad List visa-index: 403/404/000
+>  - Atlantic Council CBDC tracker: 403 (sub-blog blocked)
+>  - DLNews: ya existía como id 818
+>
+> **5 fuentes maritime totales LIVE** (Maritime Executive + Splash247 + gCaptain + MarineLink + Hellenic Shipping News) — desbloquea P2 sector primario que estaba al 0%.
+>
 > **Lección**: BACKLOG.md contiene marks 🔴 obsoletos que no se actualizaron cuando el código se escribió. La verificación tier-by-tier con DB + grep + curl es obligatoria antes de planificar trabajo.
 >
 > **Bloqueados externamente (esperando aprobación/credenciales):**
