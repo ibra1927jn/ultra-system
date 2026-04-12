@@ -71,27 +71,89 @@ const TIMESPAN = '30d';
 //      Their rows were purged in this commit so the next cycle re-seeds
 //      them with the correct FIPS code.
 const ISO_TO_FIPS = {
-  // Hotspots that DIFFER between ISO and FIPS
+  // GDELT DOC API uses FIPS 10-4, not ISO 3166-1 alpha-2.
+  // Only entries where FIPS differs from ISO are listed.
+  // Anything not here falls through to identity (many coincide).
+  AT: 'AU', // Austria
+  AU: 'AS', // Australia
+  BD: 'BG', // Bangladesh
   BF: 'UV', // Burkina Faso
-  NE: 'NG', // Niger
-  HT: 'HA', // Haiti
-  SD: 'SU', // Sudan
-  RU: 'RS', // Russia
-  CN: 'CH', // China  (verified)
-  UA: 'UP', // Ukraine
-  IL: 'IS', // Israel
-  KP: 'KN', // DPRK    (verified)
-  GB: 'UK', // United Kingdom
+  BI: 'BY', // Burundi
+  BN: 'BX', // Brunei
+  BO: 'BL', // Bolivia
+  BS: 'BF', // Bahamas
+  BW: 'BC', // Botswana
+  BY: 'BO', // Belarus
+  CD: 'CG', // DR Congo
+  CH: 'SZ', // Switzerland
+  CI: 'IV', // Côte d'Ivoire
+  CL: 'CI', // Chile
+  CN: 'CH', // China
+  CU: 'CU', // Cuba (same)
+  CZ: 'EZ', // Czechia
+  DE: 'GM', // Germany
   DK: 'DA', // Denmark
+  DO: 'DR', // Dominican Republic
+  DZ: 'AG', // Algeria
+  EC: 'EC', // Ecuador (same)
+  EE: 'EN', // Estonia
+  FI: 'FI', // Finland (same)
+  GB: 'UK', // United Kingdom
+  GE: 'GG', // Georgia
+  GR: 'GR', // Greece (same)
+  GT: 'GT', // Guatemala (same)
+  HK: 'HK', // Hong Kong (same)
+  HN: 'HO', // Honduras
+  HR: 'HR', // Croatia (same)
+  HT: 'HA', // Haiti
+  HU: 'HU', // Hungary (same)
+  ID: 'ID', // Indonesia (same)
+  IE: 'EI', // Ireland
+  IL: 'IS', // Israel
   IQ: 'IZ', // Iraq
-  TR: 'TU', // Turkey
+  IS: 'IC', // Iceland
+  JO: 'JO', // Jordan (same)
+  JP: 'JA', // Japan
+  KG: 'KG', // Kyrgyzstan (same)
+  KH: 'CB', // Cambodia
+  KP: 'KN', // North Korea
+  KR: 'KS', // South Korea
   LB: 'LE', // Lebanon
+  LT: 'LH', // Lithuania
+  LV: 'LG', // Latvia
+  MA: 'MO', // Morocco
+  MD: 'MD', // Moldova (same)
+  MM: 'BM', // Myanmar
+  MY: 'MY', // Malaysia (same)
+  NE: 'NG', // Niger
+  NG: 'NI', // Nigeria
+  NL: 'NL', // Netherlands (same)
+  NO: 'NO', // Norway (same)
+  NP: 'NP', // Nepal (same)
+  NZ: 'NZ', // New Zealand (same)
+  PE: 'PE', // Peru (same)
+  PH: 'RP', // Philippines
+  PK: 'PK', // Pakistan (same)
+  PL: 'PL', // Poland (same)
+  RO: 'RO', // Romania (same)
+  RS: 'RI', // Serbia
+  RU: 'RS', // Russia
+  SD: 'SU', // Sudan
+  SE: 'SW', // Sweden
+  SG: 'SN', // Singapore
+  SI: 'SI', // Slovenia (same)
+  SK: 'LO', // Slovakia
+  SN: 'SG', // Senegal
+  SR: 'NS', // Suriname
+  TH: 'TH', // Thailand (same)
+  TN: 'TS', // Tunisia
+  TR: 'TU', // Turkey
+  UA: 'UP', // Ukraine
+  UY: 'UY', // Uruguay (same)
+  VN: 'VM', // Vietnam
   YE: 'YM', // Yemen
-  // 2026-04-11: AE removed. Comment claimed FIPS=TC (Trucial Coast)
-  // but GDELT returns "Invalid/Unsupported Country" for TC. Empirically
-  // sourcecountry:AE returns valid data, so identity fall-through is correct.
-  // Codes coincidentally identical (AE, BE, ET, ML, VE, IR, QA, US,
-  // SO, SA, EG, TW, SY, GL) need no entry — fall through to identity.
+  ZA: 'SF', // South Africa
+  ZM: 'ZA', // Zambia
 };
 
 function isoToFips(iso) {
@@ -423,9 +485,21 @@ async function runOnce({ countries = HOTSPOT_COUNTRIES } = {}) {
   return { countries: countries.length, persisted: totalPersisted, alerts: totalAlerts, elapsedSec, results, buckets };
 }
 
+// Tier B: countries with 3+ feeds but not in Tier A hotspots
+const EXPANDED_COUNTRIES = [
+  'ES','IN','IT','FR','PL','CA','DE','MX','PH','BR','JP','PK',
+  'ZA','GE','AT','PE','HU','ID','ME','KG','PT','BD','GR','AU',
+  'CL','CZ','KR','AM','SG','EE','SK','IE','BG','NG','CH',
+  'SE','SR','LV','FI','RS','IS','DO','TH','MA','MM','VN',
+  'NZ','AR','NL','SN','CM','SI','BY','SM','LT','CY','BB',
+  'NO','BA','CO','DZ','AZ','UY','IQ','CN','NE','ZM','SD',
+  'MY','HK','NP','BO','TW','RO','BI','AF','LB','MD','JO','HR',
+].filter(c => !HOTSPOT_COUNTRIES.includes(c));
+
 module.exports = {
   runOnce,
   HOTSPOT_COUNTRIES,
+  EXPANDED_COUNTRIES,
   ISO_TO_FIPS,
   isoToFips,
   severityFromZ,

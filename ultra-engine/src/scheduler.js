@@ -666,6 +666,20 @@ function init() {
     'Cada 6h :55 — GDELT GEO timelines + volume z-score alerts (28 hotspots)'
   );
 
+  // ─── DEPTH-6: GDELT GEO Tier B — expanded countries every 12h ──
+  register(
+    'wm-gdelt-geo-expanded',
+    '55 3,15 * * *',
+    async () => {
+      try {
+        const { runOnce, EXPANDED_COUNTRIES } = require('./wm_gdelt_geo');
+        const r = await runOnce({ countries: EXPANDED_COUNTRIES });
+        console.log(`🌍 wm-gdelt-geo-expanded: countries=${r.countries} persisted=${r.persisted} alerts=${r.alerts} ${r.elapsedSec}s`);
+      } catch (err) { console.error('❌ wm-gdelt-geo-expanded:', err.message); }
+    },
+    'Cada 12h 03:55/15:55 — GDELT GEO timelines Tier B (~70 extra countries)'
+  );
+
   // ─── P1 WM Phase 2 step 13: hotspot dynamic escalation ──
   // Calcula score 1.0–5.0 para los 27 INTEL_HOTSPOTS combinando
   // newsActivity (wm_clusters keyword match), CII (wm_country_scores),
@@ -1070,6 +1084,94 @@ function init() {
       }
     },
     'Cada 10 min — NLP backfill score≥3, no time limit, 500/batch parallel'
+  );
+
+  // ─── DEPTH-1: Semantic event clustering — every 15 min ───
+  register(
+    'depth-cluster',
+    '*/15 * * * *',
+    async () => {
+      try {
+        const { clusterArticles } = require('./depth_analysis');
+        const r = await clusterArticles();
+        if (r.clustered > 0) {
+          console.log(`🔗 cluster: ${r.clustered} articles (${r.newClusters} new clusters, ${r.totalActive} active)`);
+        }
+      } catch (err) {
+        console.error('❌ depth-cluster:', err.message);
+      }
+    },
+    'Cada 15 min — Semantic event clustering via embeddings'
+  );
+
+  // ─── DEPTH-2: Event extraction — every 30 min ───
+  register(
+    'depth-events',
+    '5,35 * * * *',
+    async () => {
+      try {
+        const { extractEvents } = require('./depth_analysis');
+        const r = await extractEvents();
+        if (r.extracted > 0) {
+          console.log(`📋 events: ${r.extracted} structured events extracted`);
+        }
+      } catch (err) {
+        console.error('❌ depth-events:', err.message);
+      }
+    },
+    'Cada 30 min — Structured event extraction (WHO/WHAT/WHERE/WHEN)'
+  );
+
+  // ─── DEPTH-3: Daily digest — 08:00 NZT ───
+  register(
+    'daily-digest',
+    '0 8 * * *',
+    async () => {
+      try {
+        const { generateDigest } = require('./daily_digest');
+        const r = await generateDigest();
+        console.log(`📨 digest sent: ${r.sections} sections, ${r.length} chars`);
+      } catch (err) {
+        console.error('❌ daily-digest:', err.message);
+      }
+    },
+    'Diario 08:00 NZT — Telegram intelligence digest'
+  );
+
+  // ─── DEPTH-4: Topic trend detection — every hour ───
+  register(
+    'depth-trends',
+    '10 * * * *',
+    async () => {
+      try {
+        const { detectTrends } = require('./depth_analysis');
+        const r = await detectTrends();
+        if (r.spikes > 0) {
+          console.log(`📈 trends: ${r.spikes} spikes detected (${r.total} topics tracked)`);
+        }
+      } catch (err) {
+        console.error('❌ depth-trends:', err.message);
+      }
+    },
+    'Cada hora :10 — Topic trend velocity + spike detection'
+  );
+
+  // ─── DEPTH-5: Country sentiment aggregation — every 2h ───
+  register(
+    'depth-sentiment',
+    '25 */2 * * *',
+    async () => {
+      try {
+        const { aggregateCountrySentiment } = require('./depth_analysis');
+        const r = await aggregateCountrySentiment();
+        if (r.countries > 0) {
+          console.log(`🌡️ sentiment: ${r.countries} countries aggregated`);
+        }
+      } catch (err) {
+        console.error('❌ depth-sentiment:', err.message);
+      }
+    },
+    'Cada 2h :25 — Country sentiment aggregation'
   );
 
   console.log(`✅ ${jobs.length} jobs registrados`);

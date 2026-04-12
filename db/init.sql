@@ -2237,3 +2237,74 @@ LANGUAGE SQL STABLE AS $$
   LIMIT p_limit;
 $$;
 
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  DEPTH ANALYSIS LAYER — 2026-04-12
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- DEPTH-1: Semantic event clusters
+CREATE TABLE IF NOT EXISTS wm_event_clusters (
+    id              SERIAL PRIMARY KEY,
+    headline        TEXT NOT NULL,
+    first_seen      TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_updated    TIMESTAMP NOT NULL DEFAULT NOW(),
+    article_count   INTEGER NOT NULL DEFAULT 1,
+    countries       TEXT[] DEFAULT '{}',
+    top_entities    JSONB,
+    avg_sentiment   NUMERIC(5,4),
+    centroid        JSONB,
+    status          VARCHAR(20) DEFAULT 'active',
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_event_clusters_updated ON wm_event_clusters(last_updated DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_event_clusters_status ON wm_event_clusters(status, last_updated DESC);
+ALTER TABLE rss_articles ADD COLUMN IF NOT EXISTS event_cluster_id INTEGER REFERENCES wm_event_clusters(id);
+CREATE INDEX IF NOT EXISTS idx_rss_articles_cluster ON rss_articles(event_cluster_id) WHERE event_cluster_id IS NOT NULL;
+
+-- DEPTH-2: Structured events
+CREATE TABLE IF NOT EXISTS wm_events (
+    id              SERIAL PRIMARY KEY,
+    cluster_id      INTEGER REFERENCES wm_event_clusters(id),
+    event_type      VARCHAR(50) NOT NULL,
+    actors          JSONB,
+    action          TEXT,
+    location        TEXT,
+    location_geo    VARCHAR(5),
+    event_date      TIMESTAMP,
+    source_count    INTEGER DEFAULT 1,
+    confidence      NUMERIC(3,2) DEFAULT 0.5,
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_events_type ON wm_events(event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_events_geo ON wm_events(location_geo, created_at DESC);
+
+-- DEPTH-4: Topic trends
+CREATE TABLE IF NOT EXISTS wm_topic_trends (
+    id              SERIAL PRIMARY KEY,
+    topic           VARCHAR(60) NOT NULL,
+    window_hours    INTEGER NOT NULL,
+    article_count   INTEGER NOT NULL,
+    prev_count      INTEGER,
+    velocity        NUMERIC(8,2),
+    is_spike        BOOLEAN DEFAULT FALSE,
+    sample_titles   JSONB,
+    computed_at     TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wm_topic_trends_spike ON wm_topic_trends(is_spike, computed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wm_topic_trends_topic ON wm_topic_trends(topic, computed_at DESC);
+
+-- DEPTH-5: Country sentiment aggregation
+CREATE TABLE IF NOT EXISTS wm_country_sentiment (
+    id              SERIAL PRIMARY KEY,
+    country_iso2    VARCHAR(5) NOT NULL,
+    period_date     DATE NOT NULL,
+    article_count   INTEGER NOT NULL DEFAULT 0,
+    positive_pct    NUMERIC(5,2),
+    neutral_pct     NUMERIC(5,2),
+    negative_pct    NUMERIC(5,2),
+    avg_score       NUMERIC(5,4),
+    top_positive    JSONB,
+    top_negative    JSONB,
+    computed_at     TIMESTAMP DEFAULT NOW(),
+    UNIQUE(country_iso2, period_date)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_country_sent_date ON wm_country_sentiment(period_date DESC, country_iso2);
