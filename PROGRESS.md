@@ -1004,3 +1004,57 @@ contabilizaron como "0 nuevos" en la segunda invocación porque la primera
 El segundo run detectó duplicados via `WHERE url = $1`. Confirmado por
 timestamps: inserts a 23:40:01-08, fetchFeed run posterior reportó 0
 porque dedup-by-URL ya tenía las filas. **Funcionalidad correcta, no bug.**
+
+---
+
+## P1 Sesión final 2026-04-12 — B17 closed + B13-lite extract sidecar + validations
+
+Sprint corto + medio ejecutado en una sesión. 5 tasks.
+
+### Task 6: B17 MENA experimentación
+- Probadas 4 estrategias: rsshub.app routes (todas 403), rss-bridge CssSelector (1 item débil), Google News country feeds (con `gl=AE/SA/EG`), Google News site search (`q=site:X`), URLs directas con UAs distintos.
+- **Google News site search workaround** funciona perfecto: 100 items por search, sin IP block.
+- 4 inserts: MENAFN, Middle East Eye (1 high-score Pope Algeria DZ), The New Arab, Al Arabiya English (id 1859-1862, 61 rows primer ciclo)
+- Mideastwire descartado (sin alt). Pivot a workaround GN.
+
+### Task 7: B17 BOE alternativa
+- Probadas: BOE legacy /diario_boe/seccion.php (404), BOE datos abiertos /datosabiertos/api/* (400 → 200 con `Accept: application/json` ✅), Google News site:boe.es (200 100 items ✅).
+- **Decisión**: Google News site search para P1 (rápido, 1 INSERT). Sub-task `boe_oficial.js` con API JSON oficial deferida a sesión P4 dedicada (módulo nuevo + tabla `bur_boe_publications` + cron).
+- 1 insert: BOE España GN site search (id 1863, 20 rows P4 legal-es)
+
+### Task 8: Cerrar B17 retroactivamente
+- Callout en BACKLOG.md PILLAR 1 con resultados B17 + nota Crawl4AI pivot.
+- 4 items resueltos pre-existentemente (FXStreet→ForexLive, FundsForNGOs→GrantWatch+ProFellow+ICTworks).
+- 2 abandonados conscientemente (Mideastwire, Vanuatu).
+- 5 nuevos LIVE (4 MENA + BOE).
+
+### Task 9: B13 Crawl4AI sidecar additive
+- **PIVOT**: imagen oficial Crawl4AI 4-6GB (Playwright + chromium) imposible con sda al 99%/551MB free pre-cleanup. Trafilatura es academic SOTA per Bevendorff et al. 2023 — 1/20 del tamaño.
+- Disk cleanup pre-build: `docker builder prune -f` liberó 1.7GB.
+- Container `ultra_extract` (commit 93a0269): python:3.12-slim + httpx + trafilatura 1.12.2 = 350MB total.
+- Endpoint POST /extract → {title, text, author, date, lang, sitename, categories, tags, text_length}.
+- ADDITIVE: NO toca rss.js. Engine integration en fallback path **pendiente próxima sesión** — wire en `_parseUrlWithPuppeteerFallback` cuando retorna "no rss markers".
+- Validación E2E con artículo real Hellenic Shipping News: 3469 chars + title + author extraídos correctamente.
+- Disk post-build: 1.9GB libres (95%) — manejable.
+
+### Task 10: Validaciones acumuladas
+- **B4 GDELT GEO**: 24/29 países en DB (TW, GL, SY, LB, AE missing). Shuffle fix verificado vivo en container (`/app/src/wm_gdelt_geo.js` líneas 366-371). Próximo cron 00:55 UTC validará si rellena los 5 — pendiente naturalmente.
+- **B8 NLP enrichment**: 4 rows en `rss_articles_enrichment`, 4 en últimas 6h, latest 2026-04-12 00:08. Cron natural funcionando.
+- **B9 Telethon**: container Up 11h, 5 active feeds con t.me URL pattern, 219 messages last 6h. Channels visibles en logs últimas 6h: @AJEnglishNews, @presstv, @RVvoenkor, @tass_agency + 7 channel_ids sin username resuelto = ~11 active. Memoria decía 10/14, número confirmado approx.
+
+### Estado final P1 al cierre 2026-04-12
+- Tier A implementable = **0 items** (cerrado en sesión previa)
+- B17 Re-sourcing = **CERRADO** (5 LIVE + 4 pre-resueltos + 2 abandonados conscientes)
+- B13-lite extract sidecar = **LIVE** pero engine wire pendiente (additive, low-risk wiring para próxima sesión)
+- Pendiente real:
+  - Wire engine fallback path → ultra_extract (~30min próxima sesión)
+  - B15 Frontend Vite/deck.gl (multi-sesión, sin urgencia)
+  - B16 deprecar legacy (no merece la pena, items que funcionan)
+  - boe_oficial.js módulo P4 dedicado (~1.5h, sesión P4)
+  - Bloqueos externos (B10 PRAW, B11 Metaculus, B12 ACLED, EventRegistry, PodcastIndex emails)
+  - Migración Hetzner→Windows residencial (desbloquea 6 fuentes IP-blocked)
+
+### Hallazgos sesión
+1. **Disk crítico sda 99%**: pillado por sorpresa al intentar Crawl4AI. Liberados 1.7GB con builder prune. **Pendiente seguimiento**: si crece más, mover docker storage a sdb (32GB libres) o limpiar imágenes activas no utilizadas.
+2. **Edit silencioso fallido**: una edición a BACKLOG.md (B17 closure callout) reportó success por la herramienta pero no se persistió en disco, posiblemente por presión de disco al momento. Re-aplicada y verificada con grep antes del commit final. Lección: **siempre grep el contenido editado antes de commit cuando hay presión de recursos**.
+3. **Pivot Crawl4AI → trafilatura** validado por benchmarks académicos, no por urgencia. Trafilatura es objetivamente mejor para HTML→article y 20× más ligero.

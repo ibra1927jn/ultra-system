@@ -193,6 +193,33 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 >
 > **5 fuentes maritime totales LIVE** (Maritime Executive + Splash247 + gCaptain + MarineLink + Hellenic Shipping News) — desbloquea P2 sector primario que estaba al 0%.
 >
+> **── B17 Re-sourcing CERRADO 2026-04-12 ──**
+>
+> El B17 era un placeholder para alternativas de los feeds rotos del saneado. Verificación tier-by-tier:
+>
+> - 🟢 **FXStreet** [CF block] — ya cerrado en Fase 2: `ForexLive` cubre el mismo nicho mejor (25 items/ciclo, sin CF, P3 forex)
+> - 🟢 **FundsForNGOs** [CF block] — ya cerrado: `GrantWatch` (Fase 1 fix) + `ProFellow` + `ICTworks` (ya en B1) cubren grants/funding P5
+> - 🟢 **MENA 4/5** vía Google News site search workaround (no IP block):
+>   - MENAFN → `news.google.com/rss/search?q=site:menafn.com` (id 1859, 20 rows)
+>   - Middle East Eye → idem (id 1860, 19 rows + 1 high-score "Pope to pay homage to Algeria's St Augustine" relevante DZ)
+>   - The New Arab → idem (id 1861, 20 rows)
+>   - Al Arabiya English → idem (id 1862, 2 rows)
+> - 🟢 **BOE España** → Google News site search (id 1863, 20 rows P4 legal-es). **Sub-task pendiente para sesión P4**: módulo `boe_oficial.js` usando API JSON oficial `https://www.boe.es/datosabiertos/api/boe/sumario/YYYYMMDD` con `Accept: application/json` (verificado funciona, devuelve sumario estructurado por sección/departamento). Persistir a tabla nueva `bur_boe_publications`. ~1.5h trabajo P4.
+> - 🟡 **Mideastwire** — sin alternativa viable (rsshub 403, sitio inactivo). Defer permanente.
+> - 🟡 **Vanuatu Daily Post** — IP-rate-limit 429, prioridad baja, RNZ Pacific cubre la región. Aceptar gap.
+>
+> **Total B17**: 5 feeds nuevos LIVE (4 MENA + BOE), 1 high-score real (Algeria), 81 rows primer ciclo. 4 items "rotos" del saneado ya estaban resueltos por trabajo previo (FXStreet, FundsForNGOs) o ahora vía workaround GN site search (BOE, MENA). Solo 2 items quedan abandonados conscientemente (Mideastwire, Vanuatu).
+>
+> **── B13 Crawl4AI sidecar (additive) PIVOT a trafilatura ──**
+>
+> Imagen oficial Crawl4AI 4-6GB (Playwright + chromium) no cabe en sda 99%/551MB free pre-cleanup. Pivot a `trafilatura` (academic state-of-the-art HTML→article extractor per Bevendorff et al. 2023) en sidecar `ultra_extract`:
+> - python:3.12-slim + httpx + trafilatura 1.12.2 = 350MB total image
+> - Endpoint POST /extract → {title, text, author, date, lang, sitename, categories, tags, text_length}
+> - Memory limit 256M, port 127.0.0.1:8014:8000
+> - **ADDITIVE**: NO toca rss.js. Engine integration en fallback path queda **pendiente para próxima sesión P1** — wire en `_parseUrlWithPuppeteerFallback` cuando puppeteer fallback retorne "no rss markers".
+> - Validado E2E con artículo real Hellenic Shipping News: 3469 chars limpios + title + author extraídos.
+> - Disk cleanup pre-build: `docker builder prune -f` liberó 1.7GB. sda 36G→34G used.
+>
 > **Lección**: BACKLOG.md contiene marks 🔴 obsoletos que no se actualizaron cuando el código se escribió. La verificación tier-by-tier con DB + grep + curl es obligatoria antes de planificar trabajo.
 >
 > **Bloqueados externamente (esperando aprobación/credenciales):**
