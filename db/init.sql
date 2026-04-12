@@ -2308,3 +2308,17 @@ CREATE TABLE IF NOT EXISTS wm_country_sentiment (
     UNIQUE(country_iso2, period_date)
 );
 CREATE INDEX IF NOT EXISTS idx_wm_country_sent_date ON wm_country_sentiment(period_date DESC, country_iso2);
+
+-- P1 feed health tracking (added 2026-04-12)
+DO $$ BEGIN
+    ALTER TABLE rss_feeds ADD COLUMN consecutive_failures integer DEFAULT 0;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN
+    ALTER TABLE rss_feeds ADD COLUMN last_error text;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN
+    ALTER TABLE rss_feeds ADD COLUMN disabled_at timestamp;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN
+    ALTER TABLE rss_feeds ADD COLUMN disable_reason text;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;

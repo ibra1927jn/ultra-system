@@ -188,6 +188,48 @@ function init() {
     'Cada 30 min — Buscar noticias + scoring keywords'
   );
 
+  // ─── P1: Auto-disable feeds rotos (>336 fallos = ~7 días) ───
+  // Re-enable weekly para re-check (sitios que vuelven).
+  register(
+    'feed-auto-disable',
+    '0 5 * * *',
+    async () => {
+      // Disable feeds that failed 336+ consecutive times (~7 days of 30-min cycles)
+      const disabled = await db.query(
+        `UPDATE rss_feeds
+         SET is_active = false,
+             disabled_at = NOW(),
+             disable_reason = 'auto: ' || consecutive_failures || ' consecutive failures — ' || COALESCE(last_error, 'unknown')
+         WHERE is_active = true
+           AND consecutive_failures >= 336
+         RETURNING id, name, last_error`
+      );
+      if (disabled.rowCount > 0) {
+        const names = disabled.rows.map(r => r.name).join(', ');
+        console.log(`🚫 feed-auto-disable: disabled ${disabled.rowCount} feeds: ${names}`);
+        try {
+          await telegram.sendAlert(`🚫 Auto-disabled ${disabled.rowCount} feeds (>7d failing):\n${names}`);
+        } catch (_) {}
+      }
+      // Weekly re-enable: reset disabled feeds on Mondays for re-check
+      const dow = new Date().getDay();
+      if (dow === 1) {
+        const reEnabled = await db.query(
+          `UPDATE rss_feeds
+           SET is_active = true, consecutive_failures = 0, last_error = NULL, disable_reason = NULL, disabled_at = NULL
+           WHERE is_active = false
+             AND disable_reason LIKE 'auto:%'
+             AND disabled_at < NOW() - INTERVAL '6 days'
+           RETURNING id, name`
+        );
+        if (reEnabled.rowCount > 0) {
+          console.log(`♻️  feed-auto-disable: re-enabled ${reEnabled.rowCount} feeds for re-check`);
+        }
+      }
+    },
+    'Diario 05:00 — auto-disable feeds con >336 fallos consecutivos'
+  );
+
   // ─── P1: Bluesky → Jetstream firehose (B7) ─────────────
   // El polling 'bsky-search' fue sustituido por bsky_jetstream.js,
   // un WebSocket persistente al firehose Jetstream que se arranca
@@ -905,6 +947,21 @@ function init() {
       } catch (err) { console.error('❌ wm-polymarket-markets:', err.message); }
     },
     'Cada 15min — Polymarket Gamma /events open + nested markets → wm_prediction_markets'
+  );
+
+  // ─── Prediction market snapshots retention (48h) ──────────────────
+  // Daily digest needs 26h, correlation needs 2h. 48h gives safe margin.
+  // ~1.7M rows/day ≈ 450 MB/day unchecked. Runs daily at 04:15.
+  register(
+    'pred-snapshots-retention',
+    '15 4 * * *',
+    async () => {
+      const { rowCount } = await db.query(
+        `DELETE FROM wm_prediction_market_snapshots WHERE captured_at < NOW() - INTERVAL '48 hours'`
+      );
+      console.log(`🗑️  pred-snapshots-retention: purged ${rowCount} rows`);
+    },
+    'Diario 04:15 — purge prediction market snapshots >48h'
   );
 
   // ─── WM Phase 3 Bloque 5 Sub-A: cyber CVEs (NIST NVD + CISA KEV) ──

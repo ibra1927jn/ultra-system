@@ -314,9 +314,9 @@ async function fetchFeed(feedId) {
       }
     }
 
-    // Actualizar timestamp del feed
+    // Actualizar timestamp del feed + reset failure counter
     await db.query(
-      'UPDATE rss_feeds SET last_fetched = NOW() WHERE id = $1',
+      'UPDATE rss_feeds SET last_fetched = NOW(), consecutive_failures = 0, last_error = NULL WHERE id = $1',
       [feedId]
     );
 
@@ -324,6 +324,17 @@ async function fetchFeed(feedId) {
     return { newCount, highScoreArticles };
   } catch (err) {
     console.error(`❌ Error fetching feed ${feed.name}:`, err.message);
+    // Track consecutive failures for auto-disable
+    try {
+      const errMsg = (err.message || '').substring(0, 200);
+      await db.query(
+        `UPDATE rss_feeds
+         SET consecutive_failures = COALESCE(consecutive_failures, 0) + 1,
+             last_error = $2
+         WHERE id = $1`,
+        [feedId, errMsg]
+      );
+    } catch (_) { /* best effort */ }
     return { newCount: 0, highScoreArticles: [] };
   }
 }

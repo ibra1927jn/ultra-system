@@ -14,3 +14,6 @@ backups/
 
 # OSRM self-hosted data (P6 Fase 3c) — 1.2GB pre-procesado
 osrm/data/
+
+# Deploy artifacts
+deploy.tar.gz
