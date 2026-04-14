@@ -17,6 +17,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 
 const express = require('express');
 const helmet = require('helmet');
+const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 
@@ -57,6 +58,9 @@ app.use(helmet({
   contentSecurityPolicy: false, // dashboard usa inline styles + google fonts
   crossOriginEmbedderPolicy: false,
 }));
+// Compression — gzip/brotli responses. Massive bandwidth win for JSON + JS/CSS.
+// Default threshold is 1024 bytes; set to 512 to compress even small JSON.
+app.use(compression({ threshold: 512 }));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 // Lightweight cookie parser (no external dependency)

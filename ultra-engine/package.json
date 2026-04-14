@@ -13,6 +13,7 @@
     "bcryptjs": "^3.0.3",
     "ccxt": "^4.5.47",
     "cheerio": "^1.0.0",
+    "compression": "^1.8.1",
     "compromise": "^14.14.4",
     "csv-parse": "^6.2.1",
     "dotenv": "^16.4.0",
