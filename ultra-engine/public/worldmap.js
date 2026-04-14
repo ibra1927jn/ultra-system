@@ -1924,15 +1924,22 @@ async function refreshNews(){
   else if(l.type==='country')titleEl.textContent=`${isoToFlag(l.value)} ${l.name||l.value}`;
   showSkeletonNews();
   try{
-    // Build filtered URL with search and hours
-    const topicStr=topics.length?topics.sort().join(','):'';
-    const params=new URLSearchParams({level:l.type,limit:80,hours:newsHours});
-    if(l.value)params.set('value',l.value);
-    if(topicStr)params.set('topics',topicStr);
-    if(newsSearchTerm)params.set('search',newsSearchTerm);
-    const r=await fetch(`${NEWS_API}/filtered?${params}`,{credentials:'same-origin'});
-    if(!r.ok)throw new Error(r.status);
-    const res=await r.json();
+    let res;
+    // When user has a search term, use the FTS /search endpoint (ranked, faster, multilingual)
+    if(newsSearchTerm && newsSearchTerm.length >= 2){
+      const sp = new URLSearchParams({q: newsSearchTerm, limit: 80, hours: Math.max(newsHours, 168)});
+      const r = await fetch(`${WM_API}/search?${sp}`, {credentials:'same-origin'});
+      if(!r.ok) throw new Error(r.status);
+      res = await r.json();
+    } else {
+      const topicStr=topics.length?topics.sort().join(','):'';
+      const params=new URLSearchParams({level:l.type,limit:80,hours:newsHours});
+      if(l.value)params.set('value',l.value);
+      if(topicStr)params.set('topics',topicStr);
+      const r=await fetch(`${NEWS_API}/filtered?${params}`,{credentials:'same-origin'});
+      if(!r.ok)throw new Error(r.status);
+      res=await r.json();
+    }
     state.newsData=res.data||[];
     // If world level and no search, show continent overview instead of flat list
     if(l.type==='world'&&!newsSearchTerm&&state.newsView==='grouped'){
@@ -2811,9 +2818,59 @@ async function init() {
   document.querySelectorAll('.news-view-btn').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.news-view-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');state.newsView=btn.dataset.view;refreshNews()})});
 
   // Search bar
-  document.getElementById('news-search').addEventListener('input',e=>{
+  // News search with fuzzy suggestions dropdown
+  const searchInput = document.getElementById('news-search');
+  const suggestionsEl = document.getElementById('search-suggestions');
+  let suggestTimer = null;
+  searchInput.addEventListener('input', e => {
     clearTimeout(searchDebounce);
-    searchDebounce=setTimeout(()=>{newsSearchTerm=e.target.value.trim();refreshNews().then(()=>{const nl=document.getElementById('news-list');if(nl)nl.scrollTop=0})},400);
+    clearTimeout(suggestTimer);
+    const val = e.target.value.trim();
+    // Show suggestions as user types (short debounce)
+    if(val.length >= 2){
+      suggestTimer = setTimeout(async () => {
+        try {
+          const r = await fetch(`${WM_API}/search/suggest?q=${encodeURIComponent(val)}`, {credentials:'same-origin'});
+          if(!r.ok) return;
+          const j = await r.json();
+          if(!j.data?.length){ suggestionsEl.classList.remove('open'); return; }
+          suggestionsEl.innerHTML = j.data.slice(0,10).map((s,i) => {
+            const icon = s.type === 'trending' ? '&#128293;' : '&#128240;';
+            const countHtml = s.count ? ` <span class="sg-count">${s.count}</span>` : '';
+            return `<div class="sg-item" data-value="${escHtml(s.value)}" data-idx="${i}">
+              <span class="sg-icon">${icon}</span>
+              <span class="sg-text">${escHtml(s.value)}</span>${countHtml}
+            </div>`;
+          }).join('');
+          suggestionsEl.classList.add('open');
+          suggestionsEl.querySelectorAll('.sg-item').forEach(it => {
+            it.addEventListener('click', () => {
+              searchInput.value = it.dataset.value;
+              newsSearchTerm = it.dataset.value;
+              suggestionsEl.classList.remove('open');
+              refreshNews().then(()=>{const nl=document.getElementById('news-list');if(nl)nl.scrollTop=0});
+            });
+          });
+        } catch {}
+      }, 200);
+    } else {
+      suggestionsEl.classList.remove('open');
+    }
+    // Trigger actual search after longer debounce
+    searchDebounce = setTimeout(() => {
+      newsSearchTerm = val;
+      refreshNews().then(() => { const nl=document.getElementById('news-list'); if(nl)nl.scrollTop=0 });
+    }, 400);
+  });
+  // Close suggestions on blur (with delay to allow click)
+  searchInput.addEventListener('blur', () => setTimeout(()=> suggestionsEl.classList.remove('open'), 150));
+  searchInput.addEventListener('focus', () => {
+    if(searchInput.value.trim().length >= 2 && suggestionsEl.innerHTML.trim())
+      suggestionsEl.classList.add('open');
+  });
+  searchInput.addEventListener('keydown', e => {
+    if(e.key === 'Escape') { suggestionsEl.classList.remove('open'); searchInput.blur(); }
+    if(e.key === 'Enter') { suggestionsEl.classList.remove('open'); }
   });
 
   // Time range pills

@@ -140,7 +140,10 @@
 
     <!-- Search + Time Filter -->
     <div class="news-toolbar">
-      <input type="text" class="news-search" id="news-search" placeholder="Search articles... (F)" aria-label="Search news articles">
+      <div class="news-search-wrap">
+        <input type="text" class="news-search" id="news-search" placeholder="Search articles... (F)" aria-label="Search news articles" autocomplete="off">
+        <div class="search-suggestions" id="search-suggestions"></div>
+      </div>
       <div class="time-pills">
         <button class="time-pill" data-hours="1">1h</button>
         <button class="time-pill" data-hours="6">6h</button>
