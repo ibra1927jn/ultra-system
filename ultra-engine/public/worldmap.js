@@ -4,6 +4,30 @@
 const API = '/api/wm/map';
 const NEWS_API = '/api/wm/news';
 const WM_API = '/api/wm';
+
+// ═══════════════════════════════════════════════════════════
+// TIMING CONSTANTS (milliseconds) — all in one place for tuning
+// ═══════════════════════════════════════════════════════════
+const TIMING = {
+  LAYER_REFRESH:     90 * 1000,       // 90s — re-fetch active map layers
+  NEWS_REFRESH:      3 * 60 * 1000,   // 3m — re-fetch news feed
+  FULL_REFRESH:      5 * 60 * 1000,   // 5m — full data refresh (brief, markets, etc.)
+  FRESHNESS_TICK:    30 * 1000,       // 30s — update "X min ago" text
+  RELATIVE_TIME_TICK: 5 * 1000,       // 5s — update "last-update" in status bar
+  ACTIVITY_CACHE_TTL: 2 * 60 * 1000,  // 2m — activity data cache
+  TOAST_DEFAULT_MS:  6 * 1000,        // 6s — toast auto-dismiss
+  ONLINE_BANNER_MS:  3 * 1000,        // 3s — "back online" banner
+  SUMMARY_FLASH_MS:  1200,            // 1.2s — highlight new summary
+  SEARCH_DEBOUNCE:   400,             // 400ms — wait after typing before searching
+  SUGGEST_DEBOUNCE:  200,             // 200ms — wait before fetching suggestions
+};
+const LIMITS = {
+  NEWS_PAGE_SIZE:    80,
+  SEARCH_RESULTS:    80,
+  SIBLING_ARTICLES:  5,
+  TRANSLATE_MAX_CHARS: 7500,
+};
+
 const abort = {};
 const staticCache = {};
 let map, geoHierarchy = null, geojsonData = null;
@@ -787,7 +811,7 @@ function renderReaderContent(data){
           // Flash highlight to draw attention
           sumEl.style.transition = 'background 0.6s';
           sumEl.style.background = 'rgba(167,139,250,0.15)';
-          setTimeout(()=> sumEl.style.background = '', 1200);
+          setTimeout(()=> sumEl.style.background = '', TIMING.SUMMARY_FLASH_MS);
         } else {
           // No existing summary block — add one at top
           const newSum = document.createElement('div');
@@ -1019,7 +1043,7 @@ const dataErrors = {};
 
 let activityCache={data:null,ts:0};
 async function fetchActivity(){
-  if(activityCache.data&&Date.now()-activityCache.ts<120000)return activityCache.data;
+  if(activityCache.data&&Date.now()-activityCache.ts<TIMING.ACTIVITY_CACHE_TTL)return activityCache.data;
   try{const r=await fetch(`${NEWS_API}/activity?hours=48`,{credentials:'same-origin'});if(!r.ok)throw new Error('HTTP '+r.status);const json=await r.json();const m={};(json.data||[]).forEach(d=>{m[d.country_iso]=d});activityCache={data:m,ts:Date.now()};dataFreshness.activity=new Date().toISOString();delete dataErrors.activity;return m}catch(e){dataErrors.activity=e.message;return{}}
 }
 
@@ -1557,7 +1581,7 @@ function setLoading(key,v){const btn=document.querySelector(`.layer-btn[data-lay
 function updateCount(key){const el=document.getElementById('n-'+key);if(el){const v=el.querySelector('.layer-count-val');if(v)v.textContent=LD[key].n>0?LD[key].n.toLocaleString():'-'}updateStatus()}
 function updateStatus(){let t=0,a=0;document.querySelectorAll('.layer-btn.active').forEach(b=>{t+=LD[b.dataset.layer].n;a++});document.getElementById('total-count').textContent=t.toLocaleString();document.getElementById('active-layers').textContent=a;document.getElementById('active-filters').textContent=state.topics.size;lastUpdateTime=Date.now();updateRelativeTime()}
 function updateRelativeTime(){const d=Math.round((Date.now()-lastUpdateTime)/1000);const el=document.getElementById('last-update');if(d<5)el.textContent='Updated just now';else if(d<60)el.textContent=`Updated ${d}s ago`;else el.textContent=`Updated ${Math.floor(d/60)}m ago`}
-setInterval(updateRelativeTime,5000);
+setInterval(updateRelativeTime, TIMING.RELATIVE_TIME_TICK);
 
 // === CHOROPLETH MODES ===
 function getCountryStyle(iso) {
@@ -2440,7 +2464,7 @@ function showConnectionBanner(text, type){
   if(!b) return;
   b.textContent = text;
   b.className = 'connection-banner visible ' + (type||'');
-  if(type === 'online') setTimeout(() => b.className = 'connection-banner', 3000);
+  if(type === 'online') setTimeout(() => b.className = 'connection-banner', TIMING.ONLINE_BANNER_MS);
 }
 let wasOffline = false;
 function setupConnectionMonitor(){
@@ -2679,7 +2703,7 @@ function toast(type, title, msg, duration){
   container.appendChild(el);
   const remove = ()=>{ el.classList.add('leaving'); setTimeout(()=>el.remove(), 250); };
   el.querySelector('.toast-close').addEventListener('click', remove);
-  setTimeout(remove, duration||6000);
+  setTimeout(remove, duration||TIMING.TOAST_DEFAULT_MS);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3277,12 +3301,12 @@ async function init() {
   });
 
   // Auto-refresh
-  setInterval(()=>{document.querySelectorAll('.layer-btn.active').forEach(b=>{const ly=b.dataset.layer;if(!LD[ly].static)load(ly)})},90000);
-  setInterval(()=>refreshNews(),180000);
-  setInterval(async()=>{activityData=await fetchActivity();summaryData=await fetchSummary().catch(()=>summaryData);if(countryMapData)await fetchCountryMapData();await fetchTimeline();await fetchPulse();await fetchMarkets();await fetchBrief();await fetchSparklines();renderIntelBrief();renderNarrativeBrief();renderPulseStrip();renderMarketsKPIs();renderFearGreedGauge();renderMarketsTicker();renderMarketsPanel();renderPredictionOverlay();renderConvergenceZones();renderConnectionLines();buildRegionsTab();renderSituationReport();renderWatchlistPanel();checkAlerts();renderErrorStates()},300000);
+  setInterval(()=>{document.querySelectorAll('.layer-btn.active').forEach(b=>{const ly=b.dataset.layer;if(!LD[ly].static)load(ly)})}, TIMING.LAYER_REFRESH);
+  setInterval(()=>refreshNews(), TIMING.NEWS_REFRESH);
+  setInterval(async()=>{activityData=await fetchActivity();summaryData=await fetchSummary().catch(()=>summaryData);if(countryMapData)await fetchCountryMapData();await fetchTimeline();await fetchPulse();await fetchMarkets();await fetchBrief();await fetchSparklines();renderIntelBrief();renderNarrativeBrief();renderPulseStrip();renderMarketsKPIs();renderFearGreedGauge();renderMarketsTicker();renderMarketsPanel();renderPredictionOverlay();renderConvergenceZones();renderConnectionLines();buildRegionsTab();renderSituationReport();renderWatchlistPanel();checkAlerts();renderErrorStates()}, TIMING.FULL_REFRESH);
 
-  // Freshness badges tick every 30s (updates "X min ago" text)
-  setInterval(refreshFreshnessBadges, 30000);
+  // Freshness badges tick (updates "X min ago" text)
+  setInterval(refreshFreshnessBadges, TIMING.FRESHNESS_TICK);
   // Connection monitor
   setupConnectionMonitor();
   // Initial error states
