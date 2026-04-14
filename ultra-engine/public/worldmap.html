@@ -210,6 +210,25 @@
 <!-- Connection status banner (shows when offline / reconnected) -->
 <div class="connection-banner" id="connection-banner"></div>
 
+<!-- Country Comparison Modal -->
+<div class="compare-overlay" id="compare-overlay">
+  <div class="compare-modal" id="compare-modal">
+    <div class="compare-header">
+      <div class="compare-title">Country Comparison</div>
+      <div class="compare-subtitle">Select 2-4 countries to compare side by side</div>
+      <button class="close-btn" id="compare-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="compare-picker">
+      <input type="text" class="compare-input" id="compare-input" placeholder="Search country to add (e.g., France)" autocomplete="off">
+      <div class="compare-chips" id="compare-chips"></div>
+      <div class="compare-picker-results" id="compare-picker-results"></div>
+    </div>
+    <div class="compare-content" id="compare-content">
+      <div class="compare-empty">Pick countries above to see side-by-side comparison.</div>
+    </div>
+  </div>
+</div>
+
 <!-- SVG filters for colorblind modes -->
 <svg width="0" height="0" style="position:absolute;visibility:hidden">
   <defs>

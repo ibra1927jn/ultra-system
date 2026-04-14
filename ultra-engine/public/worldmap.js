@@ -475,6 +475,137 @@ function applyUrlState(){
 }
 
 // ═══════════════════════════════════════════════════════════
+// COUNTRY COMPARISON — side-by-side view of 2-4 countries
+// ═══════════════════════════════════════════════════════════
+const COMPARE_STATE = { selected: [] };
+
+function openCompare(){
+  document.getElementById('compare-overlay').classList.add('open');
+  document.getElementById('compare-input').focus();
+  renderCompareChips();
+}
+function closeCompare(){
+  document.getElementById('compare-overlay').classList.remove('open');
+}
+
+function addCompareCountry(iso){
+  if(!iso || !CC[iso]) return;
+  if(COMPARE_STATE.selected.includes(iso)) return;
+  if(COMPARE_STATE.selected.length >= 4){ toast('warn','Max 4 countries','Remove one to add another'); return; }
+  COMPARE_STATE.selected.push(iso);
+  renderCompareChips();
+  fetchAndRenderCompare();
+}
+function removeCompareCountry(iso){
+  COMPARE_STATE.selected = COMPARE_STATE.selected.filter(i => i !== iso);
+  renderCompareChips();
+  if(COMPARE_STATE.selected.length > 0) fetchAndRenderCompare();
+  else document.getElementById('compare-content').innerHTML = '<div class="compare-empty">Pick countries above to see side-by-side comparison.</div>';
+}
+
+function renderCompareChips(){
+  const el = document.getElementById('compare-chips');
+  if(!el) return;
+  el.innerHTML = COMPARE_STATE.selected.map(iso => `<span class="compare-chip">
+    ${isoToFlag(iso)} ${escHtml(CC[iso]?.name || iso)}
+    <button class="compare-chip-x" data-cmp-rm="${iso}">&times;</button>
+  </span>`).join('') || '<span style="font-size:10px;color:var(--text3)">No countries selected</span>';
+  el.querySelectorAll('[data-cmp-rm]').forEach(b => b.addEventListener('click', () => removeCompareCountry(b.dataset.cmpRm)));
+}
+
+async function fetchAndRenderCompare(){
+  if(!COMPARE_STATE.selected.length) return;
+  const content = document.getElementById('compare-content');
+  content.innerHTML = '<div class="compare-loading"><div class="reader-loading-spinner"></div> Loading country data...</div>';
+  try {
+    const r = await fetch(`${WM_API}/compare?isos=${COMPARE_STATE.selected.join(',')}&hours=48`, {credentials:'same-origin'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'failed');
+    renderCompareGrid(j.data);
+  } catch(err){
+    content.innerHTML = errorPanel('Failed to load comparison', err.message, fetchAndRenderCompare);
+  }
+}
+
+function renderCompareGrid(countries){
+  const content = document.getElementById('compare-content');
+  const cols = countries.length;
+  let html = `<div class="compare-grid" style="grid-template-columns:repeat(${cols},1fr)">`;
+  countries.forEach(c => {
+    const name = c.name || CC[c.iso]?.name || c.iso;
+    const act = c.activity || {};
+    const risk = c.risk;
+    const sent = c.sentiment;
+    const posPct = sent?.positive_pct || 0;
+    const negPct = sent?.negative_pct || 0;
+    const neuPct = sent?.neutral_pct || (100 - posPct - negPct);
+    const riskColor = risk?.score >= 7 ? '#ef4444' : risk?.score >= 5 ? '#f97316' : risk?.score >= 3 ? '#eab308' : risk?.score > 0 ? '#22c55e' : '#555';
+    const spark = c.timeline?.length ? makeSparkline(c.timeline.map(t => ({day:t.day, articles:t.articles, negative:0})), 7) : '';
+    html += `<div class="compare-col">
+      <div class="compare-col-header">
+        <span style="font-size:22px">${isoToFlag(c.iso)}</span>
+        <div>
+          <div class="compare-col-name">${escHtml(name)}</div>
+          <div class="compare-col-iso">${c.iso}</div>
+        </div>
+        <button class="compare-goto" data-iso="${c.iso}" title="Open country view">&#10140;</button>
+      </div>
+      <div class="compare-metric">
+        <div class="compare-metric-label">Articles (48h)</div>
+        <div class="compare-metric-val">${act.article_count || 0}</div>
+      </div>
+      <div class="compare-metric">
+        <div class="compare-metric-label">High Relevance</div>
+        <div class="compare-metric-val" style="color:#f59e0b">${act.high_score || 0}</div>
+      </div>
+      <div class="compare-metric">
+        <div class="compare-metric-label">Risk Score</div>
+        <div class="compare-metric-val" style="color:${riskColor}">${risk?.score?.toFixed(0) || '-'}</div>
+        ${risk?.level ? `<div class="compare-metric-sub">${risk.level}${risk.change_24h ? ' · '+(risk.change_24h>0?'+':'')+risk.change_24h+' 24h' : ''}</div>` : ''}
+      </div>
+      <div class="compare-sentiment">
+        <div class="compare-metric-label">Sentiment</div>
+        <div class="compare-sent-bar">
+          <div style="width:${posPct}%;background:var(--pos)"></div>
+          <div style="width:${neuPct}%;background:var(--neu);opacity:0.4"></div>
+          <div style="width:${negPct}%;background:var(--neg)"></div>
+        </div>
+        <div class="compare-sent-legend">
+          <span style="color:var(--pos)">${posPct.toFixed(0)}%</span> ·
+          <span>${neuPct.toFixed(0)}%</span> ·
+          <span style="color:var(--neg)">${negPct.toFixed(0)}%</span>
+        </div>
+      </div>
+      ${spark ? `<div class="compare-metric">
+        <div class="compare-metric-label">7-day trend</div>
+        ${spark}
+      </div>` : ''}
+      ${c.alert ? `<div class="compare-alert">
+        <span class="tag tag-spike">SPIKE</span> z=${parseFloat(c.alert.z_score).toFixed(1)}
+        ${c.alert.top_title ? `<div style="font-size:10px;color:var(--text2);margin-top:4px;line-height:1.4">${escHtml(c.alert.top_title.slice(0,100))}</div>` : ''}
+      </div>` : ''}
+      ${c.top_article ? `<div class="compare-top-article">
+        <div class="compare-metric-label">Top story</div>
+        <div class="compare-top-title" data-article-id="${c.top_article.article_id||''}">${escHtml(c.top_article.title.slice(0,120))}</div>
+        <div class="compare-top-src">${escHtml(c.top_article.source_name||'')}</div>
+      </div>` : ''}
+    </div>`;
+  });
+  html += '</div>';
+  content.innerHTML = html;
+  content.querySelectorAll('[data-iso]').forEach(b => b.addEventListener('click', () => {
+    const iso = b.dataset.iso;
+    closeCompare();
+    navigateTo('country', iso);
+  }));
+  content.querySelectorAll('.compare-top-title[data-article-id]').forEach(el => el.addEventListener('click', () => {
+    const aid = el.dataset.articleId;
+    if(aid) openArticleReader(aid);
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════
 // ARTICLE READER (in-place news reading)
 // ═══════════════════════════════════════════════════════════
 const articleCache = {}; // aid → data
@@ -2453,6 +2584,7 @@ function buildCmdkCommands(){
     }});
   });
   // Global actions
+  cmds.push({ group:'Actions', icon:'&#9878;', label:'Compare countries (side-by-side)', hint:'C', action:()=>{openCompare();closeCmdk()} });
   cmds.push({ group:'Actions', icon:'&#9881;', label:'Open Settings', hint:',', action:()=>{openSettings();closeCmdk()} });
   cmds.push({ group:'Actions', icon:'&#9776;', label:'Toggle Sidebar', hint:'S', action:()=>{document.getElementById('sidebar').classList.toggle('collapsed');setTimeout(()=>map.invalidateSize(),350);closeCmdk()} });
   cmds.push({ group:'Actions', icon:'N', label:'Toggle News Panel', hint:'N', action:()=>{document.getElementById('news-toggle').click();closeCmdk()} });
@@ -3017,6 +3149,36 @@ async function init() {
     if(e.target.id === 'onboard-overlay') closeOnboarding();
   });
 
+  // === COUNTRY COMPARISON ===
+  document.getElementById('compare-close')?.addEventListener('click', closeCompare);
+  document.getElementById('compare-overlay')?.addEventListener('click', e => {
+    if(e.target.id === 'compare-overlay') closeCompare();
+  });
+  const cmpInput = document.getElementById('compare-input');
+  const cmpResults = document.getElementById('compare-picker-results');
+  let cmpTimer = null;
+  cmpInput?.addEventListener('input', () => {
+    clearTimeout(cmpTimer);
+    cmpTimer = setTimeout(() => {
+      const q = cmpInput.value.toLowerCase().trim();
+      if(!q || q.length < 2){ cmpResults.innerHTML = ''; return; }
+      // Search countries in CC
+      const matches = Object.entries(CC)
+        .filter(([iso, info]) => info.name.toLowerCase().includes(q) || iso.toLowerCase() === q)
+        .slice(0, 10);
+      cmpResults.innerHTML = matches.map(([iso, info]) => `<button class="compare-result" data-iso="${iso}">
+        <span>${isoToFlag(iso)}</span>
+        <span>${escHtml(info.name)}</span>
+        <span class="compare-result-iso">${iso}</span>
+      </button>`).join('');
+      cmpResults.querySelectorAll('[data-iso]').forEach(b => b.addEventListener('click', () => {
+        addCompareCountry(b.dataset.iso);
+        cmpInput.value = '';
+        cmpResults.innerHTML = '';
+      }));
+    }, 200);
+  });
+
   // === ARTICLE READER ===
   document.getElementById('reader-close').addEventListener('click', closeReader);
   document.getElementById('reader-overlay').addEventListener('click', e=>{
@@ -3078,6 +3240,8 @@ async function init() {
       if(document.activeElement.tagName==='INPUT') document.activeElement.blur();
       else if(document.getElementById('reader-overlay').classList.contains('open')) closeReader();
       else if(state.countryDetail) hideCountryDetail();
+    } else if(key==='c' && !e.ctrlKey && !e.metaKey){ // Compare countries
+      openCompare();
     } else if(key==='w' && !e.ctrlKey){ // World view
       navigateTo('world');
     } else if(key==='1') { // Tab: Layers
