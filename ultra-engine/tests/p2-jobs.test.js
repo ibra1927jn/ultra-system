@@ -74,3 +74,40 @@ describe('P2 visa sponsors (pre-existente, R4)', () => {
     expect(row.n).toBeGreaterThanOrEqual(10);
   });
 });
+
+describe('P2 deep portals (DPW/BHP/RCG/Torre)', () => {
+  it('p2_deep_jobs exporta los 4 fetchers + fetchAll', () => {
+    const dj = require('../src/p2_deep_jobs');
+    for (const fn of ['fetchDPWorld', 'fetchBHP', 'fetchRCG', 'fetchTorre', 'fetchAll']) {
+      expect(typeof dj[fn]).toBe('function');
+    }
+  });
+
+  it('DB tiene jobs de dpworld/bhp/rcg/torre external_ids', async () => {
+    const db = require('../src/db');
+    const row = await db.queryOne(
+      `SELECT
+         COUNT(*) FILTER (WHERE external_id LIKE 'dpworld:%')::int AS dpworld,
+         COUNT(*) FILTER (WHERE external_id LIKE 'bhp:%')::int AS bhp,
+         COUNT(*) FILTER (WHERE external_id LIKE 'rcg:%')::int AS rcg,
+         COUNT(*) FILTER (WHERE external_id LIKE 'torre:%')::int AS torre
+       FROM job_listings`
+    );
+    expect(row.dpworld).toBeGreaterThanOrEqual(50);
+    expect(row.bhp).toBeGreaterThanOrEqual(20);
+    expect(row.rcg).toBeGreaterThanOrEqual(20);
+    expect(row.torre).toBeGreaterThanOrEqual(1);
+  });
+
+  it('sector=mining/logistics aparece con rows recientes', async () => {
+    const db = require('../src/db');
+    const row = await db.queryOne(
+      `SELECT
+         COUNT(*) FILTER (WHERE sector='mining')::int AS mining,
+         COUNT(*) FILTER (WHERE company='DP World')::int AS dpw_company
+       FROM job_listings WHERE scraped_at > NOW() - INTERVAL '2 hours'`
+    );
+    expect(row.mining).toBeGreaterThan(0);
+    expect(row.dpw_company).toBeGreaterThan(0);
+  });
+});

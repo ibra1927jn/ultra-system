@@ -403,6 +403,22 @@ function init() {
     'Diario 07:30 — GetOnBoard LatAm (8 categorías, onsite only)'
   );
 
+  // ─── P2 deep portals: DPW Oracle + BHP + RCG + Torre.ai 2026-04-14 ──
+  // Portales custom/non-Workday que antes eran "no accesibles". DPW Oracle HCM
+  // tiene REST público (528+ jobs). BHP/RCG scrape HTML simple. Torre.ai
+  // LatAm REST (164K opps, la mayoría remote→P5).
+  register(
+    'p2-deep-jobs',
+    '50 5 * * *',
+    async () => {
+      const dj = require('./p2_deep_jobs');
+      const r = await dj.fetchAll();
+      const tot = r.reduce((a, x) => a + (x.inserted || 0), 0);
+      console.log(`🏗️ p2-deep: ${tot} new · ${r.map((x) => `${x.source}=${x.inserted || x.error?.slice(0,20) || 0}`).join(' ')}`);
+    },
+    'Diario 05:50 — DPW Oracle HCM + BHP + RCG SuccessFactors + Torre.ai'
+  );
+
 
   // ─── P7: Bio-Check — Resumen semanal domingo 20:00 ───
   register(

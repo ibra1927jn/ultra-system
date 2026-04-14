@@ -425,13 +425,13 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 | Accenture (AccentureCareers/wd103) | ✅ | — | 2000+ jobs |
 | PwC (Global_Experienced_Careers/wd3) | ✅ | — | 5055+ jobs |
 | Pfizer (PfizerCareers/wd1) | ✅ | — | 574+ jobs |
-| **BHP** (mining) | 🔴 | **(A)** | direct user sector match |
-| **Maersk** (maritime) | 🔴 | **(A)** | Tier S #1 |
-| **FedEx** | 🔴 | **(A)** | logistics |
-| **Royal Caribbean** (cruise) | 🔴 | **(A)** | Tier S #1 |
-| **Wilhelmsen** (maritime) | 🔴 | **(A)** | Tier S #1 |
-| **Equinor** (offshore oil) | 🔴 | **(A)** | mining |
-| **DP World** (ports) | 🔴 | **(A)** | Tier S #1 |
+| **BHP** (mining) | ✅ | — | careers.bhp.com HTML (NO es Workday). `p2_deep_jobs.fetchBHP` |
+| **Maersk** (maritime) | ✅ | — | workday.js `Maersk_Careers` (760 jobs) |
+| **FedEx** | ✅ | — | workday.js `FXE-LAC_External_Career_Site` (139 jobs) |
+| **Royal Caribbean** (cruise) | ✅ | — | jobs.royalcaribbeangroup.com SuccessFactors (NO Workday). `p2_deep_jobs.fetchRCG` |
+| **Wilhelmsen** (maritime) | ✅ | — | workday.js |
+| **Equinor** (offshore oil) | ✅ | — | workday.js `EQNR` |
+| **DP World** (ports) | ✅ | — | Oracle HCM public REST /hcmRestApi (528 jobs). `p2_deep_jobs.fetchDPWorld` |
 | **Amazon** (Workday-derived) | 🔴 | **(A)** | tech |
 | ~92 more enterprise Workday tenants | 🔴 | (A/C) | research line: ~100+ possible |
 
@@ -469,9 +469,9 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 ### Sector-specific — MARITIME (user's primary sector! 0% coverage)
 | Item | Status | Cat | Notes |
 |---|---|---|---|
-| **CrewBay** (crewbay.com) | 🔴 | **(A)** | Tier S #1 |
-| **AllCruiseJobs** | 🔴 | **(A)** | Tier S #1 |
-| **SeaJobs** | 🔴 | **(A)** | Tier S #1 |
+| **CrewBay** (crewbay.com) | ✅ | — | `maritime_jobs.fetchCrewBay` HTTP simple |
+| **AllCruiseJobs** | ✅ | — | `maritime.js` puppeteer + `maritime_jobs.fetchAllCruiseJobs` HTTP fallback |
+| **SeaJobs** | ❌ | — | Dominio parked (Parklogic redirect, verificado 2026-04-14) |
 | **Martide** | 🔴 | (C) | crew portal |
 | **Crewlinker** | 🔴 | (C) | crew portal |
 
@@ -495,8 +495,8 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 ### LatAm platforms
 | Item | Status | Cat | Notes |
 |---|---|---|---|
-| **GetOnBoard** (CL/CO/MX/PE tech, public API) | 🔴 | **(A)** | curated, has API |
-| **Torre.ai** (AI recruitment, MCP server) | 🔴 | **(A)** | has API+MCP |
+| **GetOnBoard** (CL/CO/MX/PE tech, public API) | ✅ | — | `latam_jobs.js` (8 cats, 137 onsite jobs) |
+| **Torre.ai** (AI recruitment, MCP server) | ✅ | — | `p2_deep_jobs.fetchTorre` REST (164K opps, ~80% remote→P5) |
 | Workana | 🔴 | (C) | scraper |
 
 ### Premium freelance (P5 routing — not P2)
