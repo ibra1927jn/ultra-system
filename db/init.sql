@@ -2322,3 +2322,141 @@ EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN
     ALTER TABLE rss_feeds ADD COLUMN disable_reason text;
 EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--  NEWS VIEWS for WorldMap /news/filtered endpoints — 2026-04-13
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DROP MATERIALIZED VIEW IF EXISTS v_news_by_topic;
+DROP MATERIALIZED VIEW IF EXISTS v_news_by_region;
+DROP MATERIALIZED VIEW IF EXISTS v_news_by_country_topic;
+DROP MATERIALIZED VIEW IF EXISTS v_feed_quality;
+
+CREATE OR REPLACE VIEW v_news_by_topic AS
+SELECT
+  a.id AS article_id,
+  a.title,
+  a.url,
+  a.published_at,
+  a.relevance_score,
+  f.name AS source_name,
+  f.lang,
+  f.primary_topic,
+  f.secondary_topic,
+  f.geo_scope,
+  f.geo_scope_value,
+  COALESCE(g.continent,
+    CASE f.geo_scope WHEN 'continent' THEN f.geo_scope_value ELSE NULL END
+  ) AS continent,
+  COALESCE(g.subregion,
+    CASE f.geo_scope WHEN 'subregion' THEN f.geo_scope_value ELSE NULL END
+  ) AS subregion,
+  COALESCE(g.country_name, '') AS country_name,
+  COALESCE(e.sentiment_label, a.sentiment_label, 'neutral') AS sentiment_label,
+  COALESCE(e.summary, a.auto_summary) AS nlp_summary
+FROM rss_articles a
+JOIN rss_feeds f ON f.id = a.feed_id
+LEFT JOIN geo_hierarchy g ON f.geo_scope = 'country' AND f.geo_scope_value = g.country_iso
+LEFT JOIN rss_articles_enrichment e ON e.article_id = a.id
+WHERE a.duplicate_of IS NULL AND f.is_active = true;
+
+CREATE OR REPLACE VIEW v_news_by_region AS
+SELECT article_id, title, url, published_at, relevance_score,
+       source_name, lang, primary_topic, country_name, subregion, continent,
+       sentiment_label, nlp_summary, geo_scope_value
+FROM v_news_by_topic;
+
+CREATE OR REPLACE VIEW v_news_by_country_topic AS
+SELECT article_id, title, url, published_at, relevance_score,
+       source_name, lang, primary_topic, secondary_topic,
+       country_name, subregion, continent,
+       sentiment_label, nlp_summary,
+       geo_scope_value AS country_iso
+FROM v_news_by_topic
+WHERE geo_scope = 'country';
+
+CREATE OR REPLACE VIEW v_feed_quality AS
+SELECT
+  f.id AS feed_id, f.name, f.category, f.is_active,
+  COALESCE(stats.articles_72h, 0) AS articles_72h,
+  COALESCE(stats.duplicate_pct, 0) AS duplicate_pct,
+  COALESCE(stats.enriched_pct, 0) AS enriched_pct
+FROM rss_feeds f
+LEFT JOIN LATERAL (
+  SELECT
+    count(*) AS articles_72h,
+    round(100.0 * count(*) FILTER (WHERE a2.duplicate_of IS NOT NULL) / GREATEST(count(*), 1), 1) AS duplicate_pct,
+    round(100.0 * count(*) FILTER (WHERE e2.article_id IS NOT NULL) / GREATEST(count(*), 1), 1) AS enriched_pct
+  FROM rss_articles a2
+  LEFT JOIN rss_articles_enrichment e2 ON e2.article_id = a2.id
+  WHERE a2.feed_id = f.id AND a2.created_at > NOW() - INTERVAL '72 hours'
+) stats ON true
+WHERE f.is_active = true;
+
+-- Update top_news_country to support both old category and new geo_scope
+DROP FUNCTION IF EXISTS top_news_country(TEXT, INT, INT);
+CREATE FUNCTION top_news_country(p_iso TEXT, p_limit INT DEFAULT 20, p_hours INT DEFAULT 24)
+RETURNS TABLE(
+  id INT, title VARCHAR(500), url TEXT, name VARCHAR(255), lang VARCHAR(5),
+  relevance_score INT, published_at TIMESTAMP, sentiment_label VARCHAR(32), summary TEXT
+) LANGUAGE SQL STABLE AS $$
+  SELECT a.id, a.title, a.url, f.name, f.lang, a.relevance_score, a.published_at,
+         COALESCE(e.sentiment_label, a.sentiment_label) AS sentiment_label,
+         COALESCE(e.summary, a.auto_summary) AS summary
+  FROM rss_articles a
+  JOIN rss_feeds f ON f.id = a.feed_id
+  LEFT JOIN rss_articles_enrichment e ON e.article_id = a.id
+  WHERE f.is_active = true
+    AND (
+      (f.geo_scope = 'country' AND f.geo_scope_value = upper(p_iso))
+      OR f.category = 'country-' || lower(p_iso)
+    )
+    AND a.created_at > NOW() - (p_hours || ' hours')::INTERVAL
+    AND a.duplicate_of IS NULL
+  ORDER BY a.relevance_score DESC NULLS LAST, a.published_at DESC NULLS LAST
+  LIMIT p_limit;
+$$;
+
+-- ═══════════════════════════════════════════════════════════
+-- Performance indexes added 2026-04-13
+-- ═══════════════════════════════════════════════════════════
+
+-- Faster schengen window queries
+CREATE INDEX IF NOT EXISTS idx_bur_travel_log_country_entry
+  ON bur_travel_log (country, entry_date DESC);
+
+-- Military flight operator activity tracking
+CREATE INDEX IF NOT EXISTS idx_wm_mil_flights_operator
+  ON wm_military_flights (operator, observed_at DESC);
+
+-- Earthquake significance sorting
+CREATE INDEX IF NOT EXISTS idx_wm_earthquakes_magnitude
+  ON wm_earthquakes (magnitude DESC, event_time DESC);
+
+-- Health outbreak timeline queries
+CREATE INDEX IF NOT EXISTS idx_health_alerts_source_published
+  ON health_alerts (source, published_at DESC);
+
+-- Investment portfolio performance
+CREATE INDEX IF NOT EXISTS idx_fin_investments_symbol_active
+  ON fin_investments (symbol, is_active) WHERE is_active = true;
+
+-- Gov change detection history per URL
+CREATE INDEX IF NOT EXISTS idx_bur_gov_changes_detected
+  ON bur_gov_changes (detected_at DESC);
+
+-- Faster country sentiment lookups for choropleth
+CREATE INDEX IF NOT EXISTS idx_wm_country_sentiment_iso_date
+  ON wm_country_sentiment (country_iso2, period_date DESC);
+
+-- Faster GDELT volume timeline queries
+CREATE INDEX IF NOT EXISTS idx_wm_gdelt_timeline_country_date
+  ON wm_gdelt_geo_timeline (country, date DESC);
+
+-- Faster topic trends spike filtering
+CREATE INDEX IF NOT EXISTS idx_wm_topic_trends_spike
+  ON wm_topic_trends (is_spike, velocity DESC) WHERE is_spike = true;
+
+-- Natural events open/recent filtering
+CREATE INDEX IF NOT EXISTS idx_wm_natural_events_closed_seen
+  ON wm_natural_events (closed, last_seen DESC);

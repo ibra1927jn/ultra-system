@@ -114,7 +114,13 @@ app.use('/api/logistics', requireAuth, logisticsRouter);
 app.use('/api/bio', requireAuth, bioRouter);
 app.use('/api/bureaucracy', requireAuth, bureaucracyRouter);
 app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
-app.use('/api/wm', apiKeyAuth, wmRouter);
+// Map endpoints: cookie auth (dashboard) OR API key (agents)
+const wmAuth = (req, res, next) => {
+  // Dashboard (cookie JWT) OR external agents (API key)
+  if (req.headers['x-api-key']) return apiKeyAuth(req, res, next);
+  return requireAuth(req, res, next);
+};
+app.use('/api/wm', wmAuth, wmRouter);
 
 // ─── Webhooks (públicos, validados por shared secret + rate-limited) ──
 app.use('/webhooks', webhookLimiter, webhooksRouter);
@@ -161,6 +167,11 @@ app.get('/api/health', async (req, res) => {
   };
 
   res.status(health.ok ? 200 : 503).json(health);
+});
+
+// ─── World Map (dedicated page) ─────────────────────────────
+app.get('/worldmap.html', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'worldmap.html'));
 });
 
 // ─── SPA Fallback (Dashboard) ──────────────────────────────
