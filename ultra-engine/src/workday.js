@@ -30,6 +30,14 @@ const TENANTS = [
   // R5 verified live (HTTP 200):
   { tenant: 'adobe', site: 'external_experienced', subdomain: 'wd5', name: 'Adobe', sector: 'devtools' },
   { tenant: 'adobe', site: 'external_university', subdomain: 'wd5', name: 'Adobe (University)', sector: 'devtools' },
+  // Tier S P2 additions (2026-04-14) — sector primario user + logística/energía
+  // BHP (careers.bhp.com custom), Royal Caribbean (rclctrac.com) y DP World
+  // (Oracle HCM) NO usan Workday — verificado 2026-04-14, no añadidos.
+  { tenant: 'maersk',  site: 'Maersk_Careers',              subdomain: 'wd3',   name: 'Maersk',                 sector: 'maritime' },
+  { tenant: 'equinor', site: 'EQNR',                         subdomain: 'wd3',   name: 'Equinor',                sector: 'energy' },
+  { tenant: 'fedex',   site: 'FXE-LAC_External_Career_Site', subdomain: 'wd1',   name: 'FedEx',                  sector: 'logistics' },
+  { tenant: 'nclh',    site: 'POA_Careers',                  subdomain: 'wd108', name: 'NCL Pride of America',   sector: 'maritime' },
+  { tenant: 'nclh',    site: 'NCLH_Careers',                 subdomain: 'wd108', name: 'Norwegian Cruise Line',  sector: 'maritime' },
 ];
 
 const TIMEOUT = 25000;

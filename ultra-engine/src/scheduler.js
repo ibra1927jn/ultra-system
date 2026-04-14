@@ -373,6 +373,20 @@ function init() {
     '05:15 + 17:15 — AllCruiseJobs sweep (14 cruise lines)'
   );
 
+  // ─── P2 Tier S #1b: CrewBay (HTTP simple, no puppeteer) 2026-04-14 ──
+  // /boats/professional + fetch /job/{id}. Complementa maritime.js puppeteer
+  // (AllCruiseJobs). Diario 06:45 NZT.
+  register(
+    'crewbay-jobs',
+    '45 6 * * *',
+    async () => {
+      const mj = require('./maritime_jobs');
+      const r = await mj.fetchCrewBay({ maxPages: 3, maxDetails: 60 });
+      console.log('⚓ crewbay:', JSON.stringify(r));
+    },
+    'Diario 06:45 — CrewBay /boats/professional (hasta 60 jobs)'
+  );
+
 
   // ─── P7: Bio-Check — Resumen semanal domingo 20:00 ───
   register(
