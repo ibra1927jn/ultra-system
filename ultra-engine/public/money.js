@@ -5,7 +5,17 @@
 (function(){
 'use strict';
 
-// ─── Config ────────────────────────────────────────────
+var CFG = {
+  RUNWAY_INFINITE_DAYS: 999,
+  BUDGET_WARN_PCT: 80, BUDGET_DANGER_PCT: 100,
+  ES_FOREIGN_THRESHOLD_EUR: 50000, NZ_FIF_DEMINIMIS_NZD: 50000,
+  RECURRING_LOOKBACK_DAYS: 365, RECURRING_MIN_SAMPLES: 3,
+  RISK_FREE_RATE: 0.04,
+  SPARK_W: 400, SPARK_H: 120, SPARK_PAD: 10,
+  TX_FEED_DEFAULT_LIMIT: 50,
+  CARRYOVER_MONTHS_BACK: 6,
+  TOAST_MS: 3500,
+};
 var WORKSPACES = {
   default:        { panels:'all',                                                              range:90 },
   monthly_close:  { panels:['budget','recurring','tx-add','tx-feed','goals','by-category','alerts'],     range:30 },
@@ -14,16 +24,20 @@ var WORKSPACES = {
   crypto_quarter: { panels:['crypto','investments','nw-timeline','fx','alerts'],               range:90 },
   travel_burn:    { panels:['budget','fx','recurring','goals','tx-feed','by-account','alerts'], range:30 },
 };
+// Maps panel-id (data-panel attr) → loader function name. Keeps refreshAll workspace-aware.
+var PANEL_LOADERS = {
+  'nw-timeline':loadNW, 'by-account':loadKPIs, 'tx-feed':loadTxFeed, 'providers':loadProviders, 'fx':loadFX,
+  'budget':loadBudget, 'recurring':loadRecurring, 'by-category':loadByCategory,
+  'investments':loadInvestments, 'crypto':loadCrypto, 'goals':loadGoals,
+  'alerts':loadAlerts,
+};
 var CATEGORY_HINTS = ['rent','groceries','transport','eating_out','subscriptions','utilities','travel','entertainment','health','salary','freelance','other'];
 
-// ─── Utils ─────────────────────────────────────────────
 function $(id){return document.getElementById(id)}
 function $$(sel,root){return Array.from((root||document).querySelectorAll(sel))}
-function fmt(n,opts){opts=opts||{};if(n==null||isNaN(n))return '—';var v=Number(n);return (opts.sign&&v>=0?'+':'')+v.toLocaleString('en-NZ',{maximumFractionDigits:opts.dp==null?0:opts.dp,minimumFractionDigits:opts.dp==null?0:opts.dp})}
-function fmtPct(n){if(n==null||isNaN(n))return '—';return (n>=0?'+':'')+Number(n).toFixed(1)+'%'}
-function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
-function thisMonth(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
-function dateOnly(d){return d ? String(d).slice(0,10) : '—'}
+// Pure formatters live in money-utils.js (window.MoneyUtils), shared with Node tests.
+var U = window.MoneyUtils;
+var esc = U.esc, fmt = U.fmt, fmtPct = U.fmtPct, dateOnly = U.dateOnly, thisMonth = U.thisMonth;
 
 function api(path, opts){
   opts=opts||{};
@@ -43,10 +57,30 @@ function apiForm(path, formData){
 }
 function toast(msg, kind){
   var t=$('toast'); t.textContent=msg; t.className='toast show '+(kind||'');
-  clearTimeout(toast._t); toast._t=setTimeout(function(){t.className='toast '+(kind||'');},3500);
+  clearTimeout(toast._t); toast._t=setTimeout(function(){t.className='toast '+(kind||'');}, CFG.TOAST_MS);
 }
 
-// ─── Modal ─────────────────────────────────────────────
+// Run async loader; render its result; on throw, write an empty/error state into elId.
+function safeLoad(elId, fn){
+  return Promise.resolve().then(fn).catch(function(e){
+    var el = $(elId);
+    if(el) el.innerHTML = '<div class="empty">Error: '+esc(e.message)+'</div>';
+  });
+}
+function setTileBody(tileId, html){ $(tileId).querySelector('.tile-body').innerHTML = html; }
+function setTileDetail(tileId, html){
+  var d = $(tileId).querySelector('.tile-detail'); if(d) d.innerHTML = html;
+}
+// One-shot delegated click listener on a container, dispatched by data-attribute.
+function delegate(containerId, attrName, handler){
+  var el = $(containerId); if(!el || el._delegated) return;
+  el._delegated = true;
+  el.addEventListener('click', function(e){
+    var t = e.target.closest('['+attrName+']'); if(!t || !el.contains(t)) return;
+    handler(t.getAttribute(attrName), t, e);
+  });
+}
+
 function openModal(title, html, onSubmit){
   $('modal-title').textContent=title;
   $('modal-body').innerHTML=html;
@@ -58,7 +92,6 @@ function openModal(title, html, onSubmit){
 }
 function closeModal(){ $('modal').classList.add('hidden'); $('modal-body').innerHTML=''; }
 
-// ─── State ─────────────────────────────────────────────
 var state = {
   month: thisMonth(),
   workspace: localStorage.getItem('money_ws') || 'default',
@@ -69,39 +102,27 @@ var state = {
   txFeedLimit: 50,
 };
 
-// ═══════════════════════════════════════════════════════
-// PANELS
-// ═══════════════════════════════════════════════════════
-
-// ─── KPI strip ─────────────────────────────────────────
 async function loadKPIs(){
-  try{
+  return safeLoad('runway-value', async function(){
     var r = await api('/api/finances/runway');
     var d = r.data;
-    $('runway-value').textContent = (d.runway_days_90d>=999?'∞':d.runway_days_90d)+' d';
+    $('runway-value').textContent = (d.runway_days_90d>=CFG.RUNWAY_INFINITE_DAYS?'∞':d.runway_days_90d)+' d';
     $('runway-burn').textContent = fmt(d.burn_rate_90d)+' NZD/d burn';
     $('month-balance').textContent = fmt(d.remaining_nzd)+' NZD';
     $('month-flow').innerHTML = '<span class="up">+'+fmt(d.income_nzd)+'</span> / <span class="down">-'+fmt(d.expense_nzd)+'</span>';
-    if(d.net_worth_snapshot){
-      $('nw-value').textContent = fmt(d.net_worth_snapshot.total_nzd)+' NZD';
-    }
-    // by_account → table
+    if(d.net_worth_snapshot) $('nw-value').textContent = fmt(d.net_worth_snapshot.total_nzd)+' NZD';
     var rows = d.by_account || [];
     var tbody = $('by-account-table').querySelector('tbody');
-    if(!rows.length){ tbody.innerHTML = '<tr><td colspan=6 class="empty">No movements this month</td></tr>'; }
-    else{
-      tbody.innerHTML = rows.map(function(a){
-        var net = parseFloat(a.in_nzd) - parseFloat(a.out_nzd);
-        var klass = net>=0?'pos':'neg';
-        return '<tr><td>'+esc(a.account)+'</td><td>'+esc(a.currency)+'</td>'+
-          '<td>'+fmt(a.in_nzd)+'</td><td>'+fmt(a.out_nzd)+'</td>'+
-          '<td class="'+klass+'">'+fmt(net)+'</td><td>'+a.txns+'</td></tr>';
-      }).join('');
-    }
-  }catch(e){ $('runway-value').textContent='—'; toast('Runway: '+e.message,'err'); }
+    if(!rows.length){ tbody.innerHTML = '<tr><td colspan=6 class="empty">No movements this month</td></tr>'; return; }
+    tbody.innerHTML = rows.map(function(a){
+      var net = parseFloat(a.in_nzd) - parseFloat(a.out_nzd);
+      return '<tr><td>'+esc(a.account)+'</td><td>'+esc(a.currency)+'</td>'+
+        '<td>'+fmt(a.in_nzd)+'</td><td>'+fmt(a.out_nzd)+'</td>'+
+        '<td class="'+(net>=0?'pos':'neg')+'">'+fmt(net)+'</td><td>'+a.txns+'</td></tr>';
+    }).join('');
+  });
 }
 
-// ─── Alerts (budget) ───────────────────────────────────
 async function loadAlerts(){
   try{
     var r = await api('/api/finances/alerts');
@@ -112,20 +133,18 @@ async function loadAlerts(){
     $('alerts-count').textContent = rows.length;
     $('alerts-list').innerHTML = rows.map(function(a){
       var pct = parseFloat(a.percent_used);
-      var klass = pct>=100?'danger':'';
-      return '<span class="alert-pill '+klass+'">'+esc(a.category)+': '+pct+'% ('+fmt(a.spent)+'/'+fmt(a.monthly_limit)+')</span>';
+      return '<span class="alert-pill '+(pct>=CFG.BUDGET_DANGER_PCT?'danger':'')+'">'+esc(a.category)+': '+pct+'% ('+fmt(a.spent)+'/'+fmt(a.monthly_limit)+')</span>';
     }).join('');
-  }catch(e){ /* silent */ }
+  }catch(e){ /* alerts panel is soft-fail; no toast */ }
 }
 
-// ─── NW timeline (sparkline) ───────────────────────────
 async function loadNW(){
-  try{
+  return safeLoad('nw-breakdown', async function(){
     var r = await api('/api/finances/nw-timeline?days='+state.nwRange);
     var rows = r.data || [];
     var svg = $('nw-spark');
     if(!rows.length){ svg.innerHTML=''; $('nw-breakdown').innerHTML='<div class="empty">No NW snapshots yet</div>'; return; }
-    var W=400, H=120, P=10;
+    var W=CFG.SPARK_W, H=CFG.SPARK_H, P=CFG.SPARK_PAD;
     var vals = rows.map(function(x){return parseFloat(x.total_nzd);});
     var min=Math.min.apply(null,vals), max=Math.max.apply(null,vals); if(max===min) max=min+1;
     var pts = vals.map(function(v,i){
@@ -152,14 +171,13 @@ async function loadNW(){
     $('nw-breakdown').innerHTML = Object.keys(bk).map(function(k){
       return '<span>'+esc(k)+': <b>'+fmt(bk[k])+'</b></span>';
     }).join('');
-  }catch(e){ toast('NW: '+e.message,'err'); }
+  });
 }
 
-// ─── Budget envelope ───────────────────────────────────
 async function loadBudget(){
-  try{
+  return safeLoad('budget-bars', async function(){
     $('budget-month').textContent = state.month;
-    var r = await api('/api/finances/budget/carryover?month='+state.month+'&monthsBack=6');
+    var r = await api('/api/finances/budget/carryover?month='+state.month+'&monthsBack='+CFG.CARRYOVER_MONTHS_BACK);
     var rows = r.data || [];
     if(!rows.length){ $('budget-bars').innerHTML='<div class="empty">No budgets set. Add one →</div>'; return; }
     rows.sort(function(a,b){return (b.current_spent/(b.effective_limit||1)) - (a.current_spent/(a.effective_limit||1));});
@@ -170,7 +188,7 @@ async function loadBudget(){
       var pct = c.effective_limit ? (c.current_spent / c.effective_limit * 100) : 0;
       var fill = node.querySelector('.bar-fill');
       fill.style.width = Math.min(100, pct)+'%';
-      if(pct>=100) fill.classList.add('danger'); else if(pct>=80) fill.classList.add('warn');
+      if(pct>=CFG.BUDGET_DANGER_PCT) fill.classList.add('danger'); else if(pct>=CFG.BUDGET_WARN_PCT) fill.classList.add('warn');
       node.querySelector('.bar-cat').textContent = c.category;
       node.querySelector('.bar-amt').textContent = fmt(c.current_spent)+' / '+fmt(c.effective_limit)+' NZD';
       node.querySelector('.bar-pct').textContent = pct.toFixed(0)+'% used';
@@ -178,12 +196,11 @@ async function loadBudget(){
       frag.appendChild(node);
     });
     $('budget-bars').innerHTML=''; $('budget-bars').appendChild(frag);
-  }catch(e){ $('budget-bars').innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>'; }
+  });
 }
 
-// ─── Recurring ──────────────────────────────────────────
 async function loadRecurring(){
-  try{
+  return safeLoad('recurring-list', async function(){
     var r = await api('/api/finances/recurring');
     var rows = r.data || [];
     if(!rows.length){ $('recurring-list').innerHTML='<div class="empty">No recurring detected. Click <b>scan</b>.</div>'; return; }
@@ -199,18 +216,11 @@ async function loadRecurring(){
         '<button class="btn btn-mini" data-rec-id="'+x.id+'" data-confirmed="'+(!x.confirmed)+'">'+(x.confirmed?'unconf':'confirm')+'</button>'+
         '</li>';
     }).join('');
-    $$('#recurring-list button[data-rec-id]').forEach(function(b){
-      b.addEventListener('click', function(){
-        api('/api/finances/recurring/'+b.dataset.recId+'/confirm',{method:'PATCH', body:{confirmed:b.dataset.confirmed==='true'}})
-          .then(loadRecurring).catch(function(e){toast(e.message,'err');});
-      });
-    });
-  }catch(e){ $('recurring-list').innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>'; }
+  });
 }
 
-// ─── Tx feed (recent transactions) ─────────────────────
 async function loadTxFeed(){
-  try{
+  return safeLoad('tx-feed-list', async function(){
     var qs = 'limit='+state.txFeedLimit + (state.txFeedType?'&type='+state.txFeedType:'');
     var r = await api('/api/finances?'+qs);
     var rows = r.data || [];
@@ -225,12 +235,11 @@ async function loadTxFeed(){
         '<div class="tx-amt '+t.type+'">'+sign+fmt(t.amount,{dp:2})+' '+esc(ccy)+'</div>'+
       '</div>';
     }).join('');
-  }catch(e){ $('tx-feed-list').innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>'; }
+  });
 }
 
-// ─── By category (this month) ──────────────────────────
 async function loadByCategory(){
-  try{
+  return safeLoad('by-category-bars', async function(){
     var r = await api('/api/finances/summary?month='+state.month);
     var rows = (r.data && r.data.byCategory || []).filter(function(c){return c.type==='expense';});
     if(!rows.length){ $('by-category-bars').innerHTML='<div class="empty">No expenses</div>'; return; }
@@ -242,12 +251,11 @@ async function loadByCategory(){
         '<div class="cat-bar-track"><div class="cat-bar-fill" style="width:'+(v/max*100).toFixed(1)+'%"></div></div>'+
       '</div>';
     }).join('');
-  }catch(e){ $('by-category-bars').innerHTML='<div class="empty">Error</div>'; }
+  });
 }
 
-// ─── Investments ────────────────────────────────────────
 async function loadInvestments(){
-  try{
+  return safeLoad('invest-total', async function(){
     var r = await api('/api/finances/investments');
     var positions = r.positions || [];
     var tbody = $('invest-table').querySelector('tbody');
@@ -264,10 +272,7 @@ async function loadInvestments(){
         '<td class="row-actions"><button data-perf="'+esc(p.symbol)+'" title="Performance">📈</button></td></tr>';
     }).join('');
     $('invest-total').textContent = fmt(total)+' NZD';
-    $$('#invest-table button[data-perf]').forEach(function(b){
-      b.addEventListener('click', function(){ showInvestmentDetail(b.dataset.perf); });
-    });
-  }catch(e){ $('invest-total').textContent='err'; toast('Investments: '+e.message,'err'); }
+  });
 }
 
 async function showInvestmentDetail(symbol){
@@ -277,32 +282,25 @@ async function showInvestmentDetail(symbol){
   try{
     var [perf, twr] = await Promise.all([
       api('/api/finances/investments/performance?symbol='+encodeURIComponent(symbol)),
-      api('/api/finances/investments/twr?symbol='+encodeURIComponent(symbol)+'&rf=0.04'),
+      api('/api/finances/investments/twr?symbol='+encodeURIComponent(symbol)+'&rf='+CFG.RISK_FREE_RATE),
     ]);
     var p = (perf.data && perf.data.periods) || {}, t = twr.data || {};
     var ranges = ['1d','1w','1m','3m','ytd','1y','max'];
     var perfHtml = ranges.map(function(k){
       var v = p[k]; if(v==null) return '';
       var pct = parseFloat(v.return_pct||0);
-      var klass = pct>=0?'pos':'neg';
-      return '<div class="perf-cell"><div class="label">'+k.toUpperCase()+'</div><div class="val '+klass+'">'+fmtPct(pct)+'</div></div>';
+      return '<div class="perf-cell"><div class="label">'+k.toUpperCase()+'</div><div class="val '+(pct>=0?'pos':'neg')+'">'+fmtPct(pct)+'</div></div>';
     }).join('');
     det.innerHTML =
       '<h3>'+esc(symbol)+' performance · last close '+(perf.data && perf.data.last_close ? fmt(perf.data.last_close,{dp:2}) : '—')+'</h3>'+
       '<div class="perf-grid">'+(perfHtml||'<div class="empty">No history</div>')+'</div>'+
       (t.cumulative_return_pct!=null ? '<div style="margin-top:8px">Cumulative: <b>'+fmtPct(t.cumulative_return_pct)+'</b> · Annualized: <b>'+fmtPct(t.annualized_return_pct)+'</b> · Sharpe: <b>'+(t.sharpe_ratio!=null?t.sharpe_ratio.toFixed(2):'—')+'</b> · Vol: <b>'+(t.annualized_volatility_pct!=null?fmtPct(t.annualized_volatility_pct):'—')+'</b> · '+(t.samples||0)+' samples</div>' : '')+
-      '<div style="margin-top:8px"><button class="btn btn-mini" id="invest-sync-'+symbol+'">Sync history</button> <button class="btn btn-mini" onclick="document.getElementById(\'invest-detail\').classList.add(\'hidden\')">Close</button></div>';
-    var sb = $('invest-sync-'+symbol);
-    if(sb) sb.addEventListener('click', async function(){
-      try{ await api('/api/finances/investments/sync-history',{method:'POST', body:{symbol:symbol, days:365}}); toast('Synced','ok'); showInvestmentDetail(symbol); }
-      catch(e){toast(e.message,'err');}
-    });
+      '<div style="margin-top:8px"><button class="btn btn-mini" data-invest-sync="'+esc(symbol)+'">Sync history</button> <button class="btn btn-mini" data-invest-close>Close</button></div>';
   }catch(e){ det.innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>'; }
 }
 
-// ─── Crypto ─────────────────────────────────────────────
 async function loadCrypto(){
-  try{
+  return safeLoad('crypto-total', async function(){
     var r = await api('/api/finances/crypto');
     var holdings = r.holdings || [];
     var tbody = $('crypto-table').querySelector('tbody');
@@ -317,19 +315,11 @@ async function loadCrypto(){
         '<td class="row-actions"><button data-crypto-del="'+h.id+'" title="Delete">✕</button></td></tr>';
     }).join('');
     $('crypto-total').textContent = fmt(total)+' NZD';
-    $$('#crypto-table button[data-crypto-del]').forEach(function(b){
-      b.addEventListener('click', async function(){
-        if(!confirm('Delete this crypto holding?')) return;
-        try{ await api('/api/finances/crypto/'+b.dataset.cryptoDel,{method:'DELETE'}); toast('Deleted','ok'); loadCrypto(); }
-        catch(e){toast(e.message,'err');}
-      });
-    });
-  }catch(e){ $('crypto-total').textContent='err'; }
+  });
 }
 
-// ─── Savings goals ──────────────────────────────────────
 async function loadGoals(){
-  try{
+  return safeLoad('goals-list', async function(){
     var r = await api('/api/finances/savings-goals');
     var rows = r.data || [];
     if(!rows.length){ $('goals-list').innerHTML='<div class="empty">No goals. Click <b>+ goal</b>.</div>'; $('savings-pct').textContent='—'; return; }
@@ -351,28 +341,11 @@ async function loadGoals(){
     var avgPct = totalTarget>0 ? (totalCurrent/totalTarget*100) : 0;
     $('savings-pct').textContent = avgPct.toFixed(0)+'%';
     $('savings-meta').textContent = fmt(totalCurrent)+' / '+fmt(totalTarget)+' (mixed ccy)';
-    $$('button[data-goal-edit]').forEach(function(b){
-      b.addEventListener('click', async function(){
-        var id = b.dataset.goalEdit;
-        var v = prompt('New current amount:'); if(v===null) return;
-        var n = parseFloat(v); if(isNaN(n)||n<0){toast('Invalid','err'); return;}
-        try{ await api('/api/finances/savings-goals/'+id,{method:'PATCH', body:{current_amount:n}}); loadGoals(); }
-        catch(e){toast(e.message,'err');}
-      });
-    });
-    $$('button[data-goal-del]').forEach(function(b){
-      b.addEventListener('click', async function(){
-        if(!confirm('Delete this goal?')) return;
-        try{ await api('/api/finances/savings-goals/'+b.dataset.goalDel,{method:'DELETE'}); loadGoals(); }
-        catch(e){toast(e.message,'err');}
-      });
-    });
-  }catch(e){ $('goals-list').innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>'; }
+  });
 }
 
-// ─── Providers ──────────────────────────────────────────
 async function loadProviders(){
-  try{
+  return safeLoad('providers-list', async function(){
     var r = await api('/api/finances/providers');
     $('providers-list').innerHTML = r.providers.map(function(p){
       var sync = '';
@@ -382,31 +355,19 @@ async function loadProviders(){
         '<div style="color:var(--fg-mute);font-size:11px;margin-left:16px">'+esc(p.scope)+'</div></div>'+
         '<a href="'+esc(p.docs)+'" target="_blank" rel="noopener" style="color:var(--accent-2);font-size:11px">docs ↗</a></li>';
     }).join('');
-    $$('button[data-sync]').forEach(function(b){
-      b.addEventListener('click', async function(){
-        var which = b.dataset.sync;
-        var url = which==='akahu' ? '/api/finances/akahu/sync' : '/api/finances/crypto/sync-binance';
-        b.disabled=true; b.textContent='…';
-        try{ var r = await api(url,{method:'POST', body:{}}); toast(which+': '+(r.inserted||r.imported||0)+' new','ok'); refreshAll(); }
-        catch(e){toast(which+': '+e.message,'err');}
-        finally{b.disabled=false; b.textContent='sync';}
-      });
-    });
-  }catch(e){ $('providers-list').innerHTML='<li class="empty">Error</li>'; }
+  });
 }
 
-// ─── FX ─────────────────────────────────────────────────
 async function loadFX(){
-  try{
+  return safeLoad('fx-list', async function(){
     var r = await api('/api/finances/fx');
     var rows = r.data || [];
     $('fx-list').innerHTML = rows.map(function(x){
       return '<li><span class="ccy">NZD→'+esc(x.quote)+'</span><span>'+parseFloat(x.rate).toFixed(4)+'</span></li>';
     }).join('') || '<li class="empty">No FX cached</li>';
-  }catch(e){ $('fx-list').innerHTML='<li class="empty">Error</li>'; }
+  });
 }
 
-// ─── CSV bank profiles (dynamic) ────────────────────────
 async function loadCsvProfiles(){
   try{
     var r = await api('/api/finances/import-csv/profiles');
@@ -420,75 +381,71 @@ async function loadCsvProfiles(){
   }catch(e){ /* keep static */ }
 }
 
-// ─── Tax cockpit ────────────────────────────────────────
 async function loadTaxES(){
   var year = state.taxYear;
   var qs = year ? '?year='+year : '';
   api('/api/finances/tax/residency-es'+qs).then(function(r){
     var d=r.data;
-    $('tax-residency-es').querySelector('.tile-body').innerHTML =
+    setTileBody('tax-residency-es',
       '<div class="row"><span>Days in ES</span><strong>'+d.days_in_es+' / '+d.threshold_days+'</strong></div>'+
       '<div class="row"><span>Resident?</span><strong>'+(d.is_resident?'YES':'no')+'</strong></div>'+
-      '<div class="row"><span>To threshold</span><strong>'+(d.days_to_residency==null?'—':d.days_to_residency+' d')+'</strong></div>';
-  }).catch(function(e){$('tax-residency-es').querySelector('.tile-body').textContent='Error: '+e.message;});
+      '<div class="row"><span>To threshold</span><strong>'+(d.days_to_residency==null?'—':d.days_to_residency+' d')+'</strong></div>');
+  }).catch(function(e){setTileBody('tax-residency-es', 'Error: '+esc(e.message));});
   api('/api/finances/tax/modelo-100'+qs).then(function(r){
     var d=r.data||{}, s=d.sections||{};
-    $('tax-modelo-100').querySelector('.tile-body').innerHTML =
+    setTileBody('tax-modelo-100',
       '<div class="row"><span>Year</span><strong>'+(d.year||year||'—')+'</strong></div>'+
       '<div class="row"><span>Total IRPF base</span><strong>'+fmt(d.total_eur||0)+' EUR</strong></div>'+
       '<div class="row"><span>Trabajo</span><strong>'+fmt(s.rendimientos_trabajo||0)+'</strong></div>'+
       '<div class="row"><span>Actividades</span><strong>'+fmt(s.actividades_economicas||0)+'</strong></div>'+
       '<div class="row"><span>Capital mobiliario</span><strong>'+fmt(s.capital_mobiliario||0)+'</strong></div>'+
-      '<div class="row"><span>Deadline</span><strong>'+esc(d.deadline||'—')+'</strong></div>';
-    var det = $('tax-modelo-100').querySelector('.tile-detail');
+      '<div class="row"><span>Deadline</span><strong>'+esc(d.deadline||'—')+'</strong></div>');
     var b = d.breakdown || [];
-    det.innerHTML = '<table><thead><tr><th>Cat</th><th>Section</th><th>EUR</th><th>Tx</th></tr></thead><tbody>'+
+    setTileDetail('tax-modelo-100', '<table><thead><tr><th>Cat</th><th>Section</th><th>EUR</th><th>Tx</th></tr></thead><tbody>'+
       b.map(function(x){return '<tr><td>'+esc(x.category)+'</td><td>'+esc((x.section||'').slice(0,12))+'</td><td>'+fmt(x.total_eur)+'</td><td>'+x.tx_count+'</td></tr>';}).join('')+
-      '</tbody></table>';
-  }).catch(function(e){$('tax-modelo-100').querySelector('.tile-body').textContent='Error: '+e.message;});
+      '</tbody></table>');
+  }).catch(function(e){setTileBody('tax-modelo-100', 'Error: '+esc(e.message));});
   api('/api/finances/tax/modelo-720'+qs).then(function(r){
     var d=r.data||{}, c1=d.categoria_1_cuentas_extranjero||{};
-    $('tax-modelo-720').querySelector('.tile-body').innerHTML =
+    setTileBody('tax-modelo-720',
       '<div class="row"><span>Year</span><strong>'+(d.year||year||'—')+'</strong></div>'+
       '<div class="row"><span>Cuentas extranjero</span><strong>'+fmt(c1.total_eur||0)+' EUR</strong></div>'+
       '<div class="row"><span>Items</span><strong>'+(c1.items?c1.items.length:0)+'</strong></div>'+
-      '<div class="row"><span>Threshold</span><strong>'+fmt(d.threshold_eur||50000)+' EUR</strong></div>'+
-      '<div class="row"><span>Obligated?</span><strong>'+(d.obligated?'YES':'no')+'</strong></div>';
-    var det = $('tax-modelo-720').querySelector('.tile-detail');
+      '<div class="row"><span>Threshold</span><strong>'+fmt(d.threshold_eur||CFG.ES_FOREIGN_THRESHOLD_EUR)+' EUR</strong></div>'+
+      '<div class="row"><span>Obligated?</span><strong>'+(d.obligated?'YES':'no')+'</strong></div>');
     var items = (c1.items||[]);
-    det.innerHTML = '<table><thead><tr><th>Account</th><th>Bal NZD</th><th>Bal EUR</th><th>Tx</th></tr></thead><tbody>'+
+    setTileDetail('tax-modelo-720', '<table><thead><tr><th>Account</th><th>Bal NZD</th><th>Bal EUR</th><th>Tx</th></tr></thead><tbody>'+
       items.map(function(x){return '<tr><td>'+esc(x.account)+'</td><td>'+fmt(x.balance_nzd)+'</td><td>'+fmt(x.balance_eur)+'</td><td>'+x.tx_count+'</td></tr>';}).join('')+
-      '</tbody></table>';
-  }).catch(function(e){$('tax-modelo-720').querySelector('.tile-body').textContent='Error: '+e.message;});
+      '</tbody></table>');
+  }).catch(function(e){setTileBody('tax-modelo-720', 'Error: '+esc(e.message));});
   api('/api/finances/tax/modelo-721'+qs).then(function(r){
     var d=r.data||{};
-    $('tax-modelo-721').querySelector('.tile-body').innerHTML =
+    setTileBody('tax-modelo-721',
       '<div class="row"><span>Year</span><strong>'+(d.year||year||'—')+'</strong></div>'+
       '<div class="row"><span>Crypto value</span><strong>'+fmt(d.total_eur||0)+' EUR</strong></div>'+
       '<div class="row"><span>Holdings</span><strong>'+(d.items?d.items.length:0)+'</strong></div>'+
-      '<div class="row"><span>Threshold</span><strong>'+fmt(d.threshold_eur||50000)+' EUR</strong></div>'+
-      '<div class="row"><span>Obligated?</span><strong>'+(d.obligated?'YES':'no')+'</strong></div>';
-    var det = $('tax-modelo-721').querySelector('.tile-detail');
+      '<div class="row"><span>Threshold</span><strong>'+fmt(d.threshold_eur||CFG.ES_FOREIGN_THRESHOLD_EUR)+' EUR</strong></div>'+
+      '<div class="row"><span>Obligated?</span><strong>'+(d.obligated?'YES':'no')+'</strong></div>');
     var items = (d.items||[]);
-    det.innerHTML = '<table><thead><tr><th>Symbol</th><th>Amt</th><th>Exchange</th><th>EUR</th></tr></thead><tbody>'+
+    setTileDetail('tax-modelo-721', '<table><thead><tr><th>Symbol</th><th>Amt</th><th>Exchange</th><th>EUR</th></tr></thead><tbody>'+
       items.map(function(x){return '<tr><td>'+esc(x.symbol)+'</td><td>'+fmt(x.amount,{dp:4})+'</td><td>'+esc(x.exchange||'—')+'</td><td>'+fmt(x.value_eur)+'</td></tr>';}).join('')+
-      '</tbody></table>';
-  }).catch(function(e){$('tax-modelo-721').querySelector('.tile-body').textContent='Error: '+e.message;});
+      '</tbody></table>');
+  }).catch(function(e){setTileBody('tax-modelo-721', 'Error: '+esc(e.message));});
 }
 
 async function loadTaxNZ(){
   api('/api/finances/tax/fif-nz').then(function(r){
-    var d=r.data||{}, info=$('tax-fif-nz').querySelector('.tile-body');
-    info.innerHTML =
+    var d=r.data||{};
+    setTileBody('tax-fif-nz',
       '<div class="row"><span>Offshore positions</span><strong>'+(r.positions_used||0)+'</strong></div>'+
       '<div class="row"><span>Cost NZD</span><strong>'+fmt(d.total_cost_nzd||0)+'</strong></div>'+
       '<div class="row"><span>Market value</span><strong>'+fmt(d.total_market_value_nzd||0)+' NZD</strong></div>'+
-      '<div class="row"><span>De minimis</span><strong>50,000 NZD</strong></div>'+
+      '<div class="row"><span>De minimis</span><strong>'+fmt(CFG.NZ_FIF_DEMINIMIS_NZD)+' NZD</strong></div>'+
       '<div class="row"><span>FIF applies</span><strong>'+(d.exempt?'no (exempt)':'YES')+'</strong></div>'+
       '<div class="row"><span>Method</span><strong>'+esc(d.method||'—')+'</strong></div>'+
       '<div class="row"><span>FIF income</span><strong>'+fmt(d.fif_income_nzd||0)+' NZD</strong></div>'+
-      '<div class="row"><span>Tax payable</span><strong>'+fmt(d.tax_payable_nzd||0)+' NZD</strong></div>';
-  }).catch(function(e){$('tax-fif-nz').querySelector('.tile-body').textContent='Error: '+e.message;});
+      '<div class="row"><span>Tax payable</span><strong>'+fmt(d.tax_payable_nzd||0)+' NZD</strong></div>');
+  }).catch(function(e){setTileBody('tax-fif-nz', 'Error: '+esc(e.message));});
 }
 
 function setupTax(){
@@ -539,7 +496,17 @@ function setupTax(){
   });
 }
 
-// ─── Forms (tx, budget, goals, invest, crypto) ─────────
+function prependTxRow(t){
+  var list = $('tx-feed-list'); if(!list || !t) return;
+  var sign = t.type==='income'?'+':'-';
+  var html = '<div class="tx-row">'+
+    '<div class="tx-date">'+dateOnly(t.date)+'</div>'+
+    '<div class="tx-info"><span class="tx-cat">'+esc(t.category)+'</span>'+
+    '<span class="tx-desc">'+esc(t.description||t.account||'—')+'</span></div>'+
+    '<div class="tx-amt '+t.type+'">'+sign+fmt(t.amount,{dp:2})+' '+esc(t.currency||'NZD')+'</div></div>';
+  list.insertAdjacentHTML('afterbegin', html);
+}
+
 function setupTxForm(){
   $('category-list').innerHTML = CATEGORY_HINTS.map(function(c){return '<option value="'+c+'">';}).join('');
   $('tx-form').addEventListener('submit', async function(ev){
@@ -553,7 +520,8 @@ function setupTxForm(){
       msg.textContent='✓ Added (id '+(r.data.id)+')'+(r.firefly && r.firefly.ok?' + Firefly':'');
       msg.className='form-msg ok';
       ev.target.reset();
-      loadKPIs(); loadBudget(); loadRecurring(); loadTxFeed(); loadByCategory(); loadAlerts();
+      prependTxRow(r.data);
+      loadKPIs(); loadBudget(); loadByCategory(); loadAlerts();
     }catch(e){ msg.textContent='✗ '+e.message; msg.className='form-msg err'; }
   });
 }
@@ -661,7 +629,7 @@ function setupCryptoAdd(){
 function setupRecurringDetect(){
   $('recurring-detect-btn').addEventListener('click', async function(){
     try{
-      var r = await api('/api/finances/recurring/detect',{method:'POST', body:{lookback_days:365, min_samples:3}});
+      var r = await api('/api/finances/recurring/detect',{method:'POST', body:{lookback_days:CFG.RECURRING_LOOKBACK_DAYS, min_samples:CFG.RECURRING_MIN_SAMPLES}});
       toast('Detected '+(r.detected||0)+' recurring','ok'); loadRecurring();
     }catch(e){toast(e.message,'err');}
   });
@@ -679,7 +647,6 @@ function setupTxFeedControls(){
   $('tx-feed-limit').addEventListener('change', function(){ state.txFeedLimit=parseInt(this.value,10); loadTxFeed(); });
 }
 
-// ─── Workspace + month controls ─────────────────────────
 function applyWorkspace(){
   var ws = WORKSPACES[state.workspace] || WORKSPACES.default;
   if(ws.range){ state.nwRange = ws.range; $('nw-range').value = ws.range; }
@@ -722,13 +689,60 @@ function setupControls(){
   });
 }
 
-function refreshAll(){
-  loadKPIs(); loadAlerts(); loadNW(); loadBudget(); loadRecurring(); loadInvestments();
-  loadCrypto(); loadGoals(); loadProviders(); loadFX(); loadTxFeed(); loadByCategory();
-  if(state.taxTab==='es') loadTaxES(); else loadTaxNZ();
+// One-shot delegated listeners for in-card actions. Attached once at init,
+// fire by data-attribute regardless of how many times the inner HTML rebuilds.
+function setupDelegation(){
+  delegate('recurring-list', 'data-rec-id', function(id, btn){
+    api('/api/finances/recurring/'+id+'/confirm',{method:'PATCH', body:{confirmed:btn.dataset.confirmed==='true'}})
+      .then(loadRecurring).catch(function(e){toast(e.message,'err');});
+  });
+  delegate('invest-table', 'data-perf', function(symbol){ showInvestmentDetail(symbol); });
+  delegate('invest-detail', 'data-invest-sync', function(symbol){
+    api('/api/finances/investments/sync-history',{method:'POST', body:{symbol:symbol, days:CFG.RECURRING_LOOKBACK_DAYS}})
+      .then(function(){ toast('Synced','ok'); showInvestmentDetail(symbol); })
+      .catch(function(e){toast(e.message,'err');});
+  });
+  delegate('invest-detail', 'data-invest-close', function(){ $('invest-detail').classList.add('hidden'); });
+  delegate('crypto-table', 'data-crypto-del', function(id){
+    if(!confirm('Delete this crypto holding?')) return;
+    api('/api/finances/crypto/'+id,{method:'DELETE'})
+      .then(function(){ toast('Deleted','ok'); loadCrypto(); })
+      .catch(function(e){toast(e.message,'err');});
+  });
+  delegate('goals-list', 'data-goal-edit', function(id){
+    var v = prompt('New current amount:'); if(v===null) return;
+    var n = parseFloat(v); if(isNaN(n)||n<0){ toast('Invalid','err'); return; }
+    api('/api/finances/savings-goals/'+id,{method:'PATCH', body:{current_amount:n}})
+      .then(loadGoals).catch(function(e){toast(e.message,'err');});
+  });
+  delegate('goals-list', 'data-goal-del', function(id){
+    if(!confirm('Delete this goal?')) return;
+    api('/api/finances/savings-goals/'+id,{method:'DELETE'})
+      .then(loadGoals).catch(function(e){toast(e.message,'err');});
+  });
+  delegate('providers-list', 'data-sync', function(which, btn){
+    var url = which==='akahu' ? '/api/finances/akahu/sync' : '/api/finances/crypto/sync-binance';
+    btn.disabled=true; btn.textContent='…';
+    api(url,{method:'POST', body:{}})
+      .then(function(r){ toast(which+': '+(r.inserted||r.imported||0)+' new','ok'); refreshAll(); })
+      .catch(function(e){toast(which+': '+e.message,'err');})
+      .then(function(){ btn.disabled=false; btn.textContent='sync'; });
+  });
 }
 
-// ─── Init ──────────────────────────────────────────────
+// Skip loaders for panels hidden by current workspace — saves 4-8 fetches.
+function refreshAll(){
+  var ws = WORKSPACES[state.workspace] || WORKSPACES.default;
+  var visible = ws.panels==='all' ? null : new Set(ws.panels);
+  Object.keys(PANEL_LOADERS).forEach(function(panelId){
+    if(!visible || visible.has(panelId)) PANEL_LOADERS[panelId]();
+  });
+  // Tax is full-width, separate loader path; skip when not in workspace
+  if(!visible || visible.has('tax')){
+    if(state.taxTab==='es') loadTaxES(); else loadTaxNZ();
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function(){
   setupControls();
   setupTax();
@@ -742,6 +756,7 @@ document.addEventListener('DOMContentLoaded', function(){
   setupRecurringDetect();
   setupFxRefresh();
   setupTxFeedControls();
+  setupDelegation();
   loadCsvProfiles();
   applyWorkspace();
   refreshAll();

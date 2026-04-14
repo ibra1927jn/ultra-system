@@ -537,12 +537,20 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 
 ## PILLAR 3 — FINANCE
 
-**Coverage real:** 19% (24 of 127). **The Firefly III dilemma.** Documented decision was "custom + FF3 inspiration" but the cost/benefit was rebellion against 28K⭐ mature platform.
+**Coverage real (post Money Cockpit 2026-04-14):** ~52% backend + frontend cockpit (`/money.html`).
+13 modules under `routes/finances/` with 30+ endpoints surfaced in 22-panel UI (6 workspaces).
+21+12 finance integration tests + 15 utils unit tests, all green.
+
+**Status del cockpit (frontend):** ✅ shipped. Cubre runway/budget envelope/recurring/investments perf+TWR/crypto/NW timeline/tax cockpit ES+NZ/savings goals/CSV import/receipt OCR/providers/FX/alerts/by-account/by-category.
+
+**Pendiente Tier (A) keystones:**
+- GoCardless EU bank aggregator (BBVA/Santander/CaixaBank live wire)
+- Akahu live token signup (módulo + endpoint listos, falta credencial)
 
 ### Self-hosted ledgers
 | Item | Status | Cat | Notes |
 |---|---|---|---|
-| **Firefly III** (28K⭐) | 🟡 | (B) | doc: "custom + FF3 inspiration" — schema concepts only, NOT adopted as primary |
+| **Firefly III** (28K⭐) | ✅ | (B) | container `firefly_iii` profile-gated, bridge bidireccional en `routes/finances/core.js`, PAT generado, dual-write con `external_id=ultra:{id}` |
 | **Actual Budget** (25.8K⭐) | 🟡 | (B) | schema insights only (envelope, imported_id dedup) |
 | Beancount + fava (2.4K+463⭐) | 🔴 | (B) | double-entry not adopted |
 | Ledger CLI / ledger-cli | 🔴 | (B) | — |
@@ -614,11 +622,11 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 | **Modelo 720** (ES bienes extranjero) | ✅ | — | `tax_reporting.js generateModelo720()` |
 | **Modelo 721** (ES crypto) | ✅ | — | `tax_reporting.js generateModelo721()` |
 | **Modelo 100** (ES IRPF) | ✅ | — | `tax_reporting.js generateModelo100()` |
-| **PAYE NZ** (1 Apr - 31 Mar) | 🔴 | **(A)** | hardcode thresholds |
+| **PAYE NZ** (1 Apr - 31 Mar) | ✅ | — | `tax_reporting.computePayeNZ`, surfaced en cockpit con bracket breakdown |
 | **Spanish residency counter** (183 days) | ✅ | — | `tax_reporting.js computeResidencyES()` |
 | **AU tax** (DASP, BAS) | 🔴 | (C) | not needed yet |
-| **FIF calculator NZ** | 🔴 | (C) | foreign investment funds |
-| Beckham Law estimator (ES inpat regime) | 🔴 | (C) | — |
+| **FIF calculator NZ** | ✅ | — | `computeFIF_NZ` con FDR/CV methods, GET+POST endpoint, exposed en cockpit |
+| Beckham Law estimator (ES inpat regime) | ✅ | — | `computeBeckham`, comparison vs IRPF en cockpit |
 
 ### Recurring detection
 | Item | Status | Cat | Notes |
@@ -631,17 +639,17 @@ Reactivables solo con approaches más complejos: API intercept post-page-load, c
 ### Receipt OCR
 | Item | Status | Cat | Notes |
 |---|---|---|---|
-| **Paperless-ngx** (37.8K⭐) | 🟡 | — | deployed for P4, NOT exposed as P3 receipt OCR |
-| Tesseract.js | 🟡 | — | container has it, NOT P3 receipt endpoint |
+| **Paperless-ngx** (37.8K⭐) | ✅ | — | deployed P4 + reused for receipt OCR via shared `ocr.extractText` |
+| Tesseract.js | ✅ | — | `routes/finances/receipt.js` parses merchant/amount/date/currency, suggested_row UI flow |
 
 ### Investments features researched
 | Feature | Status | Cat |
 |---|---|---|
-| Live quote fetching | ✅ | `investments.js getQuote()` |
-| Portfolio valuation | ✅ | `getPortfolio()` |
-| TWR / MWR | 🔴 | (C) |
-| Risk metrics (Sharpe/Sortino) | 🔴 | (C) |
-| Performance ranges (WTD/MTD/YTD/1Y/5Y/Max) | 🔴 | (C) |
+| Live quote fetching | ✅ | `investments.js getQuote()` + cockpit lookup btn |
+| Portfolio valuation | ✅ | `getPortfolio()` con multi-currency + cost basis |
+| TWR / MWR | ✅ | `getTwrAndSharpe`, expuesto en perf modal |
+| Risk metrics (Sharpe/Sortino) | ✅ | Sharpe + annualized vol en `getTwrAndSharpe` |
+| Performance ranges (WTD/MTD/YTD/1Y/5Y/Max) | ✅ | `getPerformanceRanges`, cockpit perf grid (1d/1w/1m/3m/ytd/1y/max) |
 
 ### DeFi (Rotki domain)
 | Feature | Status | Cat |

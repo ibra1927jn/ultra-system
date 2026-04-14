@@ -15,12 +15,13 @@ DELETE FROM fin_investments WHERE notes = 'seed:demo';
 DELETE FROM budgets WHERE category IN ('rent','groceries','transport','eating_out','subscriptions','utilities','travel');
 
 -- ─── BUDGETS (monthly limits NZD) ───
+-- subscriptions limit deliberately tight so demo shows >100% alert (real txns ~$178/mo)
 INSERT INTO budgets (category, monthly_limit) VALUES
   ('rent', 1800),
   ('groceries', 600),
   ('transport', 250),
   ('eating_out', 350),
-  ('subscriptions', 80),
+  ('subscriptions', 100),
   ('utilities', 180),
   ('travel', 500)
 ON CONFLICT (category) DO UPDATE SET monthly_limit = EXCLUDED.monthly_limit;
@@ -103,7 +104,14 @@ INSERT INTO finances (type, amount, currency, amount_nzd, category, description,
   ('expense', 65.00, 'NZD', 65.00, 'subscriptions', 'Vodafone NZ mobile', CURRENT_DATE - 20, 'ASB Everyday', 'seed'),
   ('expense', 39.00, 'NZD', 39.00, 'subscriptions', 'PureGym membership', CURRENT_DATE - 78, 'ASB Everyday', 'seed'),
   ('expense', 39.00, 'NZD', 39.00, 'subscriptions', 'PureGym membership', CURRENT_DATE - 48, 'ASB Everyday', 'seed'),
-  ('expense', 39.00, 'NZD', 39.00, 'subscriptions', 'PureGym membership', CURRENT_DATE - 18, 'ASB Everyday', 'seed');
+  ('expense', 39.00, 'NZD', 39.00, 'subscriptions', 'PureGym membership', CURRENT_DATE - 18, 'ASB Everyday', 'seed'),
+  -- Current-month subscription cycle so /alerts triggers (limit=100, total ≈178)
+  ('expense', 17.99, 'NZD', 17.99, 'subscriptions', 'Spotify Premium',    CURRENT_DATE -  2, 'ASB Everyday', 'seed'),
+  ('expense', 27.99, 'NZD', 27.99, 'subscriptions', 'Netflix Standard',   CURRENT_DATE -  4, 'ASB Everyday', 'seed'),
+  ('expense', 65.00, 'NZD', 65.00, 'subscriptions', 'Vodafone NZ mobile', CURRENT_DATE -  6, 'ASB Everyday', 'seed'),
+  ('expense', 39.00, 'NZD', 39.00, 'subscriptions', 'PureGym membership', CURRENT_DATE -  9, 'ASB Everyday', 'seed'),
+  ('expense', 16.50, 'NZD', 16.50, 'subscriptions', 'GitHub Copilot',     CURRENT_DATE -  7, 'ASB Everyday', 'seed'),
+  ('expense', 12.00, 'NZD', 12.00, 'subscriptions', 'Notion Plus',        CURRENT_DATE -  5, 'ASB Everyday', 'seed');
 
 -- ─── EXPENSES — travel ───
 INSERT INTO finances (type, amount, currency, amount_nzd, category, description, date, account, source) VALUES
@@ -112,10 +120,11 @@ INSERT INTO finances (type, amount, currency, amount_nzd, category, description,
   ('expense', 240, 'EUR', 437, 'travel', 'Vuelo Madrid (visa run)',    CURRENT_DATE - 30, 'Wise EUR',     'seed');
 
 -- ─── RECURRING (detected manually for demo) ───
+-- Includes 1 OVERDUE (next_expected -3d) + 1 SOON (+5d) + 1 due TODAY for badge variety
 INSERT INTO fin_recurring (payee_normalized, frequency, amount_avg, currency, next_expected, last_seen, confidence, sample_size, avg_interval_days, confirmed) VALUES
-  ('Spotify',         'monthly', 17.99, 'NZD', CURRENT_DATE +  2, CURRENT_DATE - 28, 0.98, 3, 30.0, true),
-  ('Netflix',         'monthly', 27.99, 'NZD', CURRENT_DATE +  4, CURRENT_DATE - 26, 0.98, 3, 30.0, true),
-  ('Notion',          'monthly', 12.00, 'NZD', CURRENT_DATE +  6, CURRENT_DATE - 24, 0.97, 3, 30.0, false),
+  ('Spotify',         'monthly', 17.99, 'NZD', CURRENT_DATE -  3, CURRENT_DATE - 33, 0.98, 3, 30.0, false),  -- overdue
+  ('Netflix',         'monthly', 27.99, 'NZD', CURRENT_DATE +  0, CURRENT_DATE - 30, 0.98, 3, 30.0, true),  -- today
+  ('Notion',          'monthly', 12.00, 'NZD', CURRENT_DATE +  6, CURRENT_DATE - 24, 0.97, 3, 30.0, false), -- soon
   ('GitHub Copilot',  'monthly', 16.50, 'NZD', CURRENT_DATE +  8, CURRENT_DATE - 22, 0.97, 3, 30.0, true),
   ('Vodafone NZ',     'monthly', 65.00, 'NZD', CURRENT_DATE + 10, CURRENT_DATE - 20, 0.96, 3, 30.0, true),
   ('PureGym',         'monthly', 39.00, 'NZD', CURRENT_DATE + 12, CURRENT_DATE - 18, 0.95, 3, 30.0, false),
@@ -126,18 +135,23 @@ ON CONFLICT (payee_normalized, frequency) DO UPDATE SET
   sample_size = EXCLUDED.sample_size, avg_interval_days = EXCLUDED.avg_interval_days,
   confirmed = EXCLUDED.confirmed;
 
--- ─── SAVINGS GOALS ───
+-- ─── SAVINGS GOALS (incl 1 overdue + 1 soon-deadline for UI countdown demo) ───
 INSERT INTO fin_savings_goals (name, target_amount, current_amount, currency, target_date, category, notes) VALUES
   ('Emergency Fund',                15000,  8400, 'NZD', CURRENT_DATE + 365, 'safety',  '6 months expenses'),
   ('Travel — South America 2027',    8000,  2300, 'NZD', CURRENT_DATE + 540, 'travel',  '3 months trip Argentina+Chile+Peru'),
-  ('House Deposit ES',              80000, 23500, 'EUR', CURRENT_DATE + 1825, 'housing', 'Madrid o Valencia, 20% piso 400k');
+  ('House Deposit ES',              80000, 23500, 'EUR', CURRENT_DATE + 1825, 'housing', 'Madrid o Valencia, 20% piso 400k'),
+  ('Old laptop replacement',         3000,  3050, 'NZD', CURRENT_DATE -  10, 'tech',    'OVERDUE — already saved, can buy'),
+  ('Q2 Tax buffer NZ',               4500,  1200, 'NZD', CURRENT_DATE +  45, 'tax',     'PAYE shortfall buffer for Apr-Jun');
 
--- ─── INVESTMENTS (positions) ───
+-- ─── INVESTMENTS — 4 offshore positions of ~28K NZD cost so FIF de-minimis (50K) is exercised but NOT triggered.
+-- Adding a 5th larger position (TSLA.US 50 @ avg 200 USD) would push past 50K NZD → FIF activates.
 INSERT INTO fin_investments (symbol, quantity, avg_cost, currency, account, opened_at, notes) VALUES
-  ('AAPL.US', 12,  142.50, 'USD', 'IBKR', CURRENT_DATE - 400, 'seed:demo'),
-  ('VWRD.UK', 45,   95.20, 'USD', 'IBKR', CURRENT_DATE - 600, 'seed:demo'),
+  ('AAPL.US', 12,  142.50, 'USD', 'IBKR',   CURRENT_DATE - 400, 'seed:demo'),
+  ('VWRD.UK', 45,   95.20, 'USD', 'IBKR',   CURRENT_DATE - 600, 'seed:demo'),
   ('IWDA.AS', 30,   78.10, 'EUR', 'DEGIRO', CURRENT_DATE - 500, 'seed:demo'),
-  ('MSFT.US',  6,  310.00, 'USD', 'IBKR', CURRENT_DATE - 250, 'seed:demo');
+  ('MSFT.US',  6,  310.00, 'USD', 'IBKR',   CURRENT_DATE - 250, 'seed:demo'),
+  ('TSLA.US', 100, 200.00, 'USD', 'IBKR',   CURRENT_DATE - 180, 'seed:demo'),
+  ('NVDA.US',  20, 450.00, 'USD', 'IBKR',   CURRENT_DATE - 100, 'seed:demo');
 
 -- ─── CRYPTO HOLDINGS ───
 INSERT INTO fin_crypto_holdings (symbol, amount, exchange, notes) VALUES
