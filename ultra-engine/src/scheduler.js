@@ -387,6 +387,22 @@ function init() {
     'Diario 06:45 — CrewBay /boats/professional (hasta 60 jobs)'
   );
 
+  // ─── P2 LatAm: GetOnBoard public API (2026-04-14) ──────────
+  // 8 categorías tech × 50 jobs/página, filtra remote=true (→ P5).
+  // Cobertura nueva: Chile/Argentina/México/Colombia/Perú/Uruguay/Ecuador.
+  register(
+    'latam-jobs',
+    '30 7 * * *',
+    async () => {
+      const lj = require('./latam_jobs');
+      const r = await lj.fetchAll();
+      const total = r.reduce((a, x) => a + (x.inserted || 0), 0);
+      const remote = r.reduce((a, x) => a + (x.skippedRemote || 0), 0);
+      console.log(`🌎 latam-jobs: ${total} presencial · ${remote} remote→P5`);
+    },
+    'Diario 07:30 — GetOnBoard LatAm (8 categorías, onsite only)'
+  );
+
 
   // ─── P7: Bio-Check — Resumen semanal domingo 20:00 ───
   register(
