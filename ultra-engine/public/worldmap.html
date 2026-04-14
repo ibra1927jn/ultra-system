@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ULTRA — World Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<link rel="stylesheet" href="/worldmap.css">
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header"><h1><span class="live-dot"></span> WORLD MONITOR</h1><button class="close-btn" id="sidebar-toggle" aria-label="Close sidebar">&times;</button></div>
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="layers">Layers</button>
+    <button class="tab-btn" data-tab="filters">Topics</button>
+    <button class="tab-btn" data-tab="regions">Regions</button>
+    <button class="tab-btn" data-tab="markets">Markets</button>
+  </div>
+
+  <!-- TAB 1: LAYERS -->
+  <div class="tab-content active" id="tab-layers">
+    <div class="presets-row">
+      <button class="preset-btn" data-preset="military">Military</button>
+      <button class="preset-btn" data-preset="intel">Intel</button>
+      <button class="preset-btn" data-preset="alloff">All Off</button>
+    </div>
+    <div class="layer-group"><div class="layer-group-header"><div class="accent-bar" style="background:#ef4444"></div> Military</div>
+      <button class="layer-btn" data-layer="mil-flights"><span class="dot" style="background:#ef4444"></span><svg width="14" height="14" viewBox="0 0 32 32" fill="none"><path d="M16 2 L14 10 L4 14 L4 16 L14 14 L14 22 L10 25 L10 27 L16 25 L22 27 L22 25 L18 22 L18 14 L28 16 L28 14 L18 10 Z" fill="#ef4444" opacity=".7"/></svg><span class="layer-name">Aircraft</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-mil-flights"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="mil-vessels"><span class="dot" style="background:#dc2626"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2 L8 8 L6 18 L8 22 L16 22 L18 18 L16 8 Z" fill="#dc2626" opacity=".7"/></svg><span class="layer-name">Vessels</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-mil-vessels"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="bases"><span class="dot" style="background:#f43f5e"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><polygon points="12,2 22,22 2,22" fill="#f43f5e" opacity=".7"/></svg><span class="layer-name">Bases</span><span class="layer-badge">STATIC</span><span class="layer-count" id="n-bases"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+    </div>
+    <div class="layer-group"><div class="layer-group-header"><div class="accent-bar" style="background:#3b82f6"></div> Transport</div>
+      <button class="layer-btn" data-layer="com-flights"><span class="dot" style="background:#3b82f6"></span><svg width="14" height="14" viewBox="0 0 32 32" fill="none"><path d="M16 2 L14 10 L4 14 L4 16 L14 14 L14 22 L10 25 L10 27 L16 25 L22 27 L22 25 L18 22 L18 14 L28 16 L28 14 L18 10 Z" fill="#3b82f6" opacity=".7"/></svg><span class="layer-name">Flights</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-com-flights"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="com-vessels"><span class="dot" style="background:#60a5fa"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2 L8 8 L6 18 L8 22 L16 22 L18 18 L16 8 Z" fill="#60a5fa" opacity=".7"/></svg><span class="layer-name">Ships</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-com-vessels"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+    </div>
+    <div class="layer-group"><div class="layer-group-header"><div class="accent-bar" style="background:#f59e0b"></div> Infrastructure</div>
+      <button class="layer-btn" data-layer="pipelines"><span class="dot" style="background:#f59e0b"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="2" y="10" width="20" height="4" rx="2" fill="#f59e0b" opacity=".7"/></svg><span class="layer-name">Pipelines</span><span class="layer-badge">STATIC</span><span class="layer-count" id="n-pipelines"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="ports"><span class="dot" style="background:#06b6d4"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="6" fill="#06b6d4" opacity=".7"/></svg><span class="layer-name">Ports</span><span class="layer-badge">STATIC</span><span class="layer-count" id="n-ports"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="cables"><span class="dot" style="background:#818cf8"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><line x1="2" y1="12" x2="22" y2="12" stroke="#818cf8" stroke-width="3" opacity=".7"/></svg><span class="layer-name">Cables</span><span class="layer-badge">STATIC</span><span class="layer-count" id="n-cables"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="nuclear"><span class="dot" style="background:#84cc16"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><polygon points="12,2 22,12 12,22 2,12" fill="#84cc16" opacity=".7"/></svg><span class="layer-name">Nuclear</span><span class="layer-badge">STATIC</span><span class="layer-count" id="n-nuclear"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+    </div>
+    <div class="layer-group"><div class="layer-group-header"><div class="accent-bar" style="background:#a855f7"></div> Natural Events</div>
+      <button class="layer-btn" data-layer="quakes"><span class="dot" style="background:#a855f7"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" fill="none" stroke="#a855f7" stroke-width="2" opacity=".7"/></svg><span class="layer-name">Earthquakes</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-quakes"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="fires"><span class="dot" style="background:#f97316"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="6" fill="#f97316" opacity=".7"/></svg><span class="layer-name">Fires</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-fires"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="disasters"><span class="dot" style="background:#ec4899"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="6" fill="#ec4899" opacity=".7"/></svg><span class="layer-name">Disasters</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-disasters"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+    </div>
+    <div class="layer-group"><div class="layer-group-header"><div class="accent-bar" style="background:#eab308"></div> Intelligence</div>
+      <button class="layer-btn" data-layer="hotspots"><span class="dot" style="background:#ff6b6b"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" fill="#ff6b6b" opacity=".3"/><circle cx="12" cy="12" r="4" fill="#ff6b6b" opacity=".7"/></svg><span class="layer-name">Hotspots</span><span class="layer-badge">STATIC</span><span class="layer-count" id="n-hotspots"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="events"><span class="dot" style="background:#eab308"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="5" fill="#eab308" opacity=".7"/></svg><span class="layer-name">Geo Events</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-events"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="outages"><span class="dot" style="background:#6366f1"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="6" fill="#6366f1" opacity=".7"/></svg><span class="layer-name">Outages</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-outages"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+      <button class="layer-btn" data-layer="countries"><span class="dot" style="background:#14b8a6"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" fill="#14b8a6" opacity=".4"/></svg><span class="layer-name">Country Risk</span><span class="layer-badge">LIVE</span><span class="layer-count" id="n-countries"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+    </div>
+    <div class="layer-group"><div class="layer-group-header"><div class="accent-bar" style="background:#22d3ee"></div> Economy</div>
+      <button class="layer-btn" data-layer="economic"><span class="dot" style="background:#22d3ee"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="6" fill="#22d3ee" opacity=".7"/></svg><span class="layer-name">Finance Centers</span><span class="layer-badge">STATIC</span><span class="layer-count" id="n-economic"><span class="spinner"></span><span class="layer-count-val">-</span></span></button>
+    </div>
+  </div>
+
+  <!-- TAB 2: TOPICS -->
+  <div class="tab-content" id="tab-filters">
+    <div class="filter-presets"><button class="preset-btn" data-fpreset="intel">Intel</button><button class="preset-btn" data-fpreset="all">All</button><button class="preset-btn" data-fpreset="clear">Clear</button></div>
+    <div id="filter-groups"></div>
+  </div>
+
+  <!-- TAB 3: REGIONS -->
+  <div class="tab-content" id="tab-regions">
+    <div class="region-search"><input type="text" id="region-search-input" placeholder="Search country..."></div>
+    <div id="region-search-results" style="padding:0 8px;max-height:200px;overflow-y:auto"></div>
+    <div id="regions-tree" class="regions-wrap"></div>
+  </div>
+
+  <!-- TAB 4: MARKETS -->
+  <div class="tab-content" id="tab-markets">
+    <div id="mkt-kpis" class="mkt-kpi-grid"></div>
+    <div id="mkt-gauge" class="mkt-gauge" style="display:none"></div>
+    <div id="markets-panel"></div>
+  </div>
+
+  <div class="sidebar-footer"><a href="/">&larr; Dashboard</a></div>
+</aside>
+
+<!-- MAIN AREA -->
+<div class="main-area" id="main-area">
+  <div class="top-bar">
+    <button class="menu-btn" id="menu-btn" title="Toggle sidebar (S)" aria-label="Toggle sidebar">&#9776;</button>
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="tile-switcher">
+      <button class="tile-btn active" data-tile="dark">Dark</button>
+      <button class="tile-btn" data-tile="satellite">Sat</button>
+      <button class="tile-btn" data-tile="terrain">Clean</button>
+    </div>
+    <button class="mode-btn" id="mode-risk" data-mode="risk" title="Color by risk score">Risk</button>
+    <button class="mode-btn" id="mode-density" data-mode="density" title="Color by news volume">Volume</button>
+    <button class="mode-btn" id="mode-sentiment" data-mode="sentiment" title="Color by sentiment">Sentiment</button>
+    <div class="top-actions">
+      <button class="top-action-btn" id="home-btn" title="My country (H)" aria-label="Home country" style="display:none">&#127968;</button>
+      <button class="top-action-btn" id="settings-btn" title="Customize layout" aria-label="Open settings">&#9881;</button>
+      <button class="top-action-btn active" id="news-toggle" title="Toggle news (N)" aria-label="Toggle news panel">N</button>
+      <button class="top-action-btn" id="fullscreen-btn" title="Fullscreen" aria-label="Toggle fullscreen">&#x26F6;</button>
+    </div>
+  </div>
+  <!-- DUAL PULSE STRIP -->
+  <div class="pulse-wrap" id="pulse-wrap">
+    <div class="mkt-strip"><div class="mkt-ticker" id="mkt-ticker"></div></div>
+    <div class="pulse-strip" id="pulse-strip">
+      <div class="ps-spark" id="ps-spark"></div>
+      <div class="ps-vol"><b id="ps-1h">-</b>/1h</div>
+      <div class="ps-vol"><b id="ps-6h">-</b>/6h</div>
+      <div class="ps-vol"><b id="ps-24h">-</b>/24h</div>
+      <div class="ps-sep"></div>
+      <div class="ps-ticker" id="ps-ticker"></div>
+    </div>
+  </div>
+
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div class="topic-legend" id="topic-legend"></div>
+    <div class="choropleth-legend" id="choropleth-legend"></div>
+    <div class="pred-overlay" id="pred-overlay"></div>
+  </div>
+
+  <!-- NEWS PANEL -->
+  <div class="news-panel" id="news-panel">
+    <div class="news-header">
+      <div class="news-header-row">
+        <div class="news-header-title" id="news-title">Global News</div>
+        <div class="news-view-toggle">
+          <button class="news-view-btn active" data-view="grouped">Country</button>
+          <button class="news-view-btn" data-view="flat">Timeline</button>
+        </div>
+      </div>
+      <div class="news-header-meta" id="news-meta"></div>
+    </div>
+
+    <!-- Search + Time Filter -->
+    <div class="news-toolbar">
+      <input type="text" class="news-search" id="news-search" placeholder="Search articles... (F)" aria-label="Search news articles">
+      <div class="time-pills">
+        <button class="time-pill" data-hours="1">1h</button>
+        <button class="time-pill" data-hours="6">6h</button>
+        <button class="time-pill" data-hours="24">24h</button>
+        <button class="time-pill active" data-hours="48">48h</button>
+      </div>
+      <div class="status-sep"></div>
+      <div class="time-pills" id="sort-pills">
+        <button class="time-pill active" data-sort="date">Date</button>
+        <button class="time-pill" data-sort="relevance">Rel</button>
+        <button class="time-pill" data-sort="sentiment">Sent</button>
+      </div>
+    </div>
+
+    <!-- Global Situation Report -->
+    <div class="situation-report" id="situation-report"></div>
+
+    <!-- Watchlist (only shown when non-empty) -->
+    <div class="watchlist-panel" id="watchlist-panel" style="display:none"></div>
+
+    <!-- Intel Brief (collapsible) -->
+    <div class="intel-toggle" id="intel-toggle">
+      <span class="it-chevron">&#9660;</span>
+      <span class="it-label">Intel Brief</span>
+      <span class="it-badge" id="intel-badge">0</span>
+    </div>
+    <div class="intel-brief" id="intel-brief"></div>
+
+    <!-- Signals & Analysis (narrative brief - separate from intel brief) -->
+    <div class="intel-toggle" id="narrative-toggle">
+      <span class="it-chevron">&#9660;</span>
+      <span class="it-label" style="color:#f59e0b">Signals &amp; Analysis</span>
+      <span class="it-badge" id="narrative-badge" style="background:rgba(245,158,11,0.15);color:#fcd34d">0</span>
+    </div>
+    <div class="intel-brief" id="narrative-brief"></div>
+
+    <!-- Country detail (shown when country selected) -->
+    <div class="country-detail" id="country-detail"></div>
+
+    <!-- News list -->
+    <div class="news-list" id="news-list"></div>
+  </div>
+
+  <div class="status-bar">
+    <span class="status-dot"></span><span>LIVE</span>
+    <span class="status-sep"></span><span id="coords">0.00, 0.00</span>
+    <span class="status-sep"></span><span>Objects: <b id="total-count">0</b></span>
+    <span class="status-sep"></span><span>Layers: <b id="active-layers">0</b></span>
+    <span class="status-sep"></span><span>Filters: <b id="active-filters">0</b></span>
+    <span class="status-sep"></span><span id="drill-level">World</span>
+    <span style="flex:1"></span>
+    <span>Alerts: <b id="alerts-count">0</b></span>
+    <span class="status-sep"></span>
+    <span>Feeds: <b id="feed-count">-</b></span>
+    <span class="status-sep"></span>
+    <span id="last-update">Loading...</span>
+  </div>
+</div>
+
+<div class="country-hover-card" id="country-hover-card"></div>
+
+<!-- SVG filters for colorblind modes -->
+<svg width="0" height="0" style="position:absolute;visibility:hidden">
+  <defs>
+    <filter id="cb-protanopia"><feColorMatrix values="0.567 0.433 0 0 0  0.558 0.442 0 0 0  0 0.242 0.758 0 0  0 0 0 1 0"/></filter>
+    <filter id="cb-deuteranopia"><feColorMatrix values="0.625 0.375 0 0 0  0.7 0.3 0 0 0  0 0.3 0.7 0 0  0 0 0 1 0"/></filter>
+    <filter id="cb-tritanopia"><feColorMatrix values="0.95 0.05 0 0 0  0 0.433 0.567 0 0  0 0.475 0.525 0 0  0 0 0 1 0"/></filter>
+  </defs>
+</svg>
+
+<!-- Command Palette -->
+<div class="cmdk-overlay" id="cmdk-overlay">
+  <div class="cmdk-modal" id="cmdk-modal">
+    <div class="cmdk-input-row">
+      <span class="cmdk-prefix">&gt;</span>
+      <input type="text" class="cmdk-input" id="cmdk-input" placeholder="Search countries, topics, layers, workspaces, actions..." autocomplete="off" spellcheck="false">
+      <span class="cmdk-hint">ESC to close</span>
+    </div>
+    <div class="cmdk-results" id="cmdk-results"></div>
+    <div class="cmdk-footer">
+      <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> navigate</span>
+      <span><kbd>&crarr;</kbd> select</span>
+      <span><kbd>ESC</kbd> close</span>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notifications container -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- Article Reader -->
+<div class="reader-overlay" id="reader-overlay">
+  <div class="reader-panel" id="reader-panel">
+    <button class="reader-close" id="reader-close" aria-label="Close reader">&times;</button>
+    <div class="reader-loading" id="reader-loading">Loading article...</div>
+    <div class="reader-content" id="reader-content"></div>
+  </div>
+</div>
+
+<!-- Onboarding Wizard -->
+<div class="onboard-overlay" id="onboard-overlay">
+  <div class="onboard-modal">
+    <div class="onboard-header">
+      <div class="onboard-title">Welcome to <b>World Monitor</b></div>
+      <div class="onboard-sub">Who are you? Pick a role to get a tailored view. You can switch anytime via Settings.</div>
+    </div>
+    <div class="onboard-categories" id="onboard-categories"></div>
+    <div class="onboard-footer">
+      <label class="onboard-country-row">
+        <span>Your country (optional):</span>
+        <input type="text" class="onboard-country" id="onboard-country" placeholder="ISO (US, NZ, ES...)" maxlength="2">
+      </label>
+      <button class="onboard-skip" id="onboard-skip">Skip · explore freely</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings drawer (slide from right) -->
+<div class="settings-overlay" id="settings-overlay"></div>
+<div class="settings-drawer" id="settings-drawer">
+  <div class="sd-header">
+    <div class="sd-title">Customize Layout</div>
+    <button class="close-btn" id="settings-close" aria-label="Close settings">&times;</button>
+  </div>
+  <div class="sd-body">
+
+    <!-- Workspaces -->
+    <div class="sd-section">
+      <div class="sd-section-title">Workspace Preset</div>
+      <div class="sd-workspaces">
+        <button class="sd-ws" data-ws="everything" title="Show everything, no filtering">All</button>
+        <button class="sd-ws" data-ws="trader" title="Markets, supply chain, commercial flights/vessels, economy news (24h)">Trader</button>
+        <button class="sd-ws" data-ws="journalist" title="Geopolitics, conflicts, elections, human rights, GDELT events (24h, sentiment map)">Journalist</button>
+        <button class="sd-ws" data-ws="analyst" title="Military, intel, nuclear, cyber, signals & narratives (48h, risk map)">Analyst</button>
+        <button class="sd-ws" data-ws="minimal" title="Top stories only, no map layers, briefs collapsed (6h)">Minimal</button>
+      </div>
+      <div class="sd-ws-desc" id="sd-ws-desc"></div>
+    </div>
+
+    <!-- Density -->
+    <div class="sd-section">
+      <div class="sd-section-title">Density</div>
+      <div class="sd-density">
+        <button class="sd-d" data-density="comfortable">Comfortable</button>
+        <button class="sd-d" data-density="compact">Compact</button>
+        <button class="sd-d" data-density="dense">Dense</button>
+      </div>
+    </div>
+
+    <!-- Section toggles -->
+    <div class="sd-section">
+      <div class="sd-section-title">Top Strips</div>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-mkt-strip" checked><span>Markets ticker</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-pulse-strip" checked><span>News pulse strip</span></label>
+    </div>
+
+    <div class="sd-section">
+      <div class="sd-section-title">News Panel</div>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-intel-brief" checked><span>Intel Brief</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-narrative-brief" checked><span>Signals &amp; Analysis</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-news-toolbar" checked><span>Search &amp; sort toolbar</span></label>
+    </div>
+
+    <div class="sd-section">
+      <div class="sd-section-title">Map Overlays</div>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-pred-overlay" checked><span>Prediction overlay</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-conv-zones" checked><span>Convergence zones</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-choro-legend" checked><span>Choropleth legend</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-topic-legend" checked><span>Topic legend</span></label>
+    </div>
+
+    <div class="sd-section">
+      <div class="sd-section-title">Bottom Bar</div>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-status-bar" checked><span>Status bar</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-coords" checked><span>Coordinates</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="show-counts" checked><span>Object/Layer counts</span></label>
+    </div>
+
+    <div class="sd-section">
+      <div class="sd-section-title">Behavior</div>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="auto-collapse-briefs"><span>Briefs collapsed by default</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="reduce-motion"><span>Reduce animations</span></label>
+      <label class="sd-toggle"><input type="checkbox" data-toggle="calm-mode"><span>Calm mode (softer colors, no pulses)</span></label>
+    </div>
+
+    <div class="sd-section">
+      <div class="sd-section-title">Accessibility</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:6px">Font size</div>
+      <div class="sd-density">
+        <button class="sd-fs" data-fs="80">80%</button>
+        <button class="sd-fs" data-fs="100">100%</button>
+        <button class="sd-fs" data-fs="120">120%</button>
+        <button class="sd-fs" data-fs="150">150%</button>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin:10px 0 6px">Colorblind</div>
+      <div class="sd-density" style="grid-template-columns:repeat(4,1fr)">
+        <button class="sd-cb" data-cb="none">Off</button>
+        <button class="sd-cb" data-cb="protanopia">Prot</button>
+        <button class="sd-cb" data-cb="deuteranopia">Deut</button>
+        <button class="sd-cb" data-cb="tritanopia">Trit</button>
+      </div>
+      <label class="sd-toggle" style="margin-top:10px"><input type="checkbox" data-toggle="dyslexia-font"><span>Dyslexia-friendly font</span></label>
+    </div>
+
+    <div class="sd-section">
+      <div class="sd-section-title">My Country</div>
+      <label class="onboard-country-row">
+        <span style="font-size:11px;color:var(--text2)">Home ISO</span>
+        <input type="text" class="onboard-country" id="sd-home-country" maxlength="2" placeholder="US">
+      </label>
+      <div style="font-size:9px;color:var(--text3);margin-top:4px;line-height:1.4">Shown as &#127968; home button in top bar. Used by "My Country" workspace.</div>
+    </div>
+
+    <div class="sd-section">
+      <div class="sd-section-title">Share Current View</div>
+      <button class="sd-alert-add" id="sd-share-btn" style="color:#c4b5fd;border-color:rgba(167,139,250,0.3)">&#128279; Copy permalink to this view</button>
+      <div style="font-size:9px;color:var(--text3);margin-top:4px;line-height:1.4">Includes workspace, country, zoom, topics.</div>
+    </div>
+
+    <div class="sd-section">
+      <button class="sd-alert-add" id="sd-show-onboard" style="color:#fcd34d;border-color:rgba(251,191,36,0.3)">&#127881; Re-open onboarding</button>
+    </div>
+
+    <div class="sd-section">
+      <div class="sd-section-title">Alert Rules</div>
+      <div id="sd-alerts-list"></div>
+      <button class="sd-alert-add" id="sd-alert-add">+ Add alert rule</button>
+      <div style="margin-top:6px;font-size:9px;color:var(--text3);line-height:1.4">
+        Fires a toast notification when condition is met. Re-arms when condition clears.
+      </div>
+    </div>
+
+    <div class="sd-section">
+      <button class="sd-reset" id="sd-reset">Reset to defaults</button>
+    </div>
+  </div>
+  <div class="sd-footer">
+    <span style="font-size:9px;color:var(--text3)">Saved automatically · <kbd class="kbd-hint">,</kbd> to open</span>
+  </div>
+</div>
+
+<!-- SCRIPTS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="/worldmap.js" defer></script>
+</body>
+</html>

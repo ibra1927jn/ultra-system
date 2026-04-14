@@ -148,6 +148,37 @@ body::before {
 .card.collapsed .card-body { display: none; }
 .card-body { padding: 16px 20px 20px; }
 
+/* ═══ WORLD MAP ═══ */
+#wm-frame {
+    width: 100%; height: 80vh; min-height: 500px; border: none;
+    border-radius: var(--radius-md); background: #0d1117;
+    display: block;
+}
+@media (min-width: 1400px) { #wm-frame { height: 85vh; } }
+.wm-bar {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap;
+}
+.wm-bar-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 12px;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    font-family: var(--font-data); font-size: 0.68rem; color: var(--text-muted);
+}
+.wm-bar-pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+.wm-bar-pill strong { color: var(--text-primary); }
+.wm-live-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: #22c55e;
+    animation: wmPulse 2s ease-in-out infinite;
+}
+@keyframes wmPulse { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,197,94,0.4)} 50%{opacity:0.7;box-shadow:0 0 0 4px transparent} }
+.wm-expand-btn {
+    margin-left: auto; padding: 5px 12px; border-radius: 6px;
+    background: none; border: 1px solid var(--border); color: var(--text-muted);
+    font-family: var(--font-data); font-size: 0.72rem; cursor: pointer;
+    transition: all 0.2s; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+}
+.wm-expand-btn:hover { color: var(--text-primary); border-color: var(--border-hover); background: var(--bg-elevated); }
+
 /* ═══ METRIC CARD ═══ */
 .metric-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .metric-card {
@@ -493,6 +524,38 @@ body::before {
             </div>
         </div>
 
+        <!-- ═══ WORLD MAP ═══ -->
+        <div class="card grid-full" id="card-worldmap">
+            <div class="card-header" onclick="toggleCard('card-worldmap')">
+                <div class="card-header-left">
+                    <div class="card-icon" style="background:var(--accent-purple-dim)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-purple)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10A15.3 15.3 0 0112 2z"/></svg>
+                    </div>
+                    <span class="card-title">World Monitor</span>
+                </div>
+                <div class="card-header-right">
+                    <span class="card-meta" id="wm-meta">Loading...</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+            </div>
+            <div class="card-body" style="padding: 10px 14px 14px;">
+                <div class="wm-bar">
+                    <span class="wm-live-dot"></span>
+                    <span class="wm-bar-pill"><span class="dot" style="background:#ef4444"></span> Military</span>
+                    <span class="wm-bar-pill"><span class="dot" style="background:#3b82f6"></span> Transport</span>
+                    <span class="wm-bar-pill"><span class="dot" style="background:#f59e0b"></span> Infrastructure</span>
+                    <span class="wm-bar-pill"><span class="dot" style="background:#a855f7"></span> Natural</span>
+                    <span class="wm-bar-pill"><span class="dot" style="background:#eab308"></span> Intelligence</span>
+                    <span class="wm-bar-pill"><strong>17</strong> layers &middot; <strong>13K+</strong> objects</span>
+                    <a href="/worldmap.html" target="_blank" class="wm-expand-btn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                        Fullscreen
+                    </a>
+                </div>
+                <iframe id="wm-frame" data-src="/worldmap.html" title="World Monitor"></iframe>
+            </div>
+        </div>
+
         <!-- ═══ P2: EMPLEO ═══ -->
         <div class="card" id="card-jobs">
             <div class="card-header" onclick="toggleCard('card-jobs')">
@@ -517,7 +580,7 @@ body::before {
                     <button class="tab-btn" onclick="filterJobs('logistics',this)">Logistics</button>
                 </div>
                 <div style="display:flex;gap:6px;margin-bottom:12px;">
-                    <input type="text" id="jobs-search" placeholder="Search jobs..." style="flex:1;padding:6px 10px;background:var(--bg-card);border:1px solid var(--border-glass);border-radius:6px;color:var(--text-primary);font-size:0.8rem;">
+                    <input type="text" id="jobs-search" placeholder="Search jobs..." style="flex:1;padding:6px 10px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.8rem;">
                     <button class="tab-btn" onclick="searchJobs()" style="white-space:nowrap;">Search</button>
                 </div>
                 <div id="jobs-list"></div>
@@ -681,6 +744,7 @@ setInterval(updateNZTime, 10000);
 function relTime(iso) {
     if (!iso) return '';
     const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (isNaN(diff) || diff < 0) return 'just now';
     if (diff < 60) return 'just now';
     if (diff < 3600) return Math.floor(diff/60) + 'm ago';
     if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
@@ -708,6 +772,8 @@ async function api(path, opts) {
 
 /* ─── P1: News Intelligence ─── */
 let _newsActiveTab = 'latest';
+const _newsTabCache = {};
+const NEWS_CACHE_TTL = 30000;
 let _wmCache = null;
 let _wmCacheTs = 0;
 
@@ -720,8 +786,17 @@ async function getWmSummary() {
 
 function switchNewsTab(tab) {
     _newsActiveTab = tab || 'latest';
+    const cached = _newsTabCache[_newsActiveTab];
+    if (cached && Date.now() - cached.ts < NEWS_CACHE_TTL) {
+        document.getElementById('news-content').innerHTML = cached.html;
+        return;
+    }
     const loaders = { latest: loadNewsLatest, clusters: loadNewsClusters, trending: loadNewsTrending, alerts: loadNewsAlerts, sentiment: loadNewsSentiment };
-    (loaders[_newsActiveTab] || loadNewsLatest)();
+    const loader = loaders[_newsActiveTab] || loadNewsLatest;
+    Promise.resolve(loader()).then(() => {
+        const el = document.getElementById('news-content');
+        if (el) _newsTabCache[_newsActiveTab] = { html: el.innerHTML, ts: Date.now() };
+    });
 }
 
 function sentimentClass(label) {
@@ -925,7 +1000,7 @@ async function loadJobs(category) {
                     ${statusIcon} <a href="${j.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--text-primary);text-decoration:none;">${j.title||'Untitled'}</a>
                 </div>
                 <div class="list-sub">${j.company||''} ${j.region ? '· '+j.region : ''} ${j.salary ? '· <strong>'+j.salary+'</strong>' : ''} · ${relTime(j.found_at)}</div>
-                <div id="job-detail-${j.id}" style="display:none;margin-top:8px;padding:8px;background:var(--bg-glass);border-radius:6px;font-size:0.78rem;">
+                <div id="job-detail-${j.id}" style="display:none;margin-top:8px;padding:8px;background:var(--bg-surface);border-radius:6px;font-size:0.78rem;">
                     ${j.description ? '<div style="color:var(--text-secondary);margin-bottom:8px;">'+j.description+'</div>' : ''}
                     <div style="display:flex;gap:6px;flex-wrap:wrap;">
                         <button class="tab-btn" onclick="event.stopPropagation();updateJobStatus(${j.id},'saved')" ${j.status==='saved'?'style="background:var(--accent-amber);color:#000;"':''}>⭐ Save</button>
@@ -955,7 +1030,7 @@ async function searchJobs() {
     if (!query) { loadJobs(); return; }
     // Buscar en Adzuna y recargar
     await api('/api/jobs/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
-    loadJobs('all');
+    await loadJobs('all');
 }
 
 async function updateJobStatus(id, status) {
@@ -1158,6 +1233,28 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW register failed:', err));
   });
 }
+
+// ─── World Monitor iframe lazy-load ───────────────────
+(function() {
+  const card = document.getElementById('card-worldmap');
+  const frame = document.getElementById('wm-frame');
+  let loaded = false;
+
+  function tryLoad() {
+    if (loaded || card.classList.contains('collapsed')) return;
+    frame.src = frame.dataset.src;
+    loaded = true;
+    frame.addEventListener('load', () => {
+      document.getElementById('wm-meta').textContent = 'Live';
+    });
+  }
+
+  // Load on card open
+  new MutationObserver(() => tryLoad()).observe(card, { attributes: true, attributeFilter: ['class'] });
+
+  // Load on page load if visible
+  setTimeout(tryLoad, 800);
+})();
 </script>
 </body>
 </html>
