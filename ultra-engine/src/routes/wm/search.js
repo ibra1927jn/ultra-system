@@ -1,9 +1,10 @@
 const express = require('express');
 const db = require('../../db');
 const { COUNTRY_ALIASES, TOPIC_KEYWORDS, getCountryTerms, buildTopicRegex, buildCountryRegex } = require('./constants');
+const { searchLimiter } = require('./rate-limit');
 const router = express.Router();
 
-router.get('/search', async (req, res) => {
+router.get('/search', searchLimiter, async (req, res) => {
   try {
     const q = String(req.query.q || '').trim().slice(0, 200);
     if (q.length < 2) return res.json({ ok: true, count: 0, data: [] });

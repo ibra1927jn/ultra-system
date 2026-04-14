@@ -1,6 +1,8 @@
 const express = require('express');
 const db = require('../../db');
 const { COUNTRY_ALIASES, TOPIC_KEYWORDS, getCountryTerms, buildTopicRegex, buildCountryRegex } = require('./constants');
+const { validateOutboundUrl } = require('./url-safety');
+const { scrapeLimiter } = require('./rate-limit');
 const router = express.Router();
 
 router.get('/article/:id', async (req, res) => {
@@ -51,7 +53,7 @@ router.get('/article/:id', async (req, res) => {
 // ─── GET /api/wm/article/:id/fulltext ─ Scrape + summarize on demand ──
 // Uses ultra_extract (trafilatura) to fetch article text, then optionally
 // summarizes via ultra_nlp. Persists result to rss_articles_enrichment.summary.
-router.get('/article/:id/fulltext', async (req, res) => {
+router.get('/article/:id/fulltext', scrapeLimiter, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ ok: false, error: 'invalid id' });
@@ -64,6 +66,13 @@ router.get('/article/:id/fulltext', async (req, res) => {
     `, [id]);
     if (!row) return res.status(404).json({ ok: false, error: 'article not found' });
     if (!row.url) return res.status(400).json({ ok: false, error: 'no url' });
+
+    // SSRF guard — block private IPs, metadata endpoints, internal docker services
+    const urlCheck = validateOutboundUrl(row.url);
+    if (!urlCheck.ok) {
+      console.warn(`⚠️  SSRF blocked for article ${id}: ${urlCheck.reason} (${row.url})`);
+      return res.status(400).json({ ok: false, error: `URL rejected: ${urlCheck.reason}` });
+    }
 
     // 1. Extract full text via trafilatura sidecar
     let extracted = null;
@@ -146,7 +155,7 @@ router.get('/article/:id/fulltext', async (req, res) => {
 });
 
 // ─── POST /api/wm/translate ─ Translate arbitrary text via ultra_nlp ──
-router.post('/translate', express.json({ limit: '1mb' }), async (req, res) => {
+router.post('/translate', scrapeLimiter, express.json({ limit: '1mb' }), async (req, res) => {
   try {
     const text = String(req.body?.text || '').slice(0, 8000);
     const target = String(req.body?.target || 'en').slice(0, 5);

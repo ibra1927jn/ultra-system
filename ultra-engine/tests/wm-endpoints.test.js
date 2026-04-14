@@ -304,6 +304,53 @@ describe('wm/misc module', () => {
   });
 });
 
+// ─── SSRF / URL SAFETY ───────────────────────────────────
+
+describe('wm/url-safety helpers', () => {
+  const { validateOutboundUrl } = require('../src/routes/wm/url-safety');
+
+  it('accepts public https URLs', () => {
+    expect(validateOutboundUrl('https://www.bbc.com/news').ok).toBe(true);
+    expect(validateOutboundUrl('http://example.org/article').ok).toBe(true);
+  });
+
+  it('rejects private IPv4 ranges', () => {
+    expect(validateOutboundUrl('http://10.0.0.1/').ok).toBe(false);
+    expect(validateOutboundUrl('http://192.168.1.1/').ok).toBe(false);
+    expect(validateOutboundUrl('http://172.17.0.1/').ok).toBe(false);
+    expect(validateOutboundUrl('http://127.0.0.1/').ok).toBe(false);
+  });
+
+  it('rejects AWS/GCP metadata endpoints', () => {
+    expect(validateOutboundUrl('http://169.254.169.254/latest/meta-data/').ok).toBe(false);
+    expect(validateOutboundUrl('http://metadata.google.internal/').ok).toBe(false);
+  });
+
+  it('rejects internal docker hostnames', () => {
+    expect(validateOutboundUrl('http://ultra_db:5432/').ok).toBe(false);
+    expect(validateOutboundUrl('http://ultra_nlp:8000/translate').ok).toBe(false);
+    expect(validateOutboundUrl('http://localhost/admin').ok).toBe(false);
+  });
+
+  it('rejects non-HTTP schemes', () => {
+    expect(validateOutboundUrl('file:///etc/passwd').ok).toBe(false);
+    expect(validateOutboundUrl('gopher://example.com/').ok).toBe(false);
+    expect(validateOutboundUrl('data:text/html,<script>').ok).toBe(false);
+  });
+
+  it('rejects non-standard ports', () => {
+    expect(validateOutboundUrl('http://example.com:22/').ok).toBe(false);
+    expect(validateOutboundUrl('http://example.com:5432/').ok).toBe(false);
+    expect(validateOutboundUrl('http://example.com:8080/').ok).toBe(true);
+  });
+
+  it('rejects IPv6 loopback/link-local', () => {
+    expect(validateOutboundUrl('http://[::1]/').ok).toBe(false);
+    expect(validateOutboundUrl('http://[fe80::1]/').ok).toBe(false);
+    expect(validateOutboundUrl('http://[fc00::1]/').ok).toBe(false);
+  });
+});
+
 // ─── CONSTANTS UNIT TESTS ─────────────────────────────────
 
 describe('wm/constants helpers', () => {
