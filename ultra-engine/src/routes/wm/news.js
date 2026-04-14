@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../../db');
 const { COUNTRY_ALIASES, TOPIC_KEYWORDS, getCountryTerms, buildTopicRegex, buildCountryRegex } = require('./constants');
+const { cacheMiddleware, filteredCache } = require('./cache');
 const router = express.Router();
 
 // ─── GET /api/wm/summary ─ Snapshot agregado de las 4 tablas wm_* ───
@@ -259,7 +260,7 @@ router.get('/news/summary', async (req, res) => {
 
 // ─── GET /api/wm/map/flights ─ Latest flight snapshot ─────
 // ?type=military|commercial|all (default all)
-router.get('/news/filtered', async (req, res) => {
+router.get('/news/filtered', cacheMiddleware(filteredCache), async (req, res) => {
   try {
     const level = String(req.query.level || 'world').toLowerCase();
     const value = req.query.value || null;

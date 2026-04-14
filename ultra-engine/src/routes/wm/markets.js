@@ -1,9 +1,10 @@
 const express = require('express');
 const db = require('../../db');
 const { COUNTRY_ALIASES, TOPIC_KEYWORDS, getCountryTerms, buildTopicRegex, buildCountryRegex } = require('./constants');
+const { cacheMiddleware, snapshotCache, briefCache } = require('./cache');
 const router = express.Router();
 
-router.get('/markets/snapshot', async (req, res) => {
+router.get('/markets/snapshot', cacheMiddleware(snapshotCache), async (req, res) => {
   try {
     const [indices, commodities, crypto, fx, energy, macro, signals, predictions, topMovers] = await Promise.all([
       db.queryAll(`
@@ -91,7 +92,7 @@ router.get('/markets/snapshot', async (req, res) => {
 });
 
 // ─── GET /api/wm/intelligence-brief ─ Synthesized daily brief ────────
-router.get('/intelligence-brief', async (req, res) => {
+router.get('/intelligence-brief', cacheMiddleware(briefCache), async (req, res) => {
   try {
     const [signalSummary, focalPoints, topClusters, topicSpikes, trendingKw, gdeltAlerts, marketMovers, topPredictions] = await Promise.all([
       db.queryAll(`SELECT ai_context, top_countries, convergence_zones, by_type, observed_at FROM wm_signal_summary ORDER BY created_at DESC LIMIT 1`),

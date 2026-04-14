@@ -2,9 +2,10 @@ const express = require('express');
 const db = require('../../db');
 const { COUNTRY_ALIASES, TOPIC_KEYWORDS, getCountryTerms, buildTopicRegex, buildCountryRegex } = require('./constants');
 const { searchLimiter } = require('./rate-limit');
+const { cacheMiddleware, searchCache, suggestCache } = require('./cache');
 const router = express.Router();
 
-router.get('/search', searchLimiter, async (req, res) => {
+router.get('/search', searchLimiter, cacheMiddleware(searchCache), async (req, res) => {
   try {
     const q = String(req.query.q || '').trim().slice(0, 200);
     if (q.length < 2) return res.json({ ok: true, count: 0, data: [] });
@@ -43,7 +44,7 @@ router.get('/search', searchLimiter, async (req, res) => {
 // ─── GET /api/wm/search/suggest ─ Autocomplete suggestions ──
 // Returns top article titles + trending terms matching the prefix.
 // Fast: uses trigram index for similarity matching.
-router.get('/search/suggest', async (req, res) => {
+router.get('/search/suggest', cacheMiddleware(suggestCache), async (req, res) => {
   try {
     const q = String(req.query.q || '').trim().toLowerCase().slice(0, 50);
     if (q.length < 2) return res.json({ ok: true, data: [] });

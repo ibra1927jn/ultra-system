@@ -1,10 +1,25 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { searchCache, filteredCache, briefCache, snapshotCache, suggestCache } = require('./cache');
 const router = express.Router();
 
 const dataDir = path.join(__dirname, '../../../data');
 const cache = {};
+
+// Cache stats — useful for tuning TTL/capacity and monitoring hit rates.
+router.get('/cache-stats', (req, res) => {
+  res.json({
+    ok: true,
+    caches: {
+      search: searchCache.stats(),
+      filtered: filteredCache.stats(),
+      brief: briefCache.stats(),
+      snapshot: snapshotCache.stats(),
+      suggest: suggestCache.stats(),
+    },
+  });
+});
 
 router.get('/geo-hierarchy', (req, res) => {
   if (!cache['geo-hierarchy']) {
