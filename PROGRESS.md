@@ -1058,3 +1058,62 @@ Sprint corto + medio ejecutado en una sesión. 5 tasks.
 1. **Disk crítico sda 99%**: pillado por sorpresa al intentar Crawl4AI. Liberados 1.7GB con builder prune. **Pendiente seguimiento**: si crece más, mover docker storage a sdb (32GB libres) o limpiar imágenes activas no utilizadas.
 2. **Edit silencioso fallido**: una edición a BACKLOG.md (B17 closure callout) reportó success por la herramienta pero no se persistió en disco, posiblemente por presión de disco al momento. Re-aplicada y verificada con grep antes del commit final. Lección: **siempre grep el contenido editado antes de commit cuando hay presión de recursos**.
 3. **Pivot Crawl4AI → trafilatura** validado por benchmarks académicos, no por urgencia. Trafilatura es objetivamente mejor para HTML→article y 20× más ligero.
+
+---
+
+## P2 expansion 2026-04-14 — Maritime + Workday + LatAm (commits 251331d, 58b832a)
+
+Pilar 2 avanzado tras sesión de auditoría del BACKLOG. 2 bloques coherentes
+commiteados y push'eados. 255 rows nuevos en `job_listings` primer run.
+
+### Bloque 1 — Maritime (Tier S #1) + Workday expansion
+- **workday.js**: +5 tenants (Maersk `maersk/Maersk_Careers` 20 jobs,
+  Equinor `EQNR` 4, FedEx `FXE-LAC_External_Career_Site` 18, NCLH
+  `POA_Careers` 7, NCLH `NCLH_Careers` 20) = **69 jobs primer fetch**.
+  BHP (careers.bhp.com custom), Royal Caribbean (rclctrac.com) y
+  DP World (Oracle HCM) **NO son Workday** — verificado 2026-04-14,
+  documentado como comentario en TENANTS array.
+- **maritime_jobs.js** (nuevo, complementa maritime.js puppeteer): CrewBay
+  scraper HTTP simple (`/boats/professional` → `/job/{id}`). Título
+  estructurado `{Vessel} - {Position} - {Duration} - {Pay} - {Country}`.
+  Primer run: **15 jobs**. AllCruiseJobs coexiste con maritime.js (puppeteer)
+  como fallback HTTP.
+- Cron nuevo `crewbay-jobs` diario 06:45. SeaJobs descartado (dominio
+  parked, Parklogic redirect). Rigzone CF-blocked desde Hetzner.
+
+### Bloque 2 — Visa sponsor importers (ya existían, verificados)
+Descubrimiento: los 4 importers ya estaban implementados en sesión R4
+previa (`gov_jobs.js` líneas 585/627/665/711) + cron `visa-sponsors-import`
+Lunes 04:00. Verificado live: SiaExplains `inserted=337 files=16`. DB tiene
+7,000+ rows en `emp_visa_sponsors` (CA 6616, DE 270, AU 60, NL 39, SE 14).
+Task cerrada como pre-existente, no se duplicó código.
+
+### Bloque 3 — LatAm coverage (GetOnBoard API)
+- **latam_jobs.js** (nuevo): GetOnBoard public API
+  `api.getonbrd.com/api/v0/categories/{cat}/jobs`. 8 categorías tech
+  (programming/mobile/sysadmin/data-sci/ML/design/cybersec/hardware) ×
+  50 jobs/página. Filtra `remote=true` (→ P5, respeta decisión
+  P2=presencial de 2026-04-07).
+- Primer run: **137 jobs presencial, 112 skipped→P5**. Breakdown
+  `location_country`: CL 112, PE 9, AR/MX 4, EC 3, CO/UY 2.
+- Cron `latam-jobs` diario 07:30. EURES + Job Bank CA + Rigzone siguen
+  IP-blocked desde Hetzner DC (documentado en `gov_jobs.js:782`).
+
+### Bloque 4 — Tests + Docs
+- `tests/p2-jobs.test.js` nuevo: **7 tests verdes** (Workday tenants list,
+  sector breakdown en DB, CrewBay external_id, LatAm multi-country,
+  emp_visa_sponsors ≥10 países). Validación contra DB real, no mocks.
+- Suite total: 43 passed + 7 nuevos = 50. Fallos pre-existentes en
+  `finances-endpoints.test.js` (Money Cockpit no commiteado) + wm-endpoints
+  login 401 — NO de esta sesión.
+
+### Métricas P2 al cierre
+| Métrica | Pre-sesión | Post-sesión |
+|---|---|---|
+| job_listings total | 8,992 | 9,247+ |
+| Sources distintas | 7 | +2 (crewbay, latam) |
+| Workday tenants | 9 | 14 |
+| LatAm coverage | 0 países | 7 países (CL/PE/AR/MX/EC/CO/UY) |
+| Maritime sector rows | 1,097 | 1,146 |
+| Crons scheduler | 85 | 87 (+crewbay-jobs, +latam-jobs) |
+| Tests P2 dedicados | 0 | 7 |
