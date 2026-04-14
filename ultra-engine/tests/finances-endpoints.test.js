@@ -170,6 +170,88 @@ describe('P3 — Money Cockpit endpoints', () => {
   });
 });
 
+describe('P3 v2 — endpoints surfaced in cockpit panels', () => {
+  it('GET / — recent transaction list', async () => {
+    const { status, body } = await fGet('/?limit=10');
+    expect(status).toBe(200);
+    expect(Array.isArray(body.data)).toBe(true);
+  });
+
+  it('GET / — type filter expense', async () => {
+    const { status, body } = await fGet('/?type=expense&limit=5');
+    expect(status).toBe(200);
+    body.data.forEach(t => expect(t.type).toBe('expense'));
+  });
+
+  it('GET /alerts — over-threshold categories', async () => {
+    const { status, body } = await fGet('/alerts');
+    expect(status).toBe(200);
+    expect(body).toHaveProperty('threshold');
+    expect(Array.isArray(body.data)).toBe(true);
+  });
+
+  it('GET /import-csv/profiles — bank profile map', async () => {
+    const { status, body } = await fGet('/import-csv/profiles');
+    expect(status).toBe(200);
+    expect(typeof body.data).toBe('object');
+    expect(Object.keys(body.data).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('GET /investments/quote/:symbol — Stooq lookup', async () => {
+    const { status, body } = await fGet('/investments/quote/AAPL.US');
+    expect(status).toBe(200);
+    expect(body.data).toHaveProperty('close');
+    expect(body.data).toHaveProperty('currency');
+  });
+
+  it('GET /investments/performance — period returns', async () => {
+    const { status, body } = await fGet('/investments/performance?symbol=AAPL.US');
+    expect(status).toBe(200);
+    expect(body.data).toHaveProperty('periods');
+    expect(body.data).toHaveProperty('last_close');
+  });
+
+  it('GET /investments/twr — Sharpe + annualized', async () => {
+    const { status, body } = await fGet('/investments/twr?symbol=AAPL.US&rf=0.04');
+    expect(status).toBe(200);
+    expect(body.data).toHaveProperty('sharpe_ratio');
+    expect(body.data).toHaveProperty('annualized_return_pct');
+    expect(body.data).toHaveProperty('annualized_volatility_pct');
+  });
+
+  it('Modelo 720 includes itemised account list', async () => {
+    const { status, body } = await fGet('/tax/modelo-720?year=2026');
+    expect(status).toBe(200);
+    const items = body.data?.categoria_1_cuentas_extranjero?.items;
+    expect(Array.isArray(items)).toBe(true);
+  });
+
+  it('Modelo 721 includes itemised holdings list', async () => {
+    const { status, body } = await fGet('/tax/modelo-721?year=2026');
+    expect(status).toBe(200);
+    expect(Array.isArray(body.data.items)).toBe(true);
+  });
+
+  it('Modelo 100 includes breakdown rows', async () => {
+    const { status, body } = await fGet('/tax/modelo-100?year=2026');
+    expect(status).toBe(200);
+    expect(Array.isArray(body.data.breakdown)).toBe(true);
+    expect(body.data).toHaveProperty('sections');
+  });
+
+  it('Runway includes by_account breakdown', async () => {
+    const { status, body } = await fGet('/runway');
+    expect(status).toBe(200);
+    expect(Array.isArray(body.data.by_account)).toBe(true);
+  });
+
+  it('Summary includes byCategory breakdown', async () => {
+    const { status, body } = await fGet('/summary');
+    expect(status).toBe(200);
+    expect(Array.isArray(body.data.byCategory)).toBe(true);
+  });
+});
+
 describe('P3 — Money Cockpit asset routes', () => {
   it('GET /money.html — protected, serves cockpit shell', async () => {
     const r = await fetch(`${ENGINE_URL}/money.html`, {

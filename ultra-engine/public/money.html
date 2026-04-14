@@ -56,6 +56,12 @@
     </div>
   </section>
 
+  <!-- Budget alerts strip (visible only when alerts exist) -->
+  <section class="card alerts-strip hidden" data-panel="alerts" id="alerts-strip">
+    <div class="alerts-h">⚠ Budget alerts (<span id="alerts-count">0</span>)</div>
+    <div id="alerts-list" class="alerts-list"></div>
+  </section>
+
   <!-- Left column -->
   <section class="col col-left">
     <div class="card" data-panel="nw-timeline">
@@ -73,6 +79,37 @@
       <div class="card-body">
         <svg id="nw-spark" class="spark" viewBox="0 0 400 120" preserveAspectRatio="none"></svg>
         <div id="nw-breakdown" class="breakdown"></div>
+      </div>
+    </div>
+
+    <div class="card" data-panel="by-account">
+      <header class="card-h"><h2>This month · by account</h2></header>
+      <div class="card-body">
+        <table class="data-table" id="by-account-table">
+          <thead><tr><th>Account</th><th>Ccy</th><th>In</th><th>Out</th><th>Net</th><th>Tx</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" data-panel="tx-feed">
+      <header class="card-h">
+        <h2>Recent transactions</h2>
+        <div class="card-tools">
+          <select id="tx-feed-type">
+            <option value="">All</option>
+            <option value="expense">Expenses</option>
+            <option value="income">Income</option>
+          </select>
+          <select id="tx-feed-limit">
+            <option value="20">20</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </header>
+      <div class="card-body">
+        <div id="tx-feed-list" class="tx-feed"></div>
       </div>
     </div>
 
@@ -120,6 +157,13 @@
       </div>
     </div>
 
+    <div class="card" data-panel="by-category">
+      <header class="card-h"><h2>This month · by category</h2></header>
+      <div class="card-body">
+        <div id="by-category-bars" class="cat-bars"></div>
+      </div>
+    </div>
+
     <div class="card" data-panel="tx-add">
       <header class="card-h"><h2>Quick add transaction</h2></header>
       <div class="card-body">
@@ -151,13 +195,16 @@
         <h2>Investments</h2>
         <div class="card-tools">
           <span class="badge" id="invest-total">—</span>
+          <button class="btn btn-mini" id="invest-add-btn">+</button>
+          <button class="btn btn-mini" id="invest-quote-btn" title="Quote lookup">?</button>
         </div>
       </header>
       <div class="card-body">
         <table class="data-table" id="invest-table">
-          <thead><tr><th>Symbol</th><th>Qty</th><th>Value (NZD)</th><th>P&amp;L</th></tr></thead>
+          <thead><tr><th>Symbol</th><th>Qty</th><th>Value (NZD)</th><th>P&amp;L</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
+        <div id="invest-detail" class="invest-detail hidden"></div>
       </div>
     </div>
 
@@ -166,11 +213,13 @@
         <h2>Crypto</h2>
         <div class="card-tools">
           <span class="badge" id="crypto-total">—</span>
+          <button class="btn btn-mini" id="crypto-add-btn">+</button>
+          <button class="btn btn-mini" id="crypto-sync-btn" title="Sync Binance">⟲</button>
         </div>
       </header>
       <div class="card-body">
         <table class="data-table" id="crypto-table">
-          <thead><tr><th>Symbol</th><th>Amount</th><th>Value (NZD)</th><th>Where</th></tr></thead>
+          <thead><tr><th>Symbol</th><th>Amount</th><th>Value (NZD)</th><th>Where</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -205,9 +254,21 @@
       <div class="tax-pane" data-tax-pane="es">
         <div class="tax-grid">
           <div class="tax-tile" id="tax-residency-es"><h3>Residency 183-day</h3><div class="tile-body">—</div></div>
-          <div class="tax-tile" id="tax-modelo-100"><h3>Modelo 100 (IRPF)</h3><div class="tile-body">—</div></div>
-          <div class="tax-tile" id="tax-modelo-720"><h3>Modelo 720 (foreign assets)</h3><div class="tile-body">—</div></div>
-          <div class="tax-tile" id="tax-modelo-721"><h3>Modelo 721 (crypto)</h3><div class="tile-body">—</div></div>
+          <div class="tax-tile" id="tax-modelo-100">
+            <h3>Modelo 100 (IRPF) <button class="btn btn-mini tile-toggle">items</button></h3>
+            <div class="tile-body">—</div>
+            <div class="tile-detail hidden"></div>
+          </div>
+          <div class="tax-tile" id="tax-modelo-720">
+            <h3>Modelo 720 (foreign assets) <button class="btn btn-mini tile-toggle">items</button></h3>
+            <div class="tile-body">—</div>
+            <div class="tile-detail hidden"></div>
+          </div>
+          <div class="tax-tile" id="tax-modelo-721">
+            <h3>Modelo 721 (crypto) <button class="btn btn-mini tile-toggle">items</button></h3>
+            <div class="tile-body">—</div>
+            <div class="tile-detail hidden"></div>
+          </div>
           <div class="tax-tile" id="tax-beckham">
             <h3>Beckham vs IRPF</h3>
             <div class="tile-body">
@@ -243,8 +304,6 @@
         <p>Drop ASB / ANZ / BNZ / Westpac / Kiwibank CSV here</p>
         <select id="csv-bank">
           <option value="auto">Auto-detect</option>
-          <option value="asb">ASB</option><option value="anz">ANZ</option><option value="bnz">BNZ</option>
-          <option value="westpac">Westpac</option><option value="kiwibank">Kiwibank</option>
         </select>
         <input type="file" id="csv-file" accept=".csv,text/csv">
         <button class="btn btn-primary" id="csv-upload-btn">Upload</button>
@@ -261,6 +320,18 @@
   </section>
 
 </main>
+
+<!-- Modal for forms -->
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-backdrop"></div>
+  <div class="modal-content">
+    <header class="modal-h">
+      <h2 id="modal-title">—</h2>
+      <button class="btn btn-mini" id="modal-close">✕</button>
+    </header>
+    <div id="modal-body"></div>
+  </div>
+</div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
