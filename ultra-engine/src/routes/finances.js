@@ -239,7 +239,7 @@ router.get('/budget/carryover', async (req, res) => {
        spend AS (
          SELECT TO_CHAR(date, 'YYYY-MM') AS m, LOWER(category) AS cat, SUM(amount) AS spent
          FROM finances
-         WHERE type='expense' AND TO_CHAR(date,'YYYY-MM') BETWEEN $1 AND $2
+         WHERE type='expense' AND TO_CHAR(date,'YYYY-MM') BETWEEN TO_CHAR($1::date,'YYYY-MM') AND TO_CHAR($2::date,'YYYY-MM')
          GROUP BY 1,2
        )
        SELECT
@@ -522,7 +522,8 @@ router.get('/runway', async (req, res) => {
        FROM finances
        WHERE TO_CHAR(date,'YYYY-MM') = $1
        GROUP BY account, currency
-       ORDER BY (in_nzd - out_nzd) DESC`,
+       ORDER BY (SUM(CASE WHEN type='income' THEN amount_nzd ELSE 0 END)
+               - SUM(CASE WHEN type='expense' THEN amount_nzd ELSE 0 END)) DESC`,
       [month]
     );
 

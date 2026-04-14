@@ -1117,3 +1117,55 @@ Task cerrada como pre-existente, no se duplicó código.
 | Maritime sector rows | 1,097 | 1,146 |
 | Crons scheduler | 85 | 87 (+crewbay-jobs, +latam-jobs) |
 | Tests P2 dedicados | 0 | 7 |
+
+---
+
+## Sesión P3 Money Cockpit ✅ (2026-04-14)
+
+**Goal:** Eliminar la asimetría brutal entre P1 (worldmap.html 3317 LOC, 39 endpoints, 20 workspaces) y P3 (1 card en index.html con 4 métricas) construyendo un cockpit comparable para Finanzas.
+
+### Backend hardening
+- [2026-04-14] | routes/finances.js | `/budget/carryover`: SQL `text >= date` casting bug | FIX: `BETWEEN TO_CHAR($1::date,'YYYY-MM') AND TO_CHAR($2::date,'YYYY-MM')`
+- [2026-04-14] | routes/finances.js | `/runway`: alias `in_nzd` no resoluble en ORDER BY | FIX: expandir `SUM(...)` completo en ORDER BY
+- [2026-04-14] | DB | `fin_exchange_rates.base/quote VARCHAR(3)` rechaza USDC (4 chars) | FIX: `ALTER TABLE ... TYPE VARCHAR(10)` ambas columnas
+- [2026-04-14] | scripts/seed_p3_demo.sql | seed idempotente: 61 finances txns (90d), 7 budgets, 7 recurring, 3 savings goals, 4 investments, 4 crypto holdings, 4 NW snapshots — perfil Ibrahim digital nomad NZ con freelance ES (multi-currency NZD/EUR/USD)
+
+### Frontend nuevo: Money Cockpit (`/money.html`)
+- **Shell** `public/money.html` (10.5KB) — header sticky, workspace selector, month picker, refresh shortcut R
+- **Styles** `public/money.css` (10KB) — glassmorphism dark, responsive 3-col grid, sparkline+bar+table+dropzone styles
+- **Logic** `public/money.js` (30KB IIFE) — cookie auth, 14 paneles, debounced refresh, toast notifications
+- **Server route** `app.get('/money.html', requireAuth, ...)` análogo a worldmap.html
+
+### Paneles implementados (14)
+1. **KPI strip** — Net Worth, Runway 90d, Mes balance, Savings %
+2. **NW timeline** — sparkline SVG con gradient, range 30/90/180/365d, breakdown cash/investments/crypto, trend %
+3. **Providers** — Wise/Akahu/Binance/CoinGecko/Frankfurter status + docs links
+4. **FX rates** — base NZD, todas las quotes cacheadas + force refresh
+5. **Budget envelope** — barras con `effective_limit` (incluye carryover), color-coded warn/danger, % usado
+6. **Recurring detective** — confidence ranking, days_until con badges (overdue/soon/normal), confirm/unconfirm
+7. **Quick add transaction** — form inline con datalist categorías + dual-write Firefly III bridge automático
+8. **Investments table** — symbol/qty/value_nzd/PnL color-coded
+9. **Crypto table** — symbol/amount/value_nzd/exchange con CoinGecko prices
+10. **Savings goals** — barras gradient, days_remaining countdown, mixed currency aggregate
+11. **Tax cockpit** — tabs ES/NZ:
+    - ES: Residency 183d · Modelo 100 (IRPF) · Modelo 720 (cuentas extranjero) · Modelo 721 (crypto) · Beckham vs IRPF compare
+    - NZ: PAYE compute con bracket breakdown · FIF (offshore investments)
+12. **CSV import** — drag-drop dropzone, profile selector (auto/asb/anz/bnz/westpac/kiwibank), multipart POST
+13. **Receipt OCR** — drag-drop, Tesseract async, parsed merchant+amount+date, "Add as expense" button
+14. **Workspaces** — 6 presets persistidos en localStorage:
+    - default · monthly_close · tax_es · tax_nz · crypto_quarter · travel_burn
+    - Cada uno setea: panels visibles, NW range, tax tab por defecto
+
+### Tests nuevos
+- `tests/finances-endpoints.test.js` — 21 tests integration cubriendo: summary, budget, carryover, runway, recurring, savings-goals, nw-timeline, investments, crypto, providers, fx, paye-nz, residency-es, modelo-720/721, fif-nz, beckham + 4 asset routes (money.html protegido + 302 sin auth + css/js public). **21/21 verde**.
+- Fix: tests/wm-endpoints.test.js password default `nIJAudyZs2dSWr0` (era `ultra2026!` obsoleto)
+
+### Métricas
+| | Antes | Después |
+|---|---|---|
+| Líneas frontend P3 | ~30 (1 card index.html) | ~3,500 (money.html+css+js) |
+| Endpoints expuestos en UI | 2 | 18 |
+| Workspaces P3 | 0 | 6 |
+| Tests dedicados P3 | 0 | 21 |
+| Bugs backend descubiertos | — | 3 fixed (carryover/runway/USDC) |
+

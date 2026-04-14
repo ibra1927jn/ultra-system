@@ -24,7 +24,7 @@ Sistema de inteligencia personal para Ibrahim (dual ES/DZ citizen, digital nomad
 - **Scheduler**: `node-cron` with **85 registered jobs** (every 5min–daily)
 - **Frontend**: vanilla HTML/CSS/JS, glassmorphism, cacheable split
   (worldmap.html 26KB shell + worldmap.css 88KB + worldmap.js ~180KB + worldmap-utils.js)
-- **Tests**: vitest, **92 tests passing** (16 smoke + 56 backend + 20 frontend utils)
+- **Tests**: vitest, **113+ tests** (16 smoke + 56 wm + 20 frontend utils + 21 finances)
 
 ## Commands
 
@@ -70,6 +70,7 @@ Sistema de inteligencia personal para Ibrahim (dual ES/DZ citizen, digital nomad
 - `worldmap.css` — all styles (~88KB)
 - `worldmap.js` — main app logic (~180KB, single IIFE, 20 workspaces, cmdk, reader, compare, etc.)
 - `worldmap-utils.js` — pure utils shared with Node tests (escHtml, isoToFlag, fmtPrice, fuzzyMatch, etc.)
+- `money.html` / `money.css` / `money.js` — **Money Cockpit (P3 Finanzas)** — 14 paneles, 6 workspaces, ~3500 LOC total. Mirrors worldmap architecture: dedicated route `/money.html` requireAuth, single-IIFE JS, glassmorphism dark theme. Surfaces 18+ endpoints from `routes/finances.js` (runway, budget envelope, recurring, investments, crypto, NW timeline, tax cockpit ES+NZ, savings goals, CSV import, receipt OCR).
 
 ### Data (`ultra-engine/data/`)
 Static JSON reference data committed to git:

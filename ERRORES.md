@@ -5,6 +5,12 @@
 
 ---
 
+## P3 Money Cockpit (2026-04-14)
+- [2026-04-14] | routes/finances.js:242 | `/budget/carryover` SQL: `BETWEEN $1 AND $2` con $1='YYYY-MM-01' string causaba "operator does not exist: text >= date" porque PG inferia tipo date desde generate_series cast | FIX: `BETWEEN TO_CHAR($1::date,'YYYY-MM') AND TO_CHAR($2::date,'YYYY-MM')` — castear explícito en BETWEEN
+- [2026-04-14] | routes/finances.js:525 | `/runway` ORDER BY `(in_nzd - out_nzd)`: PG no resuelve aliases dentro de paréntesis en ORDER BY de query con GROUP BY | FIX: expandir el SUM(...) completo en ORDER BY
+- [2026-04-14] | db/init.sql fin_exchange_rates | `base/quote VARCHAR(3)` rechaza tickers crypto de 4+ chars (USDC, USDT, AVAX) | FIX: `ALTER TABLE fin_exchange_rates ALTER COLUMN base TYPE VARCHAR(10); ...quote TYPE VARCHAR(10)`
+- [2026-04-14] | tests/wm-endpoints.test.js | password default `'ultra2026!'` obsoleto, todos los integration tests fallaban con 401 tras password reset | FIX: actualizar default a `'nIJAudyZs2dSWr0'` (valor de `.env`); para tests aislados usar `WM_TEST_PASSWORD` env var
+
 ## TypeScript
 - [2026-03-27] | global | Usar ny en tipos → errores en runtime silenciosos
   FIX: tipar siempre explícitamente, especialmente payloads de DB

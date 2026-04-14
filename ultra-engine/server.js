@@ -200,6 +200,11 @@ app.get('/worldmap.html', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'worldmap.html'));
 });
 
+// ─── Money Cockpit (P3 dedicated page) ─────────────────────
+app.get('/money.html', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'money.html'));
+});
+
 // ─── SPA Fallback (Dashboard) ──────────────────────────────
 // Protected: must be logged in (cookie or Bearer) to access dashboard
 app.get('/{*path}', requireAuth, (req, res) => {

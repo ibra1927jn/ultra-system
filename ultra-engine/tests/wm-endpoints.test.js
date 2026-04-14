@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 
 const ENGINE_URL = process.env.ENGINE_URL || 'http://localhost:3000';
 const EMAIL = process.env.WM_TEST_EMAIL || 'admin@ibrahim.ops';
-const PASSWORD = process.env.WM_TEST_PASSWORD || 'ultra2026!';
+const PASSWORD = process.env.WM_TEST_PASSWORD || 'nIJAudyZs2dSWr0';
 
 let TOKEN = '';
 
