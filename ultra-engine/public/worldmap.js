@@ -877,43 +877,52 @@ async function fetchNews(level,value,topics){
   return json;
 }
 
+// Track last-successful-fetch timestamps for each data source.
+// Used by freshnessBadge() to show "Updated X min ago" per panel.
+const dataFreshness = {
+  activity: null, summary: null, countryMap: null, timeline: null,
+  pulse: null, markets: null, brief: null, sparklines: null,
+};
+// Track last-error state for error UI
+const dataErrors = {};
+
 let activityCache={data:null,ts:0};
 async function fetchActivity(){
   if(activityCache.data&&Date.now()-activityCache.ts<120000)return activityCache.data;
-  try{const r=await fetch(`${NEWS_API}/activity?hours=48`,{credentials:'same-origin'});if(!r.ok)return{};const json=await r.json();const m={};(json.data||[]).forEach(d=>{m[d.country_iso]=d});activityCache={data:m,ts:Date.now()};return m}catch{return{}}
+  try{const r=await fetch(`${NEWS_API}/activity?hours=48`,{credentials:'same-origin'});if(!r.ok)throw new Error('HTTP '+r.status);const json=await r.json();const m={};(json.data||[]).forEach(d=>{m[d.country_iso]=d});activityCache={data:m,ts:Date.now()};dataFreshness.activity=new Date().toISOString();delete dataErrors.activity;return m}catch(e){dataErrors.activity=e.message;return{}}
 }
 
 async function fetchSummary(){
-  try{const r=await getWm('/summary?limit=10&clusterHours=12');summaryData=r;return r}catch{return null}
+  try{const r=await getWm('/summary?limit=10&clusterHours=12');summaryData=r;dataFreshness.summary=new Date().toISOString();delete dataErrors.summary;return r}catch(e){dataErrors.summary=e.message;return null}
 }
 
 async function fetchCountryMapData(){
-  try{const r=await get('/countries','cmap');countryMapData=r?.ok?r.data:null;return countryMapData}catch{return null}
+  try{const r=await get('/countries','cmap');countryMapData=r?.ok?r.data:null;dataFreshness.countryMap=new Date().toISOString();delete dataErrors.countryMap;return countryMapData}catch(e){dataErrors.countryMap=e.message;return null}
 }
 
 // Timeline data for sparklines (7 days, per country)
 let timelineData = {};
 async function fetchTimeline(){
-  try{const r=await fetch(`${NEWS_API}/timeline?days=7`,{credentials:'same-origin'});if(!r.ok)return{};const json=await r.json();timelineData=json.data||{};return timelineData}catch{return{}}
+  try{const r=await fetch(`${NEWS_API}/timeline?days=7`,{credentials:'same-origin'});if(!r.ok)throw new Error('HTTP '+r.status);const json=await r.json();timelineData=json.data||{};dataFreshness.timeline=new Date().toISOString();delete dataErrors.timeline;return timelineData}catch(e){dataErrors.timeline=e.message;return{}}
 }
 
 // Global pulse data
 let pulseData = null;
 async function fetchPulse(){
-  try{const r=await fetch(`${NEWS_API}/pulse`,{credentials:'same-origin'});if(!r.ok)return null;pulseData=await r.json();return pulseData}catch{return null}
+  try{const r=await fetch(`${NEWS_API}/pulse`,{credentials:'same-origin'});if(!r.ok)throw new Error('HTTP '+r.status);pulseData=await r.json();dataFreshness.pulse=new Date().toISOString();delete dataErrors.pulse;return pulseData}catch(e){dataErrors.pulse=e.message;return null}
 }
 
 // Markets data
 let marketsData = null;
 async function fetchMarkets(){
-  try{const r=await fetch(`${WM_API}/markets/snapshot`,{credentials:'same-origin'});if(!r.ok)return null;const j=await r.json();marketsData=j.ok?j.data:null;return marketsData}catch{return null}
+  try{const r=await fetch(`${WM_API}/markets/snapshot`,{credentials:'same-origin'});if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();marketsData=j.ok?j.data:null;dataFreshness.markets=new Date().toISOString();delete dataErrors.markets;return marketsData}catch(e){dataErrors.markets=e.message;return null}
 }
 
 // Intelligence brief + sparklines
 let briefData = null;
 let sparklineData = null;
 async function fetchBrief(){
-  try{const r=await fetch(`${WM_API}/intelligence-brief`,{credentials:'same-origin'});if(!r.ok)return null;const j=await r.json();briefData=j.ok?j.data:null;return briefData}catch{return null}
+  try{const r=await fetch(`${WM_API}/intelligence-brief`,{credentials:'same-origin'});if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();briefData=j.ok?j.data:null;dataFreshness.brief=new Date().toISOString();delete dataErrors.brief;return briefData}catch(e){dataErrors.brief=e.message;return null}
 }
 async function fetchSparklines(){
   try{const r=await fetch(`${WM_API}/markets/sparklines`,{credentials:'same-origin'});if(!r.ok)return null;const j=await r.json();sparklineData=j.ok?j.data:null;return sparklineData}catch{return null}
@@ -992,6 +1001,9 @@ function renderMarketsKPIs(){
   if(k.btc?.dominance) kpi('BTC Dom.', k.btc.dominance, 0, '');
   else if(k.dxy) kpi('DXY', k.dxy.value, k.dxy.change);
   el.innerHTML=html;
+  // Freshness bar
+  const mf = document.getElementById('mkt-fresh');
+  if(mf) mf.innerHTML = freshnessBadge(dataFreshness.markets, 'Markets');
 }
 
 // === FEAR/GREED GAUGE ===
@@ -1223,6 +1235,9 @@ function renderNarrativeBrief(){
   const badgeN = (briefData.nexus?.length||0) + (briefData.convergence_zones?.length||0) + (briefData.geo_predictions?.length||0) + (briefData.topic_spikes?.length||0);
   const nb = document.getElementById('narrative-badge');
   if(nb) nb.textContent = badgeN;
+  // Freshness badge
+  const nf = document.getElementById('narrative-fresh');
+  if(nf) nf.innerHTML = freshnessBadge(briefData.generated_at || dataFreshness.brief, 'Signals');
 }
 
 // === PREDICTION OVERLAY ON MAP ===
@@ -1871,6 +1886,10 @@ async function renderIntelBrief() {
   container.innerHTML = html;
   if (state.intelOpen) container.classList.add('open');
 
+  // Update freshness badge
+  const freshEl = document.getElementById('intel-fresh');
+  if (freshEl) freshEl.innerHTML = freshnessBadge(dataFreshness.summary, 'Intel Brief');
+
   // Bind focal point clicks — toggle detail on single click, navigate on double
   container.querySelectorAll('.ib-focal').forEach(el => {
     el.addEventListener('click', () => {
@@ -2235,6 +2254,116 @@ function buildArticlePopup(a, tc) {
 function escHtml(s){if(!s)return'';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function getTimeAgo(d){if(!d)return'';const s=Math.round((Date.now()-new Date(d).getTime())/1000);if(s<60)return'just now';if(s<3600)return`${Math.floor(s/60)}m ago`;if(s<86400)return`${Math.floor(s/3600)}h ago`;return`${Math.floor(s/86400)}d ago`}
 
+// ═══════════════════════════════════════════════════════════
+// FRESHNESS INDICATORS — visual badge showing when data was last updated
+// ═══════════════════════════════════════════════════════════
+// Color-coded by age: green (<5m), amber (5-30m), red (>30m)
+function freshnessBadge(timestamp, label){
+  if(!timestamp) return '';
+  const t = new Date(timestamp);
+  if(isNaN(t.getTime())) return '';
+  const ageSec = (Date.now() - t.getTime()) / 1000;
+  const cls = ageSec < 300 ? 'fresh' : ageSec < 1800 ? 'warm' : 'stale';
+  return `<span class="freshness-badge ${cls}" data-ts="${t.toISOString()}" title="${label||'Last updated'} ${t.toLocaleString()}">&#9679; ${getTimeAgo(timestamp)}</span>`;
+}
+
+// Update all freshness badges on the page (called by setInterval)
+function refreshFreshnessBadges(){
+  document.querySelectorAll('.freshness-badge[data-ts]').forEach(el => {
+    const ts = el.dataset.ts;
+    const ageSec = (Date.now() - new Date(ts).getTime()) / 1000;
+    const newCls = ageSec < 300 ? 'fresh' : ageSec < 1800 ? 'warm' : 'stale';
+    el.classList.remove('fresh','warm','stale');
+    el.classList.add(newCls);
+    // Update text (preserve dot)
+    const txt = getTimeAgo(ts);
+    el.innerHTML = `&#9679; ${txt}`;
+  });
+}
+
+// Error panel helper — renders inline error with retry button
+function errorPanel(title, msg, retryFn){
+  const id = 'err-'+Math.random().toString(36).slice(2,8);
+  const html = `<div class="panel-error">
+    <div class="panel-error-title">&#9888; ${escHtml(title)}</div>
+    <div class="panel-error-msg">${escHtml(msg||'')}</div>
+    <button class="panel-error-retry" id="${id}">&#8634; Retry</button>
+  </div>`;
+  setTimeout(()=>{
+    const btn = document.getElementById(id);
+    if(btn && typeof retryFn==='function') btn.addEventListener('click', retryFn);
+  }, 50);
+  return html;
+}
+
+// Online/offline detection with banner feedback
+function showConnectionBanner(text, type){
+  const b = document.getElementById('connection-banner');
+  if(!b) return;
+  b.textContent = text;
+  b.className = 'connection-banner visible ' + (type||'');
+  if(type === 'online') setTimeout(() => b.className = 'connection-banner', 3000);
+}
+let wasOffline = false;
+function setupConnectionMonitor(){
+  window.addEventListener('offline', () => {
+    wasOffline = true;
+    showConnectionBanner('⚠ You are offline — data may be stale', 'offline');
+  });
+  window.addEventListener('online', () => {
+    if(wasOffline){
+      showConnectionBanner('✓ Back online — refreshing data...', 'online');
+      // Trigger refresh
+      if(typeof fetchActivity === 'function') {
+        Promise.all([fetchActivity(),fetchSummary(),fetchBrief(),fetchMarkets(),fetchPulse()])
+          .then(()=>{ if(typeof renderIntelBrief==='function') renderIntelBrief();
+                      if(typeof renderNarrativeBrief==='function') renderNarrativeBrief();
+                      if(typeof renderSituationReport==='function') renderSituationReport();
+                      if(typeof renderMarketsKPIs==='function') renderMarketsKPIs(); });
+      }
+      wasOffline = false;
+    }
+  });
+}
+
+// Render error in specific panel if fetch failed and no prior data
+function renderErrorStates(){
+  // Intel brief error
+  if(dataErrors.summary && !summaryData){
+    const c = document.getElementById('intel-brief');
+    if(c && !c.innerHTML.trim()){
+      c.innerHTML = errorPanel('Intel data unavailable', dataErrors.summary, async()=>{
+        await fetchSummary();
+        renderIntelBrief();
+        renderErrorStates();
+      });
+    }
+  }
+  // Narrative brief error
+  if(dataErrors.brief && !briefData){
+    const c = document.getElementById('narrative-brief');
+    if(c && !c.innerHTML.trim()){
+      c.innerHTML = errorPanel('Signals unavailable', dataErrors.brief, async()=>{
+        await fetchBrief();
+        renderNarrativeBrief();
+        renderErrorStates();
+      });
+    }
+  }
+  // Markets error
+  if(dataErrors.markets && !marketsData){
+    const c = document.getElementById('markets-panel');
+    if(c && !c.innerHTML.trim()){
+      c.innerHTML = errorPanel('Markets data unavailable', dataErrors.markets, async()=>{
+        await fetchMarkets();
+        renderMarketsPanel();
+        renderMarketsKPIs();
+        renderErrorStates();
+      });
+    }
+  }
+}
+
 // === FILTER PANEL ===
 function buildFilterPanel(){if(!geoHierarchy?.topicGroups)return;const container=document.getElementById('filter-groups');const saved=getActiveFilters();let html='';geoHierarchy.topicGroups.forEach(g=>{html+=`<div class="filter-group"><div class="filter-group-header" data-group="${g.id}"><span class="chevron">&#9660;</span> ${g.name}</div><div class="filter-group-body">`;g.topics.forEach(t=>{const isA=saved?saved.includes(t):true;if(isA)state.topics.add(t);const cls=isA?' active':'';const label=t.split(' ').map(w=>w==='and'?'&':w.charAt(0).toUpperCase()+w.slice(1)).join(' ');html+=`<button class="topic-pill${cls}" data-topic="${t}">${label}</button>`});html+='</div></div>'});container.innerHTML=html;container.querySelectorAll('.filter-group-header').forEach(h=>{h.addEventListener('click',()=>h.classList.toggle('collapsed'))});container.querySelectorAll('.topic-pill').forEach(pill=>{pill.addEventListener('click',()=>{pill.classList.toggle('active');const t=pill.dataset.topic;if(pill.classList.contains('active'))state.topics.add(t);else state.topics.delete(t);saveActiveFilters();updateStatus();refreshNews();const l=getLayout();if(l.workspace!=='custom'){l.workspace='custom';saveLayout(l);document.querySelectorAll('.sd-ws').forEach(b=>b.classList.remove('active'))}})})}
 
@@ -2477,7 +2606,7 @@ function renderSituationReport(){
 
   if(critical.length === 0 && convergence.length === 0 && alerts.length === 0){
     el.className = 'situation-report calm';
-    el.innerHTML = `<div class="sr-label">Global Status</div>
+    el.innerHTML = `<div class="sr-label">Global Status <span class="sr-fresh">${freshnessBadge(dataFreshness.brief||dataFreshness.summary,'Situation')}</span></div>
       <div class="sr-headline">No critical situations detected</div>
       <div class="sr-subline">Monitoring ${countryMapData?.scores?.length||0} countries · ${briefData?.focal_points?.length||0} focal points tracked</div>`;
     return;
@@ -2501,7 +2630,7 @@ function renderSituationReport(){
   if(topSpike) subparts.push(`"${topSpike.topic.replace(/_/g,' ')}" ${parseInt(topSpike.velocity)}x velocity`);
   if(convergence.length) subparts.push(`${convergence.length} convergence zone${convergence.length>1?'s':''}`);
 
-  let html = `<div class="sr-label">${urgency} · Situation Report</div>
+  let html = `<div class="sr-label">${urgency} · Situation Report <span class="sr-fresh">${freshnessBadge(dataFreshness.brief||dataFreshness.summary,'Situation')}</span></div>
     <div class="sr-headline">${escHtml(headline)}</div>
     <div class="sr-subline">${subparts.join(' · ')}</div>`;
   if(entities.length){
@@ -2657,7 +2786,7 @@ async function init() {
     renderSituationReport();
     renderWatchlistPanel();
     checkAlerts();
-  } catch (e) { console.error('Failed to load base data:', e); }
+  } catch (e) { console.error('Failed to load base data:', e); toast('alert', 'Connection issue', 'Some data failed to load. Check your connection.', 8000); }
 
   // Restore layers
   const al = getActiveLayers();
@@ -2929,7 +3058,14 @@ async function init() {
   // Auto-refresh
   setInterval(()=>{document.querySelectorAll('.layer-btn.active').forEach(b=>{const ly=b.dataset.layer;if(!LD[ly].static)load(ly)})},90000);
   setInterval(()=>refreshNews(),180000);
-  setInterval(async()=>{activityData=await fetchActivity();summaryData=await fetchSummary().catch(()=>summaryData);if(countryMapData)await fetchCountryMapData();await fetchTimeline();await fetchPulse();await fetchMarkets();await fetchBrief();await fetchSparklines();renderIntelBrief();renderNarrativeBrief();renderPulseStrip();renderMarketsKPIs();renderFearGreedGauge();renderMarketsTicker();renderMarketsPanel();renderPredictionOverlay();renderConvergenceZones();renderConnectionLines();buildRegionsTab();renderSituationReport();renderWatchlistPanel();checkAlerts()},300000);
+  setInterval(async()=>{activityData=await fetchActivity();summaryData=await fetchSummary().catch(()=>summaryData);if(countryMapData)await fetchCountryMapData();await fetchTimeline();await fetchPulse();await fetchMarkets();await fetchBrief();await fetchSparklines();renderIntelBrief();renderNarrativeBrief();renderPulseStrip();renderMarketsKPIs();renderFearGreedGauge();renderMarketsTicker();renderMarketsPanel();renderPredictionOverlay();renderConvergenceZones();renderConnectionLines();buildRegionsTab();renderSituationReport();renderWatchlistPanel();checkAlerts();renderErrorStates()},300000);
+
+  // Freshness badges tick every 30s (updates "X min ago" text)
+  setInterval(refreshFreshnessBadges, 30000);
+  // Connection monitor
+  setupConnectionMonitor();
+  // Initial error states
+  renderErrorStates();
 }
 
 init().catch(e => console.error('Init failed:', e));

@@ -76,6 +76,7 @@
 
   <!-- TAB 4: MARKETS -->
   <div class="tab-content" id="tab-markets">
+    <div class="mkt-fresh-bar"><span id="mkt-fresh"></span></div>
     <div id="mkt-kpis" class="mkt-kpi-grid"></div>
     <div id="mkt-gauge" class="mkt-gauge" style="display:none"></div>
     <div id="markets-panel"></div>
@@ -165,6 +166,7 @@
       <span class="it-chevron">&#9660;</span>
       <span class="it-label">Intel Brief</span>
       <span class="it-badge" id="intel-badge">0</span>
+      <span class="it-fresh" id="intel-fresh"></span>
     </div>
     <div class="intel-brief" id="intel-brief"></div>
 
@@ -173,6 +175,7 @@
       <span class="it-chevron">&#9660;</span>
       <span class="it-label" style="color:#f59e0b">Signals &amp; Analysis</span>
       <span class="it-badge" id="narrative-badge" style="background:rgba(245,158,11,0.15);color:#fcd34d">0</span>
+      <span class="it-fresh" id="narrative-fresh"></span>
     </div>
     <div class="intel-brief" id="narrative-brief"></div>
 
@@ -200,6 +203,9 @@
 </div>
 
 <div class="country-hover-card" id="country-hover-card"></div>
+
+<!-- Connection status banner (shows when offline / reconnected) -->
+<div class="connection-banner" id="connection-banner"></div>
 
 <!-- SVG filters for colorblind modes -->
 <svg width="0" height="0" style="position:absolute;visibility:hidden">

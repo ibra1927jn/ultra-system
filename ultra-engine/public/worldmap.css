@@ -1252,6 +1252,73 @@ body.calm-mode .sr-label { color: #fdba74; }
 body.calm-mode .news-card.sentiment-negative { border-left-color: #fb923c; }
 
 /* ═══════════════════════════════════════════════════════════
+   FRESHNESS BADGES — "Updated X min ago" per data panel
+   ═══════════════════════════════════════════════════════════ */
+.freshness-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 6px; border-radius: 8px;
+  font-size: 9px; font-family: var(--mono); font-weight: 500;
+  letter-spacing: 0.02em; cursor: default;
+  transition: all 0.2s;
+}
+.freshness-badge.fresh { background: rgba(34,197,94,0.12); color: #86efac; }
+.freshness-badge.warm { background: rgba(245,158,11,0.12); color: #fcd34d; }
+.freshness-badge.stale { background: rgba(239,68,68,0.12); color: #fca5a5; }
+
+/* Inline freshness in intel toggles */
+.it-fresh { margin-left: 6px; }
+.it-fresh .freshness-badge { font-size: 8px; padding: 1px 5px; }
+
+/* Freshness in situation report */
+.sr-fresh { margin-left: 6px; opacity: 0.85; }
+.sr-fresh .freshness-badge { font-size: 8px; }
+
+/* Markets tab freshness bar */
+.mkt-fresh-bar {
+  padding: 6px 14px; text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+
+body.calm-mode .freshness-badge.stale {
+  background: rgba(251,146,60,0.08); color: #fdba74;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ERROR STATES — retry UI for failed API calls
+   ═══════════════════════════════════════════════════════════ */
+.panel-error {
+  padding: 14px 16px; margin: 8px; border-radius: 8px;
+  background: rgba(239,68,68,0.06); border-left: 3px solid #ef4444;
+  font-size: 11px; color: var(--text2);
+}
+.panel-error-title {
+  font-weight: 600; color: #fca5a5; margin-bottom: 4px;
+  display: flex; align-items: center; gap: 6px;
+}
+.panel-error-msg {
+  font-size: 10px; color: var(--text3); margin-bottom: 8px;
+}
+.panel-error-retry {
+  padding: 5px 10px; border-radius: 4px; border: 1px solid rgba(239,68,68,0.3);
+  background: rgba(239,68,68,0.1); color: #fca5a5;
+  font-family: var(--mono); font-size: 10px; cursor: pointer;
+  transition: all 0.15s;
+}
+.panel-error-retry:hover { background: rgba(239,68,68,0.2); }
+
+/* Connection status banner */
+.connection-banner {
+  position: fixed; top: 54px; left: 50%; transform: translateX(-50%);
+  padding: 6px 14px; border-radius: 20px;
+  background: rgba(239,68,68,0.95); color: #fff;
+  font-size: 11px; font-weight: 600; font-family: var(--mono);
+  z-index: 3500; box-shadow: 0 4px 14px rgba(239,68,68,0.4);
+  display: none; animation: toastIn 0.3s ease;
+}
+.connection-banner.online { background: rgba(34,197,94,0.95); }
+.connection-banner.visible { display: block; }
+
+/* ═══════════════════════════════════════════════════════════
    ARTICLE READER
    ═══════════════════════════════════════════════════════════ */
 .reader-overlay {
