@@ -19,8 +19,12 @@ const express = require('express');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
+const pinoHttp = require('pino-http');
+const crypto = require('crypto');
 const path = require('path');
 
+const { logger, child } = require('./src/logger');
+const log = child('server');
 const db = require('./src/db');
 const telegram = require('./src/telegram');
 const scheduler = require('./src/scheduler');
@@ -61,6 +65,24 @@ app.use(helmet({
 // Compression — gzip/brotli responses. Massive bandwidth win for JSON + JS/CSS.
 // Default threshold is 1024 bytes; set to 512 to compress even small JSON.
 app.use(compression({ threshold: 512 }));
+// Request logs estructurados con req-id automático. Nivel 'debug' en dev,
+// 'info' en prod. Ignoramos /api/health para no ensuciar logs.
+app.use(pinoHttp({
+  logger,
+  genReqId: (req) => req.headers['x-request-id'] || crypto.randomBytes(8).toString('hex'),
+  customLogLevel: (_req, res, err) => {
+    if (err || res.statusCode >= 500) return 'error';
+    if (res.statusCode >= 400) return 'warn';
+    return 'info';
+  },
+  autoLogging: {
+    ignore: (req) => req.url === '/api/health' || req.url.startsWith('/css') || req.url.startsWith('/js'),
+  },
+  serializers: {
+    req: (req) => ({ id: req.id, method: req.method, url: req.url, ip: req.ip }),
+    res: (res) => ({ statusCode: res.statusCode }),
+  },
+}));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 // Lightweight cookie parser (no external dependency)
@@ -186,29 +208,23 @@ app.get('/{*path}', requireAuth, (req, res) => {
 
 // ─── Iniciar servidor ──────────────────────────────────────
 async function start() {
-  process.stdout.write('\n');
-  console.log('╔══════════════════════════════════════════════════════╗');
-  console.log('║  🌎 ULTRA ENGINE — Sistema de Inteligencia Personal  ║');
-  console.log('║     100% código propio · 0 servicios de terceros    ║');
-  console.log('╚══════════════════════════════════════════════════════╝');
-  process.stdout.write('\n');
+  log.info('ultra-engine starting');
 
   // 1. Verificar DB
-  console.log('🗄️ Conectando a PostgreSQL...');
+  log.info('connecting to postgres');
   const health = await db.healthCheck();
   if (!health.ok) {
-    console.error('❌ No se pudo conectar a PostgreSQL:', health.error);
-    console.error('   Asegúrate de que el contenedor de DB está corriendo');
+    log.fatal({ err: health.error }, 'postgres unreachable — ensure ultra_db container is up');
     process.exit(1);
   }
-  console.log('✅ PostgreSQL conectado');
+  log.info('postgres connected');
 
   // 2. Iniciar Bot de Telegram
-  console.log('📲 Iniciando bot de Telegram...');
+  log.info('starting telegram bot');
   telegram.init();
 
   // 3. Iniciar Scheduler (cron jobs)
-  console.log('⏰ Iniciando scheduler...');
+  log.info('starting scheduler');
   scheduler.init();
 
   // 3b. Iniciar bridges P3↔P5/P6 (event subscribers)
@@ -228,30 +244,16 @@ async function start() {
   // Sustituye el polling REST hourly. Persistent firehose con keyword
   // matching in-memory. Reconnect interno con backoff.
   bskyJetstream.start().catch(err =>
-    console.error('❌ bsky jetstream start failed:', err.message)
+    log.error({ err: err.message }, 'bsky jetstream start failed')
   );
 
   // 4. Iniciar servidor HTTP
   app.listen(PORT, '0.0.0.0', () => {
-    process.stdout.write('\n');
-    console.log(`🚀 Ultra Engine corriendo en http://0.0.0.0:${PORT}`);
-    console.log(`   Dashboard: http://localhost:${PORT}`);
-    console.log(`   API:       http://localhost:${PORT}/api/status`);
-    process.stdout.write('\n');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('  Pilares activos:');
-    console.log('    P1 📰 Noticias     — RSS Reader');
-    console.log('    P2 💼 Empleo       — Web Scraper');
-    console.log('    P3 💰 Finanzas     — Ingresos/Gastos');
-    console.log('    P4 📂 Burocracia   — Guardián de Documentos + OCR');
-    console.log('    P5 🎯 Oportunidades — Freelance/Ideas');
-    console.log('    P6 🗺️ Logística    — Transporte/Alojamiento');
-    console.log('    P7 🧬 Bio-Check    — Salud/Bienestar');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    log.info({ port: PORT, pillars: 7 }, 'ultra-engine listening');
   });
 }
 
 start().catch((err) => {
-  console.error('💥 Error fatal al iniciar Ultra Engine:', err);
+  log.fatal({ err }, 'fatal error starting ultra-engine');
   process.exit(1);
 });
