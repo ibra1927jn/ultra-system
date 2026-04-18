@@ -1,0 +1,8 @@
+node_modules
+dist
+.vite
+*.tsbuildinfo
+# TS compilation artefacts never belong in src/ (Vite handles it)
+src/**/*.js
+src/**/*.jsx
+src/**/*.d.ts
