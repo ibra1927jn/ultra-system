@@ -1,0 +1,27 @@
+{
+  "name": "ULTRA Mission Control",
+  "short_name": "ULTRA",
+  "description": "Sistema de inteligencia personal — dashboard para nómada digital",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0e1a",
+  "theme_color": "#22d3ae",
+  "lang": "es",
+  "categories": ["productivity", "lifestyle"],
+  "icons": [
+    {
+      "src": "/app/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}
