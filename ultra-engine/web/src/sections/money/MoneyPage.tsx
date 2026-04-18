@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ZodSchema } from 'zod';
 import { t } from '@/i18n/t';
-import { apiFetch, ApiError } from '@/lib/api';
+import { useEndpoint } from '@/lib/useEndpoint';
 import { SectionShell } from '@/ui/SectionShell';
 import { StatBlock } from '@/ui/StatBlock';
 import { ListRow } from '@/ui/ListRow';
@@ -21,39 +19,6 @@ import {
 // Aquí: 4 KPIs + top categorías + NW sparkline + mini markets + FX snapshot
 // + CTA al cockpit. Se conecta al worldmonitor via /api/wm/markets/snapshot
 // (cross-pilar money↔world).
-
-type State<T> =
-  | { status: 'loading' }
-  | { status: 'error'; error: string }
-  | { status: 'ok'; data: T };
-
-function useEndpoint<T>(path: string, schema: ZodSchema<T>): State<T> {
-  const [state, setState] = useState<State<T>>({ status: 'loading' });
-  const ctrlRef = useRef<AbortController | null>(null);
-  const schemaRef = useRef(schema);
-  schemaRef.current = schema;
-
-  const load = useCallback(() => {
-    ctrlRef.current?.abort();
-    const ctrl = new AbortController();
-    ctrlRef.current = ctrl;
-    setState({ status: 'loading' });
-    apiFetch(path, schemaRef.current, { signal: ctrl.signal })
-      .then((data) => setState({ status: 'ok', data }))
-      .catch((err: unknown) => {
-        if (ctrl.signal.aborted) return;
-        const msg = err instanceof ApiError ? err.message : 'unknown';
-        setState({ status: 'error', error: msg });
-      });
-  }, [path]);
-
-  useEffect(() => {
-    load();
-    return () => ctrlRef.current?.abort();
-  }, [load]);
-
-  return state;
-}
 
 function toNum(v: number | string | null): number {
   if (v === null || v === undefined) return 0;
