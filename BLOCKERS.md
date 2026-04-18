@@ -57,6 +57,13 @@ Algunos mini-features quedaron descartados:
 - n+letter chords quick-add
 - MustDo badge integrado en TopBar (movido a MustDoBadge floating)
 
+Ampliación 2026-04-18 07:30: también revirtieron
+`tests/finances-endpoints.test.js` y `tests/wm-endpoints.test.js` —
+el backoff/hookTimeout 30s sólo quedó aplicado en admin-status +
+home-overview + jobs-search-local. El patrón a copiar (for-loop con
+retry sobre 429 + hookTimeout argumento a beforeAll) está en
+tests/admin-status.test.js:45 como referencia.
+
 ### [2026-04-18 04:20] · baja · PWA icons PNG 192/512 reales
 `manifest.webmanifest` ahora usa favicon.svg como icon universal. iOS/
 Android lo aceptan pero puede mejorarse con PNG dedicados generados
