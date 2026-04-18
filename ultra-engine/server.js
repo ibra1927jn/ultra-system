@@ -50,6 +50,7 @@ const webhooksRouter = require('./src/routes/webhooks');
 const agentBusRouter = require("./src/routes/agentbus");
 const wmRouter = require('./src/routes/wm');
 const homeRouter = require('./src/routes/home');
+const adminRouter = require('./src/routes/admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -141,6 +142,7 @@ app.use('/api/logistics', requireAuth, logisticsRouter);
 app.use('/api/bio', requireAuth, bioRouter);
 app.use('/api/bureaucracy', requireAuth, bureaucracyRouter);
 app.use('/api/home', requireAuth, homeRouter);
+app.use('/api/admin', requireAuth, adminRouter);
 app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
 // Map endpoints: cookie auth (dashboard) OR API key (agents)
 const wmAuth = (req, res, next) => {
