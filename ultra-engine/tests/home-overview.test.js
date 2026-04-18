@@ -42,15 +42,25 @@ const HomeOverview = z.object({
 });
 
 beforeAll(async () => {
-  const r = await fetch(`${ENGINE_URL}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
-  });
-  const setCookie = r.headers.get('set-cookie') || '';
-  const m = setCookie.match(/ultra_session=([^;]+)/);
-  if (!m) throw new Error('login failed: no cookie set');
-  COOKIE = `ultra_session=${m[1]}`;
+  // Retry para evitar 429 cuando vitest ejecuta múltiples test files en
+  // paralelo y el rate-limit del login se satura. Backoff linear 2s × N.
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    const r = await fetch(`${ENGINE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    });
+    if (r.status === 429) {
+      await new Promise((res) => setTimeout(res, attempt * 2000));
+      continue;
+    }
+    const setCookie = r.headers.get('set-cookie') || '';
+    const m = setCookie.match(/ultra_session=([^;]+)/);
+    if (!m) throw new Error(`login failed: ${r.status} no cookie set`);
+    COOKIE = `ultra_session=${m[1]}`;
+    return;
+  }
+  throw new Error('login failed: rate-limited after 6 retries');
 });
 
 async function getOverview() {
