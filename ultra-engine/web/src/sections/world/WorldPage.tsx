@@ -9,6 +9,7 @@ import { EmptyState } from '@/ui/EmptyState';
 import { NewsPulseSchema, HealthAlertsSchema } from './types';
 import { WorldNews } from './WorldNews';
 import { WorldCompare } from './WorldCompare';
+import { WorldIntel } from './WorldIntel';
 
 function toNum(v: string | number | null | undefined): number {
   if (v === null || v === undefined) return 0;
@@ -114,6 +115,8 @@ export default function WorldPage() {
           )}
         </div>
       </section>
+
+      <WorldIntel />
 
       <WorldCompare />
 
