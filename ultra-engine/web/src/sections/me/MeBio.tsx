@@ -7,11 +7,82 @@ import { ErrorState } from '@/ui/ErrorState';
 import { EmptyState } from '@/ui/EmptyState';
 import { useRecentMood, useSchengen } from './useMeData';
 import { MoodLogModal } from './MoodLogModal';
+import { Sparkline } from '@/ui/Sparkline';
 
 function numOrNull(v: string | number | null): number | null {
   if (v === null || v === undefined) return null;
   const n = typeof v === 'number' ? v : parseFloat(v);
   return Number.isFinite(n) ? n : null;
+}
+
+// Chronological reverso de las entradas + series de mood/energy/anxiety.
+// logged_at en DB viene descendente; invertimos para leer izq→der = pasado→presente.
+function MoodTrend({
+  entries,
+}: {
+  entries: ReadonlyArray<{ mood: number | string | null; energy: number | string | null; notes: string | null; logged_at: string | null; id: number }>;
+}) {
+  const rev = [...entries].reverse();
+  const moodSeries: number[] = [];
+  const energySeries: number[] = [];
+  for (const e of rev) {
+    const m = numOrNull(e.mood);
+    const en = numOrNull(e.energy);
+    if (m !== null) moodSeries.push(m);
+    if (en !== null) energySeries.push(en);
+  }
+  const avg = (s: number[]): number | null =>
+    s.length === 0 ? null : Math.round((s.reduce((a, b) => a + b, 0) / s.length) * 10) / 10;
+  const moodAvg = avg(moodSeries);
+  const energyAvg = avg(energySeries);
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-bg-panel p-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <div className="text-meta text-fg-muted">Mood</div>
+          <div className="text-kpi-sm text-accent">
+            {moodAvg ?? '—'}
+            <span className="ml-1 text-meta text-fg-dim">/10 avg</span>
+          </div>
+        </div>
+        <Sparkline
+          values={moodSeries}
+          min={1}
+          max={10}
+          width={280}
+          height={36}
+          color="var(--accent, #22d3ae)"
+          testId="me-mood-trend-sparkline"
+          ariaLabel={`Mood últimas ${moodSeries.length} entradas`}
+        />
+      </div>
+      {energySeries.length >= 2 && (
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-meta text-fg-muted">Energía</div>
+            <div className="text-kpi-sm text-fg">
+              {energyAvg ?? '—'}
+              <span className="ml-1 text-meta text-fg-dim">/10 avg</span>
+            </div>
+          </div>
+          <Sparkline
+            values={energySeries}
+            min={1}
+            max={10}
+            width={280}
+            height={36}
+            color="var(--attention, #f59e0b)"
+            testId="me-energy-trend-sparkline"
+            ariaLabel={`Energía últimas ${energySeries.length} entradas`}
+          />
+        </div>
+      )}
+      <p className="text-meta text-fg-dim">
+        {moodSeries.length} entradas · más reciente a la derecha
+      </p>
+    </div>
+  );
 }
 
 export function MeBio() {
@@ -64,6 +135,13 @@ export function MeBio() {
           badge="info"
         />
       </section>
+
+      {mood.status === 'ok' && mood.data.count >= 2 && (
+        <section aria-label="mood-trend" data-testid="me-mood-trend">
+          <h2 className="mb-3 text-card-title text-fg-muted">Tendencia · últimos 30d</h2>
+          <MoodTrend entries={mood.data.data} />
+        </section>
+      )}
 
       <section aria-label="mood">
         <h2 className="mb-3 text-card-title text-fg-muted">{t('me.mood.title')}</h2>
