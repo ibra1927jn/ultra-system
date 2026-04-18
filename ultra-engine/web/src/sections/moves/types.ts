@@ -8,6 +8,7 @@ export const LogisticsItemSchema = z.object({
   location: z.string().nullable(),
   cost: z.union([z.string(), z.number(), z.null()]),
   notes: z.string().nullable(),
+  status: z.string().nullable().optional(),
   days_until: z.union([z.string(), z.number(), z.null()]).optional(),
   urgency: z.string().nullable().optional(),
 });
