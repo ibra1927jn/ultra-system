@@ -5,6 +5,7 @@ import { LoadingState } from '@/ui/LoadingState';
 import { ErrorState } from '@/ui/ErrorState';
 import { EmptyState } from '@/ui/EmptyState';
 import { ListRow } from '@/ui/ListRow';
+import { ArticleReader } from './ArticleReader';
 
 const ArticleSchema = z.object({
   article_id: z.number(),
@@ -61,6 +62,7 @@ export function WorldNews() {
   const [topic, setTopic] = useState('');
   const [hours, setHours] = useState(24);
   const [search, setSearch] = useState('');
+  const [readerId, setReaderId] = useState<number | null>(null);
 
   const path = useMemo(() => {
     const p = new URLSearchParams();
@@ -146,12 +148,13 @@ export function WorldNews() {
                 .filter(Boolean)
                 .join(' · ')}
               trailing={timeAgo(a.published_at)}
-              href={a.url}
-              external
+              onClick={() => setReaderId(a.article_id)}
             />
           ))}
         </div>
       )}
+
+      <ArticleReader articleId={readerId} onClose={() => setReaderId(null)} />
     </section>
   );
 }
