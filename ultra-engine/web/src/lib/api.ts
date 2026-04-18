@@ -11,6 +11,18 @@ export class ApiError extends Error {
   }
 }
 
+// Debounce del redirect para evitar que 10 queries paralelas en paralelo
+// dispare 10 location.href consecutivos (algunos navegadores lo loggean
+// como loop). Una vez redirigido, ignora llamadas posteriores.
+let redirecting = false;
+function redirectToLogin(): void {
+  if (redirecting) return;
+  redirecting = true;
+  if (typeof window !== 'undefined') {
+    window.location.href = '/login.html';
+  }
+}
+
 type FetchOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
@@ -38,6 +50,11 @@ export async function apiFetch<T>(
 
   const res = await fetch(url, init);
   if (!res.ok) {
+    // Sesión expirada → redirige a login.html (excepto si el propio login
+    // falla, ese caso lo maneja el formulario legacy).
+    if (res.status === 401 && !url.includes('/api/auth/login')) {
+      redirectToLogin();
+    }
     throw new ApiError(`HTTP ${res.status}`, res.status, url);
   }
   const json = (await res.json()) as unknown;
