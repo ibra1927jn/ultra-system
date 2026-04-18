@@ -15,6 +15,13 @@ const BADGE_CLASS: Record<Section['badge'], string> = {
   alert: 'text-critical',
 };
 
+const BADGE_DOT: Record<Section['badge'], string> = {
+  none: 'bg-fg-dim',
+  info: 'bg-accent',
+  warn: 'bg-attention',
+  alert: 'bg-critical',
+};
+
 export function HomeCard({ sectionKey, href, label, section }: Props) {
   const subtext = !section
     ? '—'
@@ -25,22 +32,42 @@ export function HomeCard({ sectionKey, href, label, section }: Props) {
         : (section.label ?? '');
 
   const kpi = section && section.status === 'ok' ? section.kpi : null;
+  const preview = section && section.status === 'ok' ? section.preview : null;
+  const badge: Section['badge'] = section ? section.badge : 'none';
 
   return (
     <Link
       to={href}
       data-testid={`home-card-${sectionKey}`}
-      className="rounded-lg border border-border bg-bg-panel p-6 transition hover:border-accent hover:bg-bg-elev"
+      className="flex flex-col rounded-lg border border-border bg-bg-panel p-6 transition hover:border-accent hover:bg-bg-elev"
     >
-      <div className="text-card-title">{label}</div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-card-title">{label}</span>
+        <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${BADGE_DOT[badge]}`} />
+      </div>
+
       {kpi !== null && (
         <div data-testid={`home-card-${sectionKey}-kpi`} className="mt-2 text-section">
           {kpi}
         </div>
       )}
-      <div className={`mt-2 text-meta ${section ? BADGE_CLASS[section.badge] : 'text-fg-dim'}`}>
+      <div className={`mt-2 text-meta ${BADGE_CLASS[badge]}`}>
         {subtext}
       </div>
+
+      {preview && preview.length > 0 && (
+        <ul
+          data-testid={`home-card-${sectionKey}-preview`}
+          className="mt-4 space-y-1 border-t border-border pt-3"
+        >
+          {preview.slice(0, 3).map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-2">
+              <span className="truncate text-meta text-fg">{p.text}</span>
+              {p.meta && <span className="shrink-0 text-meta text-fg-dim">{p.meta}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </Link>
   );
 }
