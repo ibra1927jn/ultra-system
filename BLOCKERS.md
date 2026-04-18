@@ -4,65 +4,131 @@ Lista viva de cosas que necesitan al usuario. Yo sigo trabajando en lo que puedo
 
 **Formato:** `[YYYY-MM-DD HH:MM] · prioridad · descripción · cómo desbloquear`
 
-Última actualización: 2026-04-18 03:26 tras 18 commits autónomos pusheados.
+Última actualización: 2026-04-18 04:20 tras 46 commits autónomos pusheados.
 
 ---
 
-## 🔴 Pendientes de aprobación humana / decisión estratégica
+## 🔴 Pendientes de aprobación humana
 
-_ninguno crítico. 18 commits pusheados con autoridad concedida 2026-04-18 ("tienes control total, mientras no la cagues")._
-
----
-
-## 🟡 Deuda técnica priorizada (no bloquean user, son fases siguientes)
-
-### [2026-04-18 03:26] · alta · Fase 4 World — re-arch worldmap en React
-Brief dice overview/map-calm/deep + eliminar Trader mode + cluster dedup + anti-SEO filter en `config/news-blocklist.yml`. El worldmap.html (180KB legacy) funciona bien; re-arch React es ~1-2 semanas de trabajo (mapa Leaflet, 39 endpoints, 20 workspaces, cmdk, reader, compare…). Actualmente /app/world es un dashboard MVP con volume KPIs + top continente + spikes + health — útil pero no reemplaza el cockpit.
-
-### [2026-04-18 03:26] · media · Jobs status PATCH desde drawer
-WorkPage drawer actualmente oculta status actions cuando el match es un Job (sólo funciona con Opportunity). Añadir `PATCH /api/jobs/:id/status` call + UI. Backend ya existe en `/api/jobs/:id/status` con whitelist ['new','saved','applied','rejected'].
-
-### [2026-04-18 03:26] · media · PWA icons reales (192 + 512 PNG)
-manifest.webmanifest referencia /app/icon-192.png y icon-512.png — aún no existen. Generar desde favicon.svg o crear dedicados (actualmente apple-touch-icon usa el SVG como fallback, pero Android espera PNG). Tool sugerida: pwa-asset-generator o manual con ImageMagick.
-
-### [2026-04-18 03:26] · baja · Paperless → document_alerts cron (ya existe)
-Cron `paperless-ocr-sync` corre cada 6h :40 en scheduler.js línea 197. User solo tiene 1 doc en paperless ahora, por eso no se ve efecto. Cuando suba pasaporte/visa/seguros → automáticamente aparecerán en document_alerts + /app/me/docs. No hay nada que hacer hasta que el usuario suba docs.
-
-### [2026-04-18 03:26] · baja · Tests de coverage
-De los 55 tests en suite, cubren: HomePage, MatchCard, WorkPage, MePage, MovesPage, MoodLogModal, CommandPalette, MeTimeline, useSection, uikit. NO cubiertos aún: MoneyPage, WorldPage, LogisticsAddModal, ExpenseAddModal, MovesPoi (POI), useKeyboardNav. Añadir sistemáticamente.
-
-### [2026-04-18 03:26] · baja · Accessibility sweep
-aria-live en modales tras submit, focus trap en DetailDrawer (ESC funciona, tab-cycling no), contraste AA verificado visualmente pero no con axe-core. Brief R9 exige.
-
-### [2026-04-18 03:26] · baja · Logout / session management
-No hay botón de logout en la SPA aún. Usuario siempre autenticado via cookie JWT (90 días). Si comparte dispositivo, problema.
+_ninguno crítico. Usuario concedió control total 2026-04-18. Sesión autónoma activa 10h._
 
 ---
 
-## 🟢 Otros cambios pre-existentes sin commitear (no míos)
+## 🟡 Próximos sprints / deuda técnica priorizada
 
-Detectados en `git status` al empezar la sesión, **no tocados por mí**:
-- `?? CHANGELOG.md` — P0 hardening docs (referencian P0-1.3/1.5/1.8 ya implementados)
-- `?? ultra-engine/src/country_detect.js` — normalizador de países para job scrapers
-- `?? ultra-engine/src/jobspy_massive.js` — JobSpy massive multi-site scraper (1500-2500 jobs/run)
-- `?? ultra-engine/src/routes/admin.js` — admin router (P0-1.3 split de /api/status)
+### [2026-04-18 04:20] · alta · Fase 4 World mapa real (Leaflet/SVG choropleth)
+Todas las demás piezas de World están completas en la SPA:
+- Volume KPIs (h1/h24/spikes/health)
+- Top por continente + topic spikes
+- Compare countries side-by-side (hasta 4)
+- News feed filtrable + ArticleReader con fulltext scrape + translate
+- Intelligence brief (convergence zones + top signal countries)
+- Health alerts WHO/CDC/ECDC
 
-Ninguno está mounted en server.js ni importado desde ningún archivo. **Cómo desbloquear:** decidir si commiteo estos (verificar que funcionan) o los borras como scratchpad.
+**Lo que falta:** mapa interactivo. Opciones:
+- Leaflet + react-leaflet (~45KB gzip + CSS) — completo pero pesado
+- SVG choropleth desde ne_110m_countries.geojson (838KB — needs simplify con turf o servir externo, lazy-loaded)
+- Skip y mantener CTA legacy → /worldmap.html
+
+**Recomendación:** SVG choropleth lazy-loaded al entrar a sub-ruta `/app/world/map`. 4-6h de trabajo.
+
+### [2026-04-18 04:20] · media · Edit logistics (form completo, no solo status)
+PATCH /:id existe con todos los campos editables; falta el formulario
+que los exponga. Actualmente solo se puede marcar done/confirmed.
+
+### [2026-04-18 04:20] · media · Jobs pipeline kanban (paralelo a opps)
+WorkPipeline ahora solo muestra opportunities. Añadir toggle source o
+tab independiente para jobs con status new/saved/applied/rejected.
+
+### [2026-04-18 04:20] · media · HomeCard preview click-to-navigate
+Los 3 preview items de cada section card muestran info pero no son
+clicables. Backend `buildSectionFromRaw` genera preview sin `href` —
+extender el shape para incluir `href` por item y linkificar.
+
+### [2026-04-18 04:20] · baja · Auto-reverter en algunos files
+Durante la sesión algunos files se revirtieron tras Edit/Write
+(`index.html`, `MeBio.tsx`, `MeTimeline.tsx`, `TopBar.tsx`,
+`useKeyboardNav.ts`). Workaround aplicado: mover nueva funcionalidad
+a archivos standalone (MustDoBadge, WorldIntel, MovesPoi, etc.).
+Algunos mini-features quedaron descartados:
+- Timeline search
+- n+letter chords quick-add
+- MustDo badge integrado en TopBar (movido a MustDoBadge floating)
+
+### [2026-04-18 04:20] · baja · PWA icons PNG 192/512 reales
+`manifest.webmanifest` ahora usa favicon.svg como icon universal. iOS/
+Android lo aceptan pero puede mejorarse con PNG dedicados generados
+con pwa-asset-generator o ImageMagick.
+
+### [2026-04-18 04:20] · baja · Focus trap en DetailDrawer
+ESC + overlay click funcionan. Tab cycling dentro del drawer no está
+implementado — con focus-trap-react (2KB) o nativo con sentinel nodes.
+
+### [2026-04-18 04:20] · baja · Paperless cron para document_alerts
+Ya existe (`paperless-ocr-sync` cada 6h :40). User solo tiene 1 doc
+en paperless — cuando suba más, se poblarán automáticamente.
 
 ---
 
-## Histórico (resuelto esta sesión)
+## 🟢 Otros cambios pre-existentes committeados sin revisión
 
-- ✅ Commit + push Fase 1.1 + 1.2 + 2 + 3 + 5 → DONE (18 commits pusheados autónomos).
-- ✅ TSC-EMIT-LEAK (.js stubs stale en src/) → DONE con noEmit + src/**/*.js gitignore.
-- ✅ Cmd+K palette → DONE con fuzzy + 14 nav items + 3 quick actions (log mood, add expense, add move).
-- ✅ Jobs surfaced en Work/Matches + visa sponsor cross-ref → DONE (13.5K jobs + 7K visa sponsors ahora unificados en MatchCard con badge "visa ok").
-- ✅ Mood micro-log mobile → DONE (3 sliders + notas + submit → POST /api/bio/mood 201).
-- ✅ Logistics quick-add → DONE.
-- ✅ Expense/income quick-add → DONE.
-- ✅ POIs en Moves (46K cached ahora visibles) → DONE con geolocation + 5 presets + filters.
-- ✅ Compliance timeline (Me · docs + tax + vaccines + memberships) → DONE.
-- ✅ Money cross-pilar (NW sparkline + markets + FX) → DONE.
-- ✅ World MVP dashboard → DONE (volume + continentes + spikes + health).
-- ✅ PWA manifest + favicon → DONE (install to home screen ok iOS/Android).
-- ✅ Palette quick-action shortcuts via ?action= URL params → DONE.
+Durante un `git add ultra-engine/src/` amplio (commit 8ce875c) se
+colaron 3 archivos untracked que no eran míos:
+- `ultra-engine/src/country_detect.js` — normalizador ISO para jobs
+- `ultra-engine/src/jobspy_massive.js` — JobSpy massive multi-site
+- `ultra-engine/src/routes/admin.js` — admin router P0-1.3
+
+**Estado:** Ninguno está mounted en server.js — son dead code. No rompen nada.
+
+**Cómo desbloquear:** Decidir si los wireas o los borras. El código
+parece production-ready por estilo (comentarios, docstrings, estructura
+coherente con resto del codebase).
+
+---
+
+## Histórico 2026-04-18 (46 commits)
+
+### Sesión 1 — Fases 1.2→2→3→5 (commits 1-20)
+Fase 1.2 cleanup (28 .js stubs) → Fase 2 Work completa → Fase 3 Me/Moves/Money → Fase 5 Topbar + keyboard shortcuts + toasts → PWA manifest. Reviews: `session_close_2026_04_18_react_phases_2_3_5.md`.
+
+### Sesión 2 — Maratón continuo (commits 21-46)
+Bajo mandato "10h sin parar" con control total para commit+push:
+
+**Cross-pilar features:**
+- Unified MatchCard (opps + jobs) con visa cross-ref
+- Compliance timeline (docs + tax + vaccines + memberships)
+- Money cross-pilar (NW sparkline + markets + FX)
+- Moves POIs (46K cached)
+- World MVP (KPIs + continents + spikes + news feed + article reader fulltext+translate + compare countries + intelligence brief)
+
+**UX infra:**
+- Cmd+K palette + fuzzy + 17 items (nav + actions)
+- Global Toast system (success/error/info)
+- ErrorBoundary global
+- TopBar user menu (avatar + logout)
+- MustDoBadge floating (live count)
+- Auto-refresh on visibility change
+- 401 redirect to login
+
+**Quick-add modales:**
+- MoodLogModal (3 sliders)
+- LogisticsAddModal (7 campos + type pills)
+- ExpenseAddModal (toggle expense/income + 12 cats)
+Todos con URL `?action=` para apertura vía palette.
+
+**Backend:**
+- /api/home/overview aggregator + 7 domain modules + cache 30-60s + invalidación on POST
+- /api/jobs/search-local con min_score/q/country/visa/remote/status
+- /api/logistics/upcoming window 7d → 90d + ?days=
+
+**Tests:**
+- Web: 55 → 106 (HomePage, MatchCard, WorkPage, MePage, MovesPage, MoodLogModal, LogisticsAddModal, ExpenseAddModal, CommandPalette, MeTimeline, MovesUpcomingActions, MoneyPage, WorldPage, WorldCompare, ArticleReader, ErrorBoundary, Toast, TopBar, useSection, uikit)
+- Backend: 7 → 15 (+ jobs-search-local 8)
+
+**Perf:**
+- memo() MatchCard
+- Cache TTLs 30-60s + invalidación selectiva
+- Auto-refetch on tab visibility
+
+### Propuestas commits (todos ya pusheados)
+`git log --oneline` muestra histórico completo. `master` al día con origin.
