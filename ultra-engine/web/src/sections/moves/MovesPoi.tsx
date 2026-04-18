@@ -81,7 +81,9 @@ export function MovesPoi() {
   }, [coords, requestGeo]);
 
   const filtered = useMemo(() => {
-    if (list.status !== 'ok') return [] as Poi[];
+    // useEndpoint con path=null devuelve { status: 'ok', data: null } como
+    // estado inerte — por eso chequeamos data además de status.
+    if (list.status !== 'ok' || !list.data) return [] as Poi[];
     const rows = list.data.data;
     return freeOnly ? rows.filter((p) => p.is_free === true) : rows;
   }, [list, freeOnly]);
