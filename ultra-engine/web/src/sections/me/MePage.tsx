@@ -5,9 +5,11 @@ import { TabNav } from '@/ui/TabNav';
 import { MeOverview } from './MeOverview';
 import { MeDocs } from './MeDocs';
 import { MeBio } from './MeBio';
+import { MeTimeline } from './MeTimeline';
 
 const TABS = [
   { to: '/app/me', label: 'me.tab.overview', testId: 'me-tab-overview' },
+  { to: '/app/me/timeline', label: 'me.tab.timeline', testId: 'me-tab-timeline' },
   { to: '/app/me/docs', label: 'me.tab.docs', testId: 'me-tab-docs' },
   { to: '/app/me/bio', label: 'me.tab.bio', testId: 'me-tab-bio' },
 ] as const;
@@ -21,6 +23,7 @@ export default function MePage() {
       <div className="mt-6">
         <Routes>
           <Route index element={<MeOverview />} />
+          <Route path="timeline" element={<MeTimeline />} />
           <Route path="docs" element={<MeDocs />} />
           <Route path="bio" element={<MeBio />} />
           <Route path="*" element={<Navigate to="/app/me" replace />} />

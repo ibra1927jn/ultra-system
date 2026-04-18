@@ -44,6 +44,7 @@ export const es = {
   'me.title': 'Yo',
   'me.subtitle': 'Documentos, salud, fronteras',
   'me.tab.overview': 'Resumen',
+  'me.tab.timeline': 'Timeline',
   'me.tab.docs': 'Documentos',
   'me.tab.bio': 'Bio',
   'me.kpi.expiring': 'Expiran ≤90d',
