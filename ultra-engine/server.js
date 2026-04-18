@@ -49,6 +49,7 @@ const bureaucracyRouter = require('./src/routes/bureaucracy');
 const webhooksRouter = require('./src/routes/webhooks');
 const agentBusRouter = require("./src/routes/agentbus");
 const wmRouter = require('./src/routes/wm');
+const homeRouter = require('./src/routes/home');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -139,6 +140,7 @@ app.use('/api/opportunities', requireAuth, opportunitiesRouter);
 app.use('/api/logistics', requireAuth, logisticsRouter);
 app.use('/api/bio', requireAuth, bioRouter);
 app.use('/api/bureaucracy', requireAuth, bureaucracyRouter);
+app.use('/api/home', requireAuth, homeRouter);
 app.use("/api/agent-bus", apiKeyAuth, agentBusRouter);
 // Map endpoints: cookie auth (dashboard) OR API key (agents)
 const wmAuth = (req, res, next) => {
@@ -203,6 +205,18 @@ app.get('/worldmap.html', requireAuth, (req, res) => {
 // ─── Money Cockpit (P3 dedicated page) ─────────────────────
 app.get('/money.html', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'money.html'));
+});
+
+// ─── SPA nueva (React/Vite, montada en /app/*) ─────────────
+// Build output: ultra-engine/public/app/. Assets estáticos sirven con
+// auth (cookie JWT). Fallback de cliente: cualquier ruta no-asset
+// dentro de /app/* devuelve el index.html del build (React Router toma
+// el control en el cliente). Las páginas legacy (/, /worldmap.html,
+// /money.html) NO se tocan en esta fase — siguen sirviendo lo de antes.
+const APP_DIR = path.join(__dirname, 'public', 'app');
+app.use('/app', requireAuth, express.static(APP_DIR, { index: false }));
+app.get(/^\/app(\/.*)?$/, requireAuth, (_req, res) => {
+  res.sendFile(path.join(APP_DIR, 'index.html'));
 });
 
 // ─── SPA Fallback (Dashboard) ──────────────────────────────

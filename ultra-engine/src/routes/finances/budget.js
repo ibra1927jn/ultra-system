@@ -110,17 +110,8 @@ router.get('/budget/carryover', async (req, res) => {
 
 router.get('/alerts', async (req, res) => {
   try {
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
-    const alerts = await db.queryAll(
-      `SELECT b.category, b.monthly_limit, COALESCE(SUM(f.amount), 0) as spent,
-         ROUND((COALESCE(SUM(f.amount), 0) / b.monthly_limit * 100)::numeric, 1) as percent_used
-       FROM budgets b
-       LEFT JOIN finances f ON LOWER(f.category) = LOWER(b.category)
-         AND f.type = 'expense' AND TO_CHAR(f.date, 'YYYY-MM') = $1
-       GROUP BY b.category, b.monthly_limit
-       HAVING COALESCE(SUM(f.amount), 0) >= b.monthly_limit * 0.8
-       ORDER BY percent_used DESC`, [month]);
-    res.json({ ok: true, data: alerts, count: alerts.length, threshold: '80%' });
+    const result = await require('../../domain/finances').getBudgetAlerts(req.query.month);
+    res.json({ ok: true, ...result });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 

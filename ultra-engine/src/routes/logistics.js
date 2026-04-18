@@ -60,31 +60,8 @@ router.get('/upcoming', async (req, res) => {
 // ─── GET /api/logistics/next48h ─ Items en 48 horas ─────
 router.get('/next48h', async (req, res) => {
   try {
-    const items = await db.queryAll(
-      `SELECT *,
-         (date - CURRENT_DATE) AS days_until,
-         CASE
-           WHEN (date - CURRENT_DATE) = 0 THEN 'critical'
-           WHEN (date - CURRENT_DATE) = 1 THEN 'urgent'
-           ELSE 'upcoming'
-         END as urgency
-       FROM logistics
-       WHERE date >= CURRENT_DATE
-         AND date <= CURRENT_DATE + INTERVAL '2 days'
-         AND status != 'done'
-       ORDER BY date ASC`
-    );
-
-    res.json({
-      ok: true,
-      data: items,
-      count: items.length,
-      summary: {
-        critical: items.filter(i => i.urgency === 'critical').length,
-        urgent: items.filter(i => i.urgency === 'urgent').length,
-        upcoming: items.filter(i => i.urgency === 'upcoming').length,
-      },
-    });
+    const result = await require('../domain/logistics').getNext48h();
+    res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

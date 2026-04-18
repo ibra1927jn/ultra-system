@@ -47,31 +47,8 @@ router.get('/', async (req, res) => {
 
 router.get('/summary', async (req, res) => {
   try {
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
-
-    const summary = await db.queryAll(
-      `SELECT type, COUNT(*) as count, SUM(amount) as total, ARRAY_AGG(DISTINCT category) as categories
-       FROM finances WHERE TO_CHAR(date, 'YYYY-MM') = $1 GROUP BY type`,
-      [month]
-    );
-    const byCategory = await db.queryAll(
-      `SELECT category, type, SUM(amount) as total, COUNT(*) as count
-       FROM finances WHERE TO_CHAR(date, 'YYYY-MM') = $1 GROUP BY category, type ORDER BY total DESC`,
-      [month]
-    );
-
-    const income = summary.find(r => r.type === 'income')?.total || 0;
-    const expense = summary.find(r => r.type === 'expense')?.total || 0;
-
-    res.json({
-      ok: true,
-      data: {
-        month,
-        income: parseFloat(income), expense: parseFloat(expense),
-        balance: parseFloat(income) - parseFloat(expense),
-        byCategory,
-      },
-    });
+    const data = await require('../../domain/finances').getMonthSummary(req.query.month);
+    res.json({ ok: true, data });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 

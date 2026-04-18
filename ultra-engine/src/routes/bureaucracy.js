@@ -20,27 +20,10 @@ const router = express.Router();
 router.get('/tax-deadlines', async (req, res) => {
   try {
     const { country, upcoming } = req.query;
-    const params = [];
-    const where = ['is_active = TRUE'];
-
-    if (country) {
-      params.push(country.toUpperCase());
-      where.push(`country = $${params.length}`);
-    }
-    if (upcoming === 'true') {
-      where.push('deadline >= CURRENT_DATE');
-    }
-
-    const rows = await db.queryAll(
-      `SELECT id, country, name, description, deadline, recurring,
-              recurrence_rule, alert_days_array, is_active, notes,
-              (deadline - CURRENT_DATE) AS days_remaining,
-              created_at, updated_at
-       FROM bur_tax_deadlines
-       WHERE ${where.join(' AND ')}
-       ORDER BY deadline ASC`,
-      params
-    );
+    const rows = await require('../domain/bureaucracy').listTaxDeadlines({
+      country,
+      onlyUpcoming: upcoming === 'true',
+    });
     res.json({ ok: true, data: rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -406,14 +389,10 @@ router.delete('/travel-log/:id', async (req, res) => {
 // ─── GET /api/bureaucracy/schengen?date=YYYY-MM-DD ───────
 router.get('/schengen', async (req, res) => {
   try {
-    const targetDate = req.query.date ? new Date(req.query.date) : new Date();
-    if (isNaN(targetDate.getTime())) {
-      return res.status(400).json({ ok: false, error: 'date inválida (formato YYYY-MM-DD)' });
-    }
-    const status = await schengen.getSchengenStatus(targetDate);
+    const status = await require('../domain/bureaucracy').getSchengenStatus(req.query.date);
     res.json({ ok: true, data: status });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(err.message === 'date inválida' ? 400 : 500).json({ ok: false, error: err.message });
   }
 });
 
