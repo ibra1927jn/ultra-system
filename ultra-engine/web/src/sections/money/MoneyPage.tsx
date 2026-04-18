@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { t } from '@/i18n/t';
 import { useEndpoint } from '@/lib/useEndpoint';
 import { SectionShell } from '@/ui/SectionShell';
@@ -7,6 +8,7 @@ import { LoadingState } from '@/ui/LoadingState';
 import { ErrorState } from '@/ui/ErrorState';
 import { EmptyState } from '@/ui/EmptyState';
 import { Sparkline } from '@/ui/Sparkline';
+import { ExpenseAddModal } from './ExpenseAddModal';
 import {
   SummarySchema,
   RunwaySchema,
@@ -37,6 +39,13 @@ export default function MoneyPage() {
   const nw = useEndpoint('/api/finances/nw-timeline?days=30', NwTimelineSchema);
   const markets = useEndpoint('/api/wm/markets/snapshot', MarketsSnapshotSchema);
   const fx = useEndpoint('/api/finances/fx', FxSchema);
+  const [addOpen, setAddOpen] = useState(false);
+
+  const refetchAll = () => {
+    if (summary.status === 'ok') summary.refetch();
+    if (runway.status === 'ok') runway.refetch();
+    if (nw.status === 'ok') nw.refetch();
+  };
 
   const balance = summary.status === 'ok' ? toNum(summary.data.data.balance) : null;
   const runwayDays = runway.status === 'ok' ? runway.data.data.runway_days_90d : null;
@@ -70,14 +79,30 @@ export default function MoneyPage() {
       subtitle={t('money.subtitle')}
       testId="money-page"
       actions={
-        <a
-          href="/money.html"
-          className="rounded border border-accent px-3 py-2 text-meta text-accent hover:bg-accent/10"
-        >
-          {t('money.cockpit.cta')}
-        </a>
+        <>
+          <button
+            type="button"
+            data-testid="expense-add-open"
+            onClick={() => setAddOpen(true)}
+            className="rounded border border-accent bg-accent/10 px-3 py-2 text-meta text-accent hover:bg-accent/20"
+          >
+            + Gasto/Ingreso
+          </button>
+          <a
+            href="/money.html"
+            className="rounded border border-accent px-3 py-2 text-meta text-accent hover:bg-accent/10"
+          >
+            {t('money.cockpit.cta')}
+          </a>
+        </>
       }
     >
+      <ExpenseAddModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onCreated={refetchAll}
+      />
+
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatBlock
           testId="money-kpi-balance"
