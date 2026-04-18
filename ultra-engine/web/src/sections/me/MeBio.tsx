@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { t } from '@/i18n/t';
 import { ListRow } from '@/ui/ListRow';
 import { StatBlock } from '@/ui/StatBlock';
@@ -5,6 +6,7 @@ import { LoadingState } from '@/ui/LoadingState';
 import { ErrorState } from '@/ui/ErrorState';
 import { EmptyState } from '@/ui/EmptyState';
 import { useRecentMood, useSchengen } from './useMeData';
+import { MoodLogModal } from './MoodLogModal';
 
 function numOrNull(v: string | number | null): number | null {
   if (v === null || v === undefined) return null;
@@ -15,11 +17,31 @@ function numOrNull(v: string | number | null): number | null {
 export function MeBio() {
   const mood = useRecentMood(30);
   const schengen = useSchengen();
+  const [logOpen, setLogOpen] = useState(false);
 
   const schengenKpi = schengen.status === 'ok' ? schengen.data.days_used : null;
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          data-testid="mood-log-open"
+          onClick={() => setLogOpen(true)}
+          className="rounded border border-accent bg-accent/10 px-4 py-2 text-card-title text-accent hover:bg-accent/20"
+        >
+          Log mood ahora · 5s
+        </button>
+      </div>
+
+      <MoodLogModal
+        open={logOpen}
+        onClose={() => setLogOpen(false)}
+        onLogged={() => {
+          if (mood.status === 'ok') mood.refetch();
+        }}
+      />
+
       <section aria-label="schengen" className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <StatBlock
           testId="me-bio-schengen-used"
