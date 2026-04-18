@@ -90,6 +90,7 @@ export const es = {
   'status.applied': 'Aplicado',
   'status.rejected': 'Rechazado',
   'status.won': 'Ganado',
+  'status.saved': 'Guardado',
 
   'error.generic': 'Algo salió mal.',
   'loading.generic': 'Cargando…',

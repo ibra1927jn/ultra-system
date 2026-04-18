@@ -7,8 +7,8 @@ import { DetailDrawer } from '@/ui/DetailDrawer';
 import { WorkOverview } from './WorkOverview';
 import { WorkMatches } from './WorkMatches';
 import { WorkPipeline } from './WorkPipeline';
-import { updateOpportunityStatus } from './useWorkData';
-import type { MatchLike, OppStatus } from './types';
+import { updateOpportunityStatus, updateJobStatus } from './useWorkData';
+import type { MatchLike, OppStatus, JobStatus } from './types';
 
 const TABS = [
   { to: '/app/work', label: 'work.tab.overview', testId: 'work-tab-overview' },
@@ -16,21 +16,35 @@ const TABS = [
   { to: '/app/work/pipeline', label: 'work.tab.pipeline', testId: 'work-tab-pipeline' },
 ] as const;
 
-const STATUS_OPTIONS: ReadonlyArray<OppStatus> = [
+const OPP_STATUS_OPTIONS: ReadonlyArray<OppStatus> = [
   'new', 'contacted', 'applied', 'rejected', 'won',
+];
+
+const JOB_STATUS_OPTIONS: ReadonlyArray<JobStatus> = [
+  'new', 'saved', 'applied', 'rejected',
 ];
 
 export default function WorkPage() {
   const [open, setOpen] = useState<MatchLike | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
 
-  const handleStatusChange = async (s: OppStatus) => {
+  const handleOppStatus = async (s: OppStatus) => {
     if (!open || open.raw.kind !== 'opp') return;
     setActionBusy(true);
     const res = await updateOpportunityStatus(open.raw.opp.id, s);
     setActionBusy(false);
     if (res.ok) {
       setOpen({ ...open, status: s, raw: { kind: 'opp', opp: { ...open.raw.opp, status: s } } });
+    }
+  };
+
+  const handleJobStatus = async (s: JobStatus) => {
+    if (!open || open.raw.kind !== 'job') return;
+    setActionBusy(true);
+    const res = await updateJobStatus(open.raw.job.id, s);
+    setActionBusy(false);
+    if (res.ok) {
+      setOpen({ ...open, status: s, raw: { kind: 'job', job: { ...open.raw.job, status: s } } });
     }
   };
 
@@ -67,13 +81,30 @@ export default function WorkPage() {
               )}
               <span className="flex-1" />
               {open.raw.kind === 'opp' &&
-                STATUS_OPTIONS.map((s) => (
+                OPP_STATUS_OPTIONS.map((s) => (
                   <button
                     key={s}
                     type="button"
                     disabled={actionBusy || open.status === s}
-                    onClick={() => handleStatusChange(s)}
+                    onClick={() => handleOppStatus(s)}
                     data-testid={`drawer-status-${s}`}
+                    className={
+                      open.status === s
+                        ? 'rounded border border-accent px-3 py-1 text-meta text-accent'
+                        : 'rounded border border-border px-3 py-1 text-meta text-fg hover:border-accent disabled:opacity-50'
+                    }
+                  >
+                    {t(`status.${s}` as const)}
+                  </button>
+                ))}
+              {open.raw.kind === 'job' &&
+                JOB_STATUS_OPTIONS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    disabled={actionBusy || open.status === s}
+                    onClick={() => handleJobStatus(s)}
+                    data-testid={`drawer-job-status-${s}`}
                     className={
                       open.status === s
                         ? 'rounded border border-accent px-3 py-1 text-meta text-accent'

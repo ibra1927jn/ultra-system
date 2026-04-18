@@ -9,6 +9,7 @@ import {
   type Pipeline,
   type OppStatus,
   type Job,
+  type JobStatus,
 } from './types';
 
 type ListState =
@@ -169,6 +170,26 @@ export async function updateOpportunityStatus(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const res = await fetch(`/api/opportunities/${id}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'unknown' };
+  }
+}
+
+// Jobs tienen otro whitelist ['new','saved','applied','rejected'] y endpoint
+// diferente /:id/status.
+export async function updateJobStatus(
+  id: number,
+  status: JobStatus,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`/api/jobs/${id}/status`, {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
