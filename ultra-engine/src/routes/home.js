@@ -78,7 +78,7 @@ function buildMustDo({ moneyRaw, movesRaw, meRaw }) {
         title: i.title || i.type || 'evento',
         dueAt: i.date ? new Date(i.date).toISOString() : null,
         severity: sev,
-        href: '/worldmap.html',
+        href: '/app/moves/upcoming',
       });
     }
   }
@@ -93,7 +93,7 @@ function buildMustDo({ moneyRaw, movesRaw, meRaw }) {
         title: `${t.name} (${t.country})`,
         dueAt: t.deadline ? new Date(t.deadline).toISOString() : null,
         severity: sev,
-        href: '/worldmap.html',
+        href: '/app/me/timeline',
       });
     }
   }
@@ -108,7 +108,7 @@ function buildMustDo({ moneyRaw, movesRaw, meRaw }) {
         title: a.message,
         dueAt: null,
         severity: sev,
-        href: '/',
+        href: '/app/me/bio',
       });
     }
   }
@@ -124,7 +124,7 @@ function buildMustDo({ moneyRaw, movesRaw, meRaw }) {
         title: `Presupuesto ${b.category} al ${b.percent_used}%`,
         dueAt: null,
         severity: sev,
-        href: '/money.html',
+        href: '/app/money',
       });
     }
   }
