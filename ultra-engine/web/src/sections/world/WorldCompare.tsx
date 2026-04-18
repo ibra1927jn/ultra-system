@@ -101,7 +101,7 @@ export function WorldCompare() {
 
       {selected.length > 0 && cmp.status === 'loading' && <LoadingState />}
       {selected.length > 0 && cmp.status === 'error' && <ErrorState message={cmp.error} />}
-      {selected.length > 0 && cmp.status === 'ok' && cmp.data.data.length > 0 && (
+      {selected.length > 0 && cmp.status === 'ok' && cmp.data && cmp.data.data.length > 0 && (
         <div
           data-testid="compare-grid"
           className={`grid gap-3 md:grid-cols-${Math.min(cmp.data.data.length, 2)} xl:grid-cols-${cmp.data.data.length}`}
