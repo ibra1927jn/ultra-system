@@ -13,8 +13,10 @@ const router = express.Router();
 // ─── GET /api/opportunities ─ Listar oportunidades ──────
 router.get('/', async (req, res) => {
   try {
-    const { status, category, limit } = req.query;
-    let sql = 'SELECT * FROM opportunities WHERE 1=1';
+    const { status, category, limit, min_score, q } = req.query;
+    // Fase 2 Work: filters min_score + q añadidos sin romper clientes previos.
+    // duplicate_of filter siempre activo — los dupes no se muestran.
+    let sql = 'SELECT * FROM opportunities WHERE duplicate_of IS NULL';
     const params = [];
 
     if (status) {
@@ -27,7 +29,21 @@ router.get('/', async (req, res) => {
       sql += ` AND category = $${params.length}`;
     }
 
-    sql += ' ORDER BY created_at DESC';
+    const minScore = parseInt(min_score, 10);
+    if (Number.isFinite(minScore) && minScore > 0) {
+      params.push(minScore);
+      sql += ` AND match_score >= $${params.length}`;
+    }
+
+    if (q && typeof q === 'string' && q.trim().length >= 2) {
+      params.push(`%${q.trim()}%`);
+      sql += ` AND (title ILIKE $${params.length} OR description ILIKE $${params.length})`;
+    }
+
+    // Orden por score si hay filtro explícito, sino por recencia.
+    sql += Number.isFinite(minScore) && minScore > 0
+      ? ' ORDER BY match_score DESC NULLS LAST, posted_at DESC NULLS LAST'
+      : ' ORDER BY created_at DESC';
     params.push(parseInt(limit) || 50);
     sql += ` LIMIT $${params.length}`;
 
@@ -220,16 +236,8 @@ router.get('/high-score', async (req, res) => {
   try {
     const minScore = parseInt(req.query.min_score) || 8;
     const limit = parseInt(req.query.limit) || 20;
-    const rows = await db.queryAll(
-      `SELECT id, title, source, url, category, payout_type, salary_min, salary_max, currency,
-        match_score, status, posted_at, last_seen
-       FROM opportunities
-       WHERE match_score >= $1 AND status = 'new'
-       ORDER BY match_score DESC, posted_at DESC NULLS LAST
-       LIMIT $2`,
-      [minScore, limit]
-    );
-    res.json({ ok: true, count: rows.length, data: rows });
+    const result = await require('../domain/opportunities').getHighScoreOpps({ minScore, limit });
+    res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
