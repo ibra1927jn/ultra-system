@@ -5,11 +5,13 @@ import { TabNav } from '@/ui/TabNav';
 import { MovesOverview } from './MovesOverview';
 import { MovesUpcoming } from './MovesUpcoming';
 import { MovesMemberships } from './MovesMemberships';
+import { MovesPoi } from './MovesPoi';
 
 const TABS = [
   { to: '/app/moves', label: 'moves.tab.overview', testId: 'moves-tab-overview' },
   { to: '/app/moves/upcoming', label: 'moves.tab.upcoming', testId: 'moves-tab-upcoming' },
   { to: '/app/moves/memberships', label: 'moves.tab.memberships', testId: 'moves-tab-memberships' },
+  { to: '/app/moves/poi', label: 'moves.tab.poi', testId: 'moves-tab-poi' },
 ] as const;
 
 export default function MovesPage() {
@@ -23,6 +25,7 @@ export default function MovesPage() {
           <Route index element={<MovesOverview />} />
           <Route path="upcoming" element={<MovesUpcoming />} />
           <Route path="memberships" element={<MovesMemberships />} />
+          <Route path="poi" element={<MovesPoi />} />
           <Route path="*" element={<Navigate to="/app/moves" replace />} />
         </Routes>
       </div>

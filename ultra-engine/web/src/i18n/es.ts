@@ -67,6 +67,7 @@ export const es = {
   'moves.tab.overview': 'Resumen',
   'moves.tab.upcoming': 'Próximos',
   'moves.tab.memberships': 'Membresías',
+  'moves.tab.poi': 'POIs',
   'moves.kpi.next48h': 'Próximas 48h',
   'moves.kpi.critical': 'Críticos',
   'moves.kpi.memberships': 'Membresías activas',

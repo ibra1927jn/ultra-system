@@ -145,6 +145,8 @@ export function usePaletteItems(): ReadonlyArray<PaletteItem> {
       { id: 'moves', label: 'Movimientos · Overview', hint: 'g·v', perform: () => navigate('/app/moves') },
       { id: 'moves-upcoming', label: 'Movimientos · Próximos', perform: () => navigate('/app/moves/upcoming') },
       { id: 'moves-mem', label: 'Movimientos · Membresías', perform: () => navigate('/app/moves/memberships') },
+      { id: 'moves-poi', label: 'Movimientos · POIs cerca', perform: () => navigate('/app/moves/poi') },
+      { id: 'me-timeline', label: 'Yo · Timeline compliance', perform: () => navigate('/app/me/timeline') },
       { id: 'world', label: 'Mundo · CTA a /worldmap.html', hint: 'g·g', perform: () => navigate('/app/world') },
       { id: 'worldmap', label: 'Legacy WorldMonitor (/worldmap.html)', hint: 'cockpit', perform: () => { window.location.href = '/worldmap.html'; } },
       { id: 'money-cockpit', label: 'Legacy Money Cockpit (/money.html)', hint: 'cockpit', perform: () => { window.location.href = '/money.html'; } },
