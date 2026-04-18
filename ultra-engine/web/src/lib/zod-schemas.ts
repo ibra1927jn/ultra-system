@@ -12,6 +12,7 @@ export const PreviewItemSchema = z.object({
   id: z.string(),
   text: z.string(),
   meta: z.string().nullable(),
+  href: z.string().nullable().optional(),
 });
 
 export const SectionSchema = z.object({

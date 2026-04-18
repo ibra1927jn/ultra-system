@@ -222,11 +222,12 @@ async function buildSectionFromRaw(name, raw) {
       const hasCritical = alerts.some(a => a.severity === 'critical');
       const badge = hasCritical ? 'alert' : (alerts.length ? 'warn' : 'info');
       const preview = [
-        ...alerts.slice(0, 3).map((a, i) => ({ id: `alert-${i}`, text: a.message, meta: a.severity })),
+        ...alerts.slice(0, 3).map((a, i) => ({ id: `alert-${i}`, text: a.message, meta: a.severity, href: '/app/me/bio' })),
         ...mood.slice(0, Math.max(0, 5 - alerts.length)).map(m => ({
           id: `mood-${m.id}`,
           text: `Mood ${m.mood}/10 · energía ${m.energy ?? '—'}`,
           meta: m.logged_at ? new Date(m.logged_at).toISOString().slice(0, 10) : null,
+          href: '/app/me/bio',
         })),
       ].slice(0, 5);
       return makeSection({
@@ -247,6 +248,7 @@ async function buildSectionFromRaw(name, raw) {
           id: `opp-${o.id}`,
           text: o.title,
           meta: o.source ? `${o.source} · ${o.match_score}` : `score ${o.match_score}`,
+          href: '/app/work/matches',
         })),
       });
     }
@@ -258,9 +260,9 @@ async function buildSectionFromRaw(name, raw) {
       const badge = overspend ? 'alert' : (alerts.count ? 'warn' : (balance < 0 ? 'warn' : 'info'));
       const previewCats = (summary.byCategory || [])
         .filter(c => c.type === 'expense').slice(0, 3)
-        .map(c => ({ id: `cat-${c.category}`, text: c.category, meta: `${parseFloat(c.total).toFixed(0)}` }));
+        .map(c => ({ id: `cat-${c.category}`, text: c.category, meta: `${parseFloat(c.total).toFixed(0)}`, href: '/app/money' }));
       const previewAlerts = (alerts.data || []).slice(0, 2)
-        .map(a => ({ id: `bud-${a.category}`, text: `${a.category} ${a.percent_used}%`, meta: 'presupuesto' }));
+        .map(a => ({ id: `bud-${a.category}`, text: `${a.category} ${a.percent_used}%`, meta: 'presupuesto', href: '/app/money' }));
       const preview = [...previewAlerts, ...previewCats].slice(0, 5);
       return makeSection({
         kpi: Math.round(balance),
@@ -279,11 +281,13 @@ async function buildSectionFromRaw(name, raw) {
           id: `log-${i.id}`,
           text: i.title || i.type || 'evento',
           meta: `T-${i.days_until}d · ${i.urgency}`,
+          href: '/app/moves/upcoming',
         })),
         ...taxes.slice(0, 2).map(t => ({
           id: `tax-${t.id}`,
           text: `${t.name} (${t.country})`,
           meta: `${t.days_remaining}d`,
+          href: '/app/me/timeline',
         })),
       ].slice(0, 5);
       return makeSection({

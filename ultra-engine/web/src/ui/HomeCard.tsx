@@ -36,38 +36,60 @@ export function HomeCard({ sectionKey, href, label, section }: Props) {
   const badge: Section['badge'] = section ? section.badge : 'none';
 
   return (
-    <Link
-      to={href}
+    <div
       data-testid={`home-card-${sectionKey}`}
-      className="flex flex-col rounded-lg border border-border bg-bg-panel p-6 transition hover:border-accent hover:bg-bg-elev"
+      className="flex flex-col rounded-lg border border-border bg-bg-panel p-6 transition hover:border-accent"
     >
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-card-title">{label}</span>
-        <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${BADGE_DOT[badge]}`} />
-      </div>
-
-      {kpi !== null && (
-        <div data-testid={`home-card-${sectionKey}-kpi`} className="mt-2 text-section">
-          {kpi}
+      <Link
+        to={href}
+        data-testid={`home-card-${sectionKey}-header`}
+        className="flex flex-col rounded hover:bg-bg-elev -m-2 p-2"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-card-title">{label}</span>
+          <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${BADGE_DOT[badge]}`} />
         </div>
-      )}
-      <div className={`mt-2 text-meta ${BADGE_CLASS[badge]}`}>
-        {subtext}
-      </div>
+
+        {kpi !== null && (
+          <div data-testid={`home-card-${sectionKey}-kpi`} className="mt-2 text-section">
+            {kpi}
+          </div>
+        )}
+        <div className={`mt-2 text-meta ${BADGE_CLASS[badge]}`}>
+          {subtext}
+        </div>
+      </Link>
 
       {preview && preview.length > 0 && (
         <ul
           data-testid={`home-card-${sectionKey}-preview`}
           className="mt-4 space-y-1 border-t border-border pt-3"
         >
-          {preview.slice(0, 3).map((p) => (
-            <li key={p.id} className="flex items-center justify-between gap-2">
-              <span className="truncate text-meta text-fg">{p.text}</span>
-              {p.meta && <span className="shrink-0 text-meta text-fg-dim">{p.meta}</span>}
-            </li>
-          ))}
+          {preview.slice(0, 3).map((p) => {
+            const content = (
+              <>
+                <span className="truncate text-meta text-fg">{p.text}</span>
+                {p.meta && <span className="shrink-0 text-meta text-fg-dim">{p.meta}</span>}
+              </>
+            );
+            return (
+              <li key={p.id}>
+                {p.href ? (
+                  <Link
+                    to={p.href}
+                    data-testid={`home-card-${sectionKey}-preview-link-${p.id}`}
+                    className="flex items-center justify-between gap-2 rounded px-1 -mx-1 hover:bg-bg-elev"
+                  >
+                    {content}
+                  </Link>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">{content}</div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
-    </Link>
+    </div>
   );
 }
