@@ -15,7 +15,11 @@ export type TopBarSection = (typeof SECTIONS)[number];
 // Mapa público para el listener de teclado en App.tsx.
 export const TOPBAR_SECTIONS = SECTIONS;
 
-export function TopBar() {
+type TopBarProps = {
+  onOpenPalette?: () => void;
+};
+
+export function TopBar({ onOpenPalette }: TopBarProps = {}) {
   return (
     <header className="sticky top-0 z-40 flex items-center gap-1 border-b border-border bg-bg-base/90 px-6 py-3 backdrop-blur">
       <NavLink
@@ -47,7 +51,18 @@ export function TopBar() {
           </NavLink>
         ))}
       </nav>
-      <span className="hidden text-meta text-fg-dim md:inline">g+h · g+w · g+m · …</span>
+      {onOpenPalette && (
+        <button
+          type="button"
+          onClick={onOpenPalette}
+          data-testid="topbar-palette"
+          className="ml-3 hidden items-center gap-2 rounded border border-border px-3 py-1 text-meta text-fg-muted hover:border-accent hover:text-fg md:inline-flex"
+          aria-label="Abrir command palette"
+        >
+          <span>Buscar</span>
+          <kbd className="rounded bg-bg-elev px-1.5 py-0.5 text-fg-dim">⌘K</kbd>
+        </button>
+      )}
     </header>
   );
 }
