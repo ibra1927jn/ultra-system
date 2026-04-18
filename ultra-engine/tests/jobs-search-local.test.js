@@ -47,7 +47,7 @@ beforeAll(async () => {
     return;
   }
   throw new Error('login failed: rate-limited after 6 retries');
-});
+}, 30_000);
 
 async function get(qs = '') {
   const res = await fetch(`${ENGINE_URL}/api/jobs/search-local${qs ? `?${qs}` : ''}`, {

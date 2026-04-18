@@ -61,7 +61,7 @@ beforeAll(async () => {
     return;
   }
   throw new Error('login failed: rate-limited after 6 retries');
-});
+}, 30_000);
 
 async function getOverview() {
   const res = await fetch(`${ENGINE_URL}/api/home/overview`, { headers: { Cookie: COOKIE } });
