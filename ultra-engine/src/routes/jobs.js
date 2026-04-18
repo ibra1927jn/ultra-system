@@ -147,6 +147,92 @@ router.post('/companies', async (req, res) => {
   }
 });
 
+// ─── GET /api/jobs/search-local ─ Filtros para tab Work/Matches ──────
+// Filtros cliente-side: min_score, q, country (ISO), visa (true → requiere
+// visa_sponsorship=TRUE OR company ∈ emp_visa_sponsors), remote (true/false/any),
+// status, source_type (api|scrape|all), limit.
+//
+// duplicate_of IS NULL siempre activo — no mostrar dupes.
+router.get('/search-local', async (req, res) => {
+  try {
+    const {
+      min_score, q, country, visa, remote, status, source_type, limit,
+    } = req.query;
+
+    const params = [];
+    const where = ['j.duplicate_of IS NULL'];
+
+    const minScore = parseInt(min_score, 10);
+    if (Number.isFinite(minScore) && minScore > 0) {
+      params.push(minScore);
+      where.push(`j.total_score >= $${params.length}`);
+    }
+
+    if (q && typeof q === 'string' && q.trim().length >= 2) {
+      params.push(`%${q.trim()}%`);
+      where.push(
+        `(j.title ILIKE $${params.length} OR j.company ILIKE $${params.length} OR j.description ILIKE $${params.length})`,
+      );
+    }
+
+    if (country && typeof country === 'string' && country.length === 2) {
+      params.push(country.toUpperCase());
+      where.push(`j.location_country = $${params.length}`);
+    }
+
+    if (status) {
+      params.push(status);
+      where.push(`j.status = $${params.length}`);
+    }
+
+    if (source_type && source_type !== 'all') {
+      params.push(source_type);
+      where.push(`j.source_type = $${params.length}`);
+    }
+
+    // remote: 'true' → is_remote=TRUE, 'false' → is_remote IS NOT TRUE
+    if (remote === 'true') where.push('j.is_remote = TRUE');
+    else if (remote === 'false') where.push('(j.is_remote IS NOT TRUE)');
+
+    // visa=true: o bien visa_sponsorship=TRUE, o la empresa está en emp_visa_sponsors
+    // del mismo país. EXISTS con ILIKE (empresas suelen diferir en capitalización).
+    if (visa === 'true') {
+      where.push(`(
+        j.visa_sponsorship = TRUE
+        OR EXISTS (
+          SELECT 1 FROM emp_visa_sponsors v
+          WHERE v.country = j.location_country
+            AND LOWER(v.company_name) = LOWER(j.company)
+        )
+      )`);
+    }
+
+    params.push(parseInt(limit, 10) || 50);
+    const sql = `
+      SELECT j.id, j.title, j.company, j.url, j.description, j.category, j.sector,
+             j.location_country, j.location_city, j.location_raw, j.is_remote,
+             j.salary_min, j.salary_max, j.salary_currency, j.visa_sponsorship,
+             j.match_score, j.speed_score, j.difficulty_score, j.total_score,
+             j.status, j.source_type, j.posted_at, j.scraped_at,
+             EXISTS (
+               SELECT 1 FROM emp_visa_sponsors v
+               WHERE v.country = j.location_country
+                 AND LOWER(v.company_name) = LOWER(j.company)
+             ) AS has_sponsor
+      FROM job_listings j
+      WHERE ${where.join(' AND ')}
+      ORDER BY
+        ${Number.isFinite(minScore) && minScore > 0 ? 'j.total_score DESC,' : ''}
+        j.posted_at DESC NULLS LAST
+      LIMIT $${params.length}`;
+
+    const rows = await db.queryAll(sql, params);
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ─── GET /api/jobs/high-score ─ Top match jobs ───────────
 router.get('/high-score', async (req, res) => {
   try {

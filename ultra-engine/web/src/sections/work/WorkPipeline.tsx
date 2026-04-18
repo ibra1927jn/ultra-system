@@ -4,10 +4,10 @@ import { ErrorState } from '@/ui/ErrorState';
 import { EmptyState } from '@/ui/EmptyState';
 import { ListRow } from '@/ui/ListRow';
 import { usePipeline, useOpportunities } from './useWorkData';
-import { OPP_STATUSES, type OppStatus, type Opportunity } from './types';
+import { OPP_STATUSES, oppToMatch, type OppStatus, type MatchLike } from './types';
 
 type Props = {
-  onOpen: (opp: Opportunity) => void;
+  onOpen: (match: MatchLike) => void;
 };
 
 export function WorkPipeline({ onOpen }: Props) {
@@ -71,7 +71,7 @@ function PipelineColumn({
 }: {
   status: OppStatus;
   count: number;
-  onOpen: (opp: Opportunity) => void;
+  onOpen: (match: MatchLike) => void;
 }) {
   // Cada columna hace su propia query al endpoint con filtro status.
   // Limit 10 por columna — kanban no necesita paginación completa en MVP.
@@ -100,7 +100,7 @@ function PipelineColumn({
               title={o.title}
               subtitle={o.source ?? ''}
               trailing={o.match_score !== null ? String(o.match_score) : '—'}
-              onClick={() => onOpen(o)}
+              onClick={() => onOpen(oppToMatch(o))}
             />
           ))}
         </div>

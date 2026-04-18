@@ -6,10 +6,10 @@ import { ErrorState } from '@/ui/ErrorState';
 import { EmptyState } from '@/ui/EmptyState';
 import { ListRow } from '@/ui/ListRow';
 import { useHighScoreOpps, usePipeline } from './useWorkData';
-import type { Opportunity } from './types';
+import { oppToMatch, type MatchLike } from './types';
 
 type Props = {
-  onOpen: (opp: Opportunity) => void;
+  onOpen: (match: MatchLike) => void;
 };
 
 export function WorkOverview({ onOpen }: Props) {
@@ -72,7 +72,7 @@ export function WorkOverview({ onOpen }: Props) {
         {highScore.status === 'ok' && highScore.data.length > 0 && (
           <div className="grid gap-3 md:grid-cols-2">
             {highScore.data.map((o) => (
-              <MatchCard key={o.id} opp={o} onOpen={onOpen} />
+              <MatchCard key={o.id} match={oppToMatch(o)} onOpen={onOpen} />
             ))}
           </div>
         )}

@@ -8,7 +8,7 @@ import { WorkOverview } from './WorkOverview';
 import { WorkMatches } from './WorkMatches';
 import { WorkPipeline } from './WorkPipeline';
 import { updateOpportunityStatus } from './useWorkData';
-import type { Opportunity, OppStatus } from './types';
+import type { MatchLike, OppStatus } from './types';
 
 const TABS = [
   { to: '/app/work', label: 'work.tab.overview', testId: 'work-tab-overview' },
@@ -21,16 +21,16 @@ const STATUS_OPTIONS: ReadonlyArray<OppStatus> = [
 ];
 
 export default function WorkPage() {
-  const [openOpp, setOpenOpp] = useState<Opportunity | null>(null);
+  const [open, setOpen] = useState<MatchLike | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
 
   const handleStatusChange = async (s: OppStatus) => {
-    if (!openOpp) return;
+    if (!open || open.raw.kind !== 'opp') return;
     setActionBusy(true);
-    const res = await updateOpportunityStatus(openOpp.id, s);
+    const res = await updateOpportunityStatus(open.raw.opp.id, s);
     setActionBusy(false);
     if (res.ok) {
-      setOpenOpp({ ...openOpp, status: s });
+      setOpen({ ...open, status: s, raw: { kind: 'opp', opp: { ...open.raw.opp, status: s } } });
     }
   };
 
@@ -41,23 +41,23 @@ export default function WorkPage() {
       <TabNav tabs={tabs} testId="work-tabs" />
       <div className="mt-6">
         <Routes>
-          <Route index element={<WorkOverview onOpen={setOpenOpp} />} />
-          <Route path="matches" element={<WorkMatches onOpen={setOpenOpp} />} />
-          <Route path="pipeline" element={<WorkPipeline onOpen={setOpenOpp} />} />
+          <Route index element={<WorkOverview onOpen={setOpen} />} />
+          <Route path="matches" element={<WorkMatches onOpen={setOpen} />} />
+          <Route path="pipeline" element={<WorkPipeline onOpen={setOpen} />} />
           <Route path="*" element={<Navigate to="/app/work" replace />} />
         </Routes>
       </div>
 
       <DetailDrawer
-        open={openOpp !== null}
-        onClose={() => setOpenOpp(null)}
-        title={openOpp?.title ?? ''}
+        open={open !== null}
+        onClose={() => setOpen(null)}
+        title={open?.title ?? ''}
         actions={
-          openOpp && (
+          open && (
             <>
-              {openOpp.url && (
+              {open.url && (
                 <a
-                  href={openOpp.url}
+                  href={open.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="rounded border border-border px-3 py-1 text-meta text-fg hover:border-accent"
@@ -66,53 +66,61 @@ export default function WorkPage() {
                 </a>
               )}
               <span className="flex-1" />
-              {STATUS_OPTIONS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  disabled={actionBusy || openOpp.status === s}
-                  onClick={() => handleStatusChange(s)}
-                  data-testid={`drawer-status-${s}`}
-                  className={
-                    openOpp.status === s
-                      ? 'rounded border border-accent px-3 py-1 text-meta text-accent'
-                      : 'rounded border border-border px-3 py-1 text-meta text-fg hover:border-accent disabled:opacity-50'
-                  }
-                >
-                  {t(`status.${s}` as const)}
-                </button>
-              ))}
+              {open.raw.kind === 'opp' &&
+                STATUS_OPTIONS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    disabled={actionBusy || open.status === s}
+                    onClick={() => handleStatusChange(s)}
+                    data-testid={`drawer-status-${s}`}
+                    className={
+                      open.status === s
+                        ? 'rounded border border-accent px-3 py-1 text-meta text-accent'
+                        : 'rounded border border-border px-3 py-1 text-meta text-fg hover:border-accent disabled:opacity-50'
+                    }
+                  >
+                    {t(`status.${s}` as const)}
+                  </button>
+                ))}
             </>
           )
         }
       >
-        {openOpp && (
+        {open && (
           <div className="space-y-3 text-meta">
-            <div className="flex flex-wrap gap-2 text-fg-muted">
-              {openOpp.source && <span>fuente: <span className="text-fg">{openOpp.source}</span></span>}
-              {openOpp.match_score !== null && (
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-fg-muted">
+              {open.source && (
                 <span>
-                  score: <span className="text-fg">{openOpp.match_score}</span>
+                  fuente: <span className="text-fg">{open.source}</span>
                 </span>
               )}
-              {openOpp.category && <span>· {openOpp.category}</span>}
-              {openOpp.payout_type && <span>· {openOpp.payout_type}</span>}
+              {open.score !== null && (
+                <span>
+                  score: <span className="text-fg">{open.score}</span>
+                </span>
+              )}
+              {open.subtitle && <span>· {open.subtitle}</span>}
+              {open.location && <span>· {open.location}</span>}
+              {open.visaOk === true && (
+                <span className="rounded bg-accent/15 px-2 py-0.5 text-accent">visa ok</span>
+              )}
             </div>
-            {openOpp.description && (
-              <p className="whitespace-pre-wrap text-fg">{openOpp.description}</p>
+            {open.description && (
+              <p className="whitespace-pre-wrap text-fg">{open.description}</p>
             )}
-            {openOpp.tags && openOpp.tags.length > 0 && (
+            {open.tags.length > 0 && (
               <div className="flex flex-wrap gap-1">
-                {openOpp.tags.map((tag) => (
+                {open.tags.map((tag) => (
                   <span key={tag} className="rounded bg-bg-elev px-2 py-0.5 text-fg-muted">
                     {tag}
                   </span>
                 ))}
               </div>
             )}
-            {openOpp.deadline && (
+            {open.raw.kind === 'opp' && open.raw.opp.deadline && (
               <p className="text-fg-muted">
-                deadline: <span className="text-fg">{openOpp.deadline}</span>
+                deadline: <span className="text-fg">{open.raw.opp.deadline}</span>
               </p>
             )}
           </div>

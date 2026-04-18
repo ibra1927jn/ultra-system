@@ -88,3 +88,101 @@ export const OPP_STATUSES: ReadonlyArray<OppStatus> = [
   'rejected',
   'won',
 ];
+
+// ─── Job listings (traditional employment) ───────────────
+export const JobStatusSchema = z.enum(['new', 'saved', 'applied', 'rejected']);
+export type JobStatus = z.infer<typeof JobStatusSchema>;
+
+export const JobSchema = z.object({
+  id: z.number(),
+  title: z.string(),
+  company: z.string().nullable(),
+  url: z.string().nullable(),
+  description: z.string().nullable(),
+  category: z.string().nullable(),
+  sector: z.string().nullable(),
+  location_country: z.string().nullable(),
+  location_city: z.string().nullable(),
+  location_raw: z.string().nullable(),
+  is_remote: z.boolean().nullable(),
+  salary_min: z.union([z.string(), z.number(), z.null()]),
+  salary_max: z.union([z.string(), z.number(), z.null()]),
+  salary_currency: z.string().nullable(),
+  visa_sponsorship: z.boolean().nullable(),
+  match_score: z.number().nullable(),
+  total_score: z.number().nullable(),
+  speed_score: z.number().nullable(),
+  difficulty_score: z.number().nullable(),
+  status: JobStatusSchema.nullable(),
+  source_type: z.string().nullable(),
+  posted_at: z.string().nullable(),
+  scraped_at: z.string().nullable(),
+  has_sponsor: z.boolean().nullable(),
+});
+export type Job = z.infer<typeof JobSchema>;
+
+export const JobListSchema = z.object({
+  ok: z.literal(true),
+  count: z.number(),
+  data: z.array(JobSchema),
+});
+
+// ─── Unified MatchLike para renderizar opps + jobs con un mismo card ──
+export type MatchLike = {
+  id: string;          // "opp-42" | "job-123" — único cross-source
+  title: string;
+  source: string | null; // ej "code4rena" | "seek" | "remoteok"
+  url: string | null;
+  score: number | null;  // match_score para opps, total_score para jobs
+  subtitle: string | null; // compañía o categoría
+  status: string | null;
+  salary_min: string | number | null;
+  salary_max: string | number | null;
+  currency: string | null;
+  tags: string[];
+  description: string | null;
+  location: string | null; // "NZ" | "NZ · Auckland" | "remoto"
+  visaOk: boolean | null;   // true si visa_sponsorship o has_sponsor
+  raw: { kind: 'opp'; opp: Opportunity } | { kind: 'job'; job: Job };
+};
+
+export function oppToMatch(o: Opportunity): MatchLike {
+  return {
+    id: `opp-${o.id}`,
+    title: o.title,
+    source: o.source,
+    url: o.url,
+    score: o.match_score,
+    subtitle: o.category,
+    status: o.status,
+    salary_min: o.salary_min,
+    salary_max: o.salary_max,
+    currency: o.currency,
+    tags: o.tags ?? [],
+    description: o.description,
+    location: null,
+    visaOk: null,
+    raw: { kind: 'opp', opp: o },
+  };
+}
+
+export function jobToMatch(j: Job): MatchLike {
+  const loc = [j.location_country, j.location_city].filter(Boolean).join(' · ');
+  return {
+    id: `job-${j.id}`,
+    title: j.title,
+    source: j.source_type,
+    url: j.url,
+    score: j.total_score,
+    subtitle: j.company,
+    status: j.status,
+    salary_min: j.salary_min,
+    salary_max: j.salary_max,
+    currency: j.salary_currency,
+    tags: [j.sector, j.category].filter((x): x is string => Boolean(x)),
+    description: j.description,
+    location: j.is_remote ? 'remoto' : loc || null,
+    visaOk: j.visa_sponsorship === true || j.has_sponsor === true,
+    raw: { kind: 'job', job: j },
+  };
+}

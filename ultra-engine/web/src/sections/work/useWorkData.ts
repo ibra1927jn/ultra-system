@@ -4,9 +4,11 @@ import {
   OpportunityListSchema,
   PipelineSchema,
   HighScoreSchema,
+  JobListSchema,
   type Opportunity,
   type Pipeline,
   type OppStatus,
+  type Job,
 } from './types';
 
 type ListState =
@@ -96,6 +98,61 @@ export function usePipeline(): PipelineState & { refetch: () => void } {
         setState({ status: 'error', error: msg });
       });
   }, []);
+
+  useEffect(() => {
+    load();
+    return () => ctrlRef.current?.abort();
+  }, [load]);
+
+  return { ...state, refetch: load };
+}
+
+// ─── Jobs (employment) ───────────────────────────────────
+type JobFilters = {
+  minScore?: number | undefined;
+  q?: string | undefined;
+  country?: string | undefined;
+  visa?: boolean | undefined;
+  remote?: 'true' | 'false' | 'any' | undefined;
+  status?: string | undefined;
+  limit?: number | undefined;
+};
+
+function buildJobQuery(f: JobFilters): string {
+  const p = new URLSearchParams();
+  if (f.minScore && f.minScore > 0) p.set('min_score', String(f.minScore));
+  if (f.q && f.q.trim().length >= 2) p.set('q', f.q.trim());
+  if (f.country && f.country.length === 2) p.set('country', f.country.toUpperCase());
+  if (f.visa) p.set('visa', 'true');
+  if (f.remote && f.remote !== 'any') p.set('remote', f.remote);
+  if (f.status) p.set('status', f.status);
+  p.set('limit', String(f.limit ?? 50));
+  return p.toString();
+}
+
+type JobsState =
+  | { status: 'loading' }
+  | { status: 'error'; error: string }
+  | { status: 'ok'; data: Job[] };
+
+export function useJobs(filters: JobFilters): JobsState & { refetch: () => void } {
+  const [state, setState] = useState<JobsState>({ status: 'loading' });
+  const ctrlRef = useRef<AbortController | null>(null);
+  const key = buildJobQuery(filters);
+
+  const load = useCallback(() => {
+    ctrlRef.current?.abort();
+    const ctrl = new AbortController();
+    ctrlRef.current = ctrl;
+    setState({ status: 'loading' });
+    apiFetch(`/api/jobs/search-local?${key}`, JobListSchema, { signal: ctrl.signal })
+      .then((r) => setState({ status: 'ok', data: r.data }))
+      .catch((err: unknown) => {
+        if (ctrl.signal.aborted) return;
+        const msg = err instanceof ApiError ? err.message : 'unknown';
+        setState({ status: 'error', error: msg });
+      });
+  }, [key]);
 
   useEffect(() => {
     load();
