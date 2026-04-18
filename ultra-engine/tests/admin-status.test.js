@@ -60,7 +60,7 @@ beforeAll(async () => {
     return;
   }
   throw new Error('login failed: rate-limited after 6 retries');
-});
+}, 30_000);
 
 async function getAdminStatus() {
   const res = await fetch(`${ENGINE_URL}/api/admin/status`, { headers: { Cookie: COOKIE } });
