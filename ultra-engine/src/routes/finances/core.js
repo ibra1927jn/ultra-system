@@ -92,6 +92,8 @@ router.post('/', async (req, res) => {
       if (!tx.ok) console.warn('⚠️ Firefly forward failed:', tx.error);
     }
 
+    // Invalida cache del home aggregator para reflejar nuevo gasto/ingreso.
+    require('../../domain/home-cache').invalidate('money.');
     res.status(201).json({ ok: true, data: local, firefly: ffResult });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });

@@ -1,6 +1,5 @@
 // In-process cache para el agregador /api/home/overview.
-// Fase 1.2: TTL=0 por defecto en todas las claves -> siempre recomputa.
-// La estructura está lista para subir TTLs cuando midamos coste real.
+// TTL por clave, TTL=0 deshabilita cache (siempre recomputa).
 
 const store = new Map();
 
@@ -16,4 +15,20 @@ async function getOrCompute(key, ttlMs, fn) {
 
 function clear() { store.clear(); }
 
-module.exports = { getOrCompute, clear };
+// Invalidación selectiva por prefix match. Usada desde endpoints de
+// escritura (POST /api/bio/mood, /api/finances, /api/logistics) para
+// que el home aggregator refleje cambios inmediatos en lugar de
+// esperar al TTL (30-60s).
+function invalidate(prefix) {
+  if (!prefix) return 0;
+  let count = 0;
+  for (const key of store.keys()) {
+    if (key.startsWith(prefix) || key === prefix) {
+      store.delete(key);
+      count++;
+    }
+  }
+  return count;
+}
+
+module.exports = { getOrCompute, clear, invalidate };

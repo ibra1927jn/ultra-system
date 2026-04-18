@@ -139,6 +139,9 @@ router.post('/mood', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5) RETURNING *`,
       [mood, energy || null, anxiety || null, tags || null, notes || null]
     );
+    // Invalida cache del home aggregator para que refleje el nuevo mood
+    // inmediatamente (antes 30s TTL).
+    require('../domain/home-cache').invalidate('me.');
     res.status(201).json({ ok: true, data: row });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

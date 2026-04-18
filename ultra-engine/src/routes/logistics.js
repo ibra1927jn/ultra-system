@@ -391,6 +391,11 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Invalida cache del home aggregator (también money si hay cost > 0).
+    const homeCache = require('../domain/home-cache');
+    homeCache.invalidate('moves.');
+    if (numericCost > 0) homeCache.invalidate('money.');
+
     res.status(201).json({ ok: true, data: result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
