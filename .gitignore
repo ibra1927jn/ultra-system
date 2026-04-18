@@ -17,3 +17,8 @@ osrm/data/
 
 # Deploy artifacts
 deploy.tar.gz
+
+# SPA build output (Vite → public/app/). Source vive en ultra-engine/web/
+ultra-engine/public/app/
+ultra-engine/web/dist/
+ultra-engine/web/*.tsbuildinfo
