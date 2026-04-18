@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { MatchLike } from '@/sections/work/types';
 
 type Props = {
@@ -30,7 +31,9 @@ function scoreBadgeClass(score: number | null): string {
 
 // Card reutilizable — acepta MatchLike (opp o job adaptados). Título + score +
 // subtitle + salary + tags + visa badge. variant='compact' oculta desc/tags.
-export function MatchCard({ match, onOpen, variant = 'compact', testId }: Props) {
+// memo() evita re-renders cuando otros MatchCard de la misma lista cambian —
+// WorkMatches renderiza hasta 50 cards y filtros triggerean re-render padre.
+function MatchCardImpl({ match, onOpen, variant = 'compact', testId }: Props) {
   const sal = formatSalary(match);
   const cls =
     'flex w-full flex-col items-start rounded-lg border border-border bg-bg-panel p-4 ' +
@@ -85,3 +88,6 @@ export function MatchCard({ match, onOpen, variant = 'compact', testId }: Props)
     </button>
   );
 }
+
+export const MatchCard = memo(MatchCardImpl);
+
