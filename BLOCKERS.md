@@ -61,9 +61,10 @@ Algunos mini-features quedaron descartados:
 Android lo aceptan pero puede mejorarse con PNG dedicados generados
 con pwa-asset-generator o ImageMagick.
 
-### [2026-04-18 04:20] · baja · Focus trap en DetailDrawer
-ESC + overlay click funcionan. Tab cycling dentro del drawer no está
-implementado — con focus-trap-react (2KB) o nativo con sentinel nodes.
+### ~~[2026-04-18 04:20] · baja · Focus trap en DetailDrawer~~ ✅ DONE 2026-04-18 07:22
+Sentinel nodes sr-only + focusableWithin() al inicio/fin del diálogo.
+Foco al primer focusable al abrir, restaurado al elemento previo al
+cerrar. 5 tests en DetailDrawer.test.tsx. Commit 5912c08.
 
 ### [2026-04-18 04:20] · baja · Paperless cron para document_alerts
 Ya existe (`paperless-ocr-sync` cada 6h :40). User solo tiene 1 doc
