@@ -4,7 +4,7 @@ Lista viva de cosas que necesitan al usuario. Yo sigo trabajando en lo que puedo
 
 **Formato:** `[YYYY-MM-DD HH:MM] · prioridad · descripción · cómo desbloquear`
 
-Última actualización: 2026-04-18 04:20 tras 46 commits autónomos pusheados.
+Última actualización: 2026-04-18 07:05 tras HomeCard preview navigation + harvest calendar DB + payroll NZ Holidays Act.
 
 ---
 
@@ -32,18 +32,19 @@ Todas las demás piezas de World están completas en la SPA:
 
 **Recomendación:** SVG choropleth lazy-loaded al entrar a sub-ruta `/app/world/map`. 4-6h de trabajo.
 
-### [2026-04-18 04:20] · media · Edit logistics (form completo, no solo status)
-PATCH /:id existe con todos los campos editables; falta el formulario
-que los exponga. Actualmente solo se puede marcar done/confirmed.
-
 ### [2026-04-18 04:20] · media · Jobs pipeline kanban (paralelo a opps)
 WorkPipeline ahora solo muestra opportunities. Añadir toggle source o
 tab independiente para jobs con status new/saved/applied/rejected.
 
-### [2026-04-18 04:20] · media · HomeCard preview click-to-navigate
-Los 3 preview items de cada section card muestran info pero no son
-clicables. Backend `buildSectionFromRaw` genera preview sin `href` —
-extender el shape para incluir `href` por item y linkificar.
+### ~~[2026-04-18 04:20] · media · Edit logistics (form completo)~~ ✅ DONE
+`LogisticsEditModal` expone todos los campos (type, title, date,
+location, notes, status, cost) con DetailDrawer y PATCH /:id.
+
+### ~~[2026-04-18 04:20] · media · HomeCard preview click-to-navigate~~ ✅ DONE 2026-04-18 07:05
+Backend `buildSectionFromRaw` inyecta `href` por item (me→bio,
+work→matches, money→money, moves→upcoming/timeline).
+PreviewItemSchema extendido, HomeCard renderiza Link por item.
+Commit 6841e11.
 
 ### [2026-04-18 04:20] · baja · Auto-reverter en algunos files
 Durante la sesión algunos files se revirtieron tras Edit/Write

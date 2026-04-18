@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import WorkPage from '@/sections/work/WorkPage';
 
@@ -62,10 +62,49 @@ const oppListBody = {
   count: 1,
 };
 
+const jobListBody = {
+  ok: true,
+  count: 1,
+  data: [
+    {
+      id: 7,
+      title: 'Senior Go engineer',
+      company: 'RemoteCorp',
+      url: 'https://example.com/j/7',
+      description: 'Build distributed systems',
+      category: 'backend',
+      sector: 'tech',
+      location_country: 'NZ',
+      location_city: 'Auckland',
+      location_raw: 'Auckland, NZ',
+      is_remote: false,
+      salary_min: 140000,
+      salary_max: 180000,
+      salary_currency: 'NZD',
+      visa_sponsorship: true,
+      match_score: null,
+      total_score: 82,
+      speed_score: null,
+      difficulty_score: null,
+      status: 'new',
+      source_type: 'seek',
+      posted_at: '2026-04-17T10:00:00Z',
+      scraped_at: '2026-04-17T10:00:00Z',
+      has_sponsor: true,
+    },
+  ],
+};
+
 beforeEach(() => {
   mockFetch((url) => {
     if (url.includes('/api/opportunities/pipeline')) {
       return new Response(JSON.stringify(pipelineBody), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/api/jobs/search-local')) {
+      return new Response(JSON.stringify(jobListBody), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -132,5 +171,23 @@ describe('WorkPage', () => {
     expect(screen.getByTestId('work-tab-overview')).toBeInTheDocument();
     expect(screen.getByTestId('work-tab-matches')).toBeInTheDocument();
     expect(screen.getByTestId('work-tab-pipeline')).toBeInTheDocument();
+  });
+
+  it('pipeline source toggle switches to jobs kanban (4 columns)', async () => {
+    renderAt('/app/work/pipeline');
+    await waitFor(() =>
+      expect(screen.getByTestId('work-pipeline-kanban')).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId('pipeline-source-jobs'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('work-pipeline-jobs-kanban')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('work-pipeline-kanban')).toBeNull();
+    expect(screen.getByText('Guardado')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('pipeline-jobs-new-7')).toBeInTheDocument(),
+    );
   });
 });
