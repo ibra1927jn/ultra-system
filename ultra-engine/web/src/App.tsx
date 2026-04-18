@@ -4,6 +4,7 @@ import { TopBar } from '@/ui/TopBar';
 import { CommandPalette, usePaletteItems } from '@/ui/CommandPalette';
 import { ToastProvider } from '@/ui/Toast';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { MustDoBadge } from '@/ui/MustDoBadge';
 import { useKeyboardNav } from '@/lib/useKeyboardNav';
 
 // Shell global de la SPA: Topbar + atajos g+letra + Cmd+K palette + ErrorBoundary.
@@ -42,6 +43,7 @@ export default function App() {
     <ToastProvider>
       <div className="min-h-full bg-bg-base text-fg">
         <TopBar onOpenPalette={() => setPaletteOpen(true)} />
+        <MustDoBadge />
         <ErrorBoundary>
           <Outlet />
         </ErrorBoundary>
