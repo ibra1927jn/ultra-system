@@ -28,6 +28,14 @@ const ArticleSchema = z.object({
 
 type Article = z.infer<typeof ArticleSchema>;
 
+type FullText = {
+  paragraphs: string[];
+  word_count: number;
+  author: string | null;
+  sitename: string | null;
+  language: string | null;
+};
+
 type Props = {
   articleId: number | null;
   onClose: () => void;
@@ -50,6 +58,14 @@ const ENTITY_BADGE: Record<string, string> = {
   GPE: 'bg-bg-elev text-fg',
   LOC: 'bg-bg-elev text-fg',
 };
+
+const TRANSLATE_LANGS: ReadonlyArray<{ code: string; label: string }> = [
+  { code: 'es', label: 'Español' },
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'Français' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'ar', label: 'العربية' },
+];
 
 export function ArticleReader({ articleId, onClose }: Props) {
   const [state, setState] = useState<State>({ status: 'loading' });
@@ -109,6 +125,74 @@ function ArticleContent({ article }: { article: Article }) {
   const sent = article.sentiment_label?.toLowerCase() ?? null;
   const sentClass = sent && sent in SENTIMENT_CLASS ? SENTIMENT_CLASS[sent] : 'text-fg-muted';
 
+  const [fullText, setFullText] = useState<FullText | null>(null);
+  const [fullTextState, setFullTextState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [fullTextErr, setFullTextErr] = useState<string | null>(null);
+
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [translateState, setTranslateState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [translateLang, setTranslateLang] = useState<string>('es');
+  const [translateErr, setTranslateErr] = useState<string | null>(null);
+
+  const fetchFullText = async () => {
+    setFullTextState('loading');
+    setFullTextErr(null);
+    try {
+      const r = await fetch(`/api/wm/article/${article.id}/fulltext`, {
+        credentials: 'include',
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const body = (await r.json()) as {
+        ok: boolean;
+        data: {
+          paragraphs?: string[];
+          word_count?: number;
+          author?: string | null;
+          sitename?: string | null;
+          language?: string | null;
+          error?: string;
+        };
+      };
+      if (body.data.error) throw new Error(body.data.error);
+      setFullText({
+        paragraphs: body.data.paragraphs ?? [],
+        word_count: body.data.word_count ?? 0,
+        author: body.data.author ?? null,
+        sitename: body.data.sitename ?? null,
+        language: body.data.language ?? null,
+      });
+      setFullTextState('idle');
+    } catch (err) {
+      setFullTextState('error');
+      setFullTextErr(err instanceof Error ? err.message : 'unknown');
+    }
+  };
+
+  const translate = async () => {
+    const text =
+      fullText?.paragraphs.join('\n\n') ||
+      article.auto_summary ||
+      article.summary ||
+      article.title;
+    setTranslateState('loading');
+    setTranslateErr(null);
+    try {
+      const r = await fetch('/api/wm/translate', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, target: translateLang }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const body = (await r.json()) as { ok: boolean; data?: { translated: string } };
+      setTranslated(body.data?.translated ?? '');
+      setTranslateState('idle');
+    } catch (err) {
+      setTranslateState('error');
+      setTranslateErr(err instanceof Error ? err.message : 'unknown');
+    }
+  };
+
   return (
     <div className="space-y-4 text-meta">
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-fg-muted">
@@ -166,6 +250,87 @@ function ArticleContent({ article }: { article: Article }) {
                 </span>
               ))}
           </div>
+        </section>
+      )}
+
+      <section aria-label="fulltext-actions" className="flex flex-wrap gap-2 border-t border-border pt-3">
+        {fullText === null && fullTextState !== 'loading' && (
+          <button
+            type="button"
+            data-testid="reader-fetch-fulltext"
+            onClick={fetchFullText}
+            className="rounded border border-border px-3 py-1 text-meta text-fg hover:border-accent"
+          >
+            {fullTextState === 'error' ? 'reintentar texto completo' : 'cargar texto completo'}
+          </button>
+        )}
+        {fullTextState === 'loading' && (
+          <span className="text-meta text-fg-muted" data-testid="reader-fulltext-loading">
+            cargando texto completo…
+          </span>
+        )}
+        <select
+          data-testid="reader-translate-lang"
+          value={translateLang}
+          onChange={(e) => setTranslateLang(e.target.value)}
+          className="rounded border border-border bg-bg-base px-3 py-1 text-meta text-fg"
+        >
+          {TRANSLATE_LANGS.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          data-testid="reader-translate"
+          onClick={translate}
+          disabled={translateState === 'loading'}
+          className="rounded border border-accent px-3 py-1 text-meta text-accent hover:bg-accent/10 disabled:opacity-50"
+        >
+          {translateState === 'loading' ? 'traduciendo…' : 'traducir'}
+        </button>
+      </section>
+
+      {fullTextErr && (
+        <p className="text-meta text-critical" role="alert">
+          error: {fullTextErr}
+        </p>
+      )}
+
+      {fullText && fullText.paragraphs.length > 0 && (
+        <section aria-label="fulltext">
+          <h3 className="mb-1 text-card-title text-fg-muted">
+            Texto completo ({fullText.word_count} palabras · {fullText.language ?? '?'})
+          </h3>
+          {fullText.author && (
+            <p className="text-meta text-fg-dim">
+              por {fullText.author}
+              {fullText.sitename && ` · ${fullText.sitename}`}
+            </p>
+          )}
+          <div className="mt-2 space-y-3" data-testid="reader-fulltext">
+            {fullText.paragraphs.map((p, i) => (
+              <p key={i} className="whitespace-pre-wrap text-fg">
+                {p}
+              </p>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {translateErr && (
+        <p className="text-meta text-critical" role="alert">
+          translate: {translateErr}
+        </p>
+      )}
+
+      {translated && (
+        <section aria-label="translation" className="border-t border-border pt-3">
+          <h3 className="mb-1 text-card-title text-accent">Traducción → {translateLang}</h3>
+          <p className="whitespace-pre-wrap text-fg" data-testid="reader-translation">
+            {translated}
+          </p>
         </section>
       )}
     </div>
