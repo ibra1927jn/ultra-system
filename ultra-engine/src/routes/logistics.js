@@ -39,15 +39,19 @@ router.get('/', async (req, res) => {
 // ─── GET /api/logistics/upcoming ─ Proximos 7 dias ──────
 router.get('/upcoming', async (req, res) => {
   try {
+    // Ventana default 90d (antes 7d — demasiado corto para nómada que
+    // planifica con meses de antelación). ?days=N override, clamp [1, 365].
+    const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 90));
     const rows = await db.queryAll(
       `SELECT *, (date - CURRENT_DATE) AS days_until
        FROM logistics
        WHERE date >= CURRENT_DATE
-       AND date <= CURRENT_DATE + INTERVAL '7 days'
+       AND date <= CURRENT_DATE + ($1 || ' days')::INTERVAL
        AND status != 'done'
-       ORDER BY date ASC`
+       ORDER BY date ASC`,
+      [String(days)]
     );
-    res.json({ ok: true, data: rows });
+    res.json({ ok: true, data: rows, window_days: days });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
