@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { DetailDrawer } from '@/ui/DetailDrawer';
+import { useToast } from '@/ui/Toast';
 
 type Props = {
   open: boolean;
@@ -68,6 +69,7 @@ export function LogisticsAddModal({ open, onClose, onCreated }: Props) {
   const [cost, setCost] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const toast = useToast();
 
   const reset = () => {
     setType('transport');
@@ -108,11 +110,13 @@ export function LogisticsAddModal({ open, onClose, onCreated }: Props) {
     });
     setBusy(false);
     if (res.ok) {
+      toast.success('Movimiento creado');
       onCreated();
       reset();
       onClose();
     } else {
       setErr(res.error);
+      toast.error(`Error: ${res.error}`);
     }
   };
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { TopBar } from '@/ui/TopBar';
 import { CommandPalette, usePaletteItems } from '@/ui/CommandPalette';
+import { ToastProvider } from '@/ui/Toast';
 import { useKeyboardNav } from '@/lib/useKeyboardNav';
 
 // Shell global de la SPA: Topbar + atajos g+letra + Cmd+K palette.
@@ -37,14 +38,16 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-full bg-bg-base text-fg">
-      <TopBar onOpenPalette={() => setPaletteOpen(true)} />
-      <Outlet />
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        items={items}
-      />
-    </div>
+    <ToastProvider>
+      <div className="min-h-full bg-bg-base text-fg">
+        <TopBar onOpenPalette={() => setPaletteOpen(true)} />
+        <Outlet />
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          items={items}
+        />
+      </div>
+    </ToastProvider>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { DetailDrawer } from '@/ui/DetailDrawer';
+import { useToast } from '@/ui/Toast';
 
 type Props = {
   open: boolean;
@@ -38,6 +39,7 @@ export function MoodLogModal({ open, onClose, onLogged }: Props) {
   const [notes, setNotes] = useState('');
   const [state, setState] = useState<State>('idle');
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const toast = useToast();
 
   const reset = () => {
     setMood(5);
@@ -63,6 +65,7 @@ export function MoodLogModal({ open, onClose, onLogged }: Props) {
     });
     if (res.ok) {
       setState('ok');
+      toast.success(`Mood ${mood}/10 guardado`);
       onLogged();
       window.setTimeout(() => {
         reset();
@@ -71,6 +74,7 @@ export function MoodLogModal({ open, onClose, onLogged }: Props) {
     } else {
       setState('error');
       setErrMsg(res.error);
+      toast.error(`Error: ${res.error}`);
     }
   };
 

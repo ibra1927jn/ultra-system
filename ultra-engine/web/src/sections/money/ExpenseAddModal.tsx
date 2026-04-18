@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { DetailDrawer } from '@/ui/DetailDrawer';
+import { useToast } from '@/ui/Toast';
 
 type Props = {
   open: boolean;
@@ -82,6 +83,7 @@ export function ExpenseAddModal({ open, onClose, onCreated }: Props) {
   const [account, setAccount] = useState('Cash');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const toast = useToast();
 
   const cats = type === 'expense' ? CATEGORIES_EXPENSE : CATEGORIES_INCOME;
 
@@ -121,11 +123,15 @@ export function ExpenseAddModal({ open, onClose, onCreated }: Props) {
     });
     setBusy(false);
     if (res.ok) {
+      toast.success(
+        `${type === 'expense' ? 'Gasto' : 'Ingreso'} ${n.toFixed(2)} ${currency} guardado`,
+      );
       onCreated();
       reset();
       onClose();
     } else {
       setErr(res.error);
+      toast.error(`Error: ${res.error}`);
     }
   };
 
