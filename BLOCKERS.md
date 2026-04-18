@@ -32,9 +32,10 @@ Todas las demás piezas de World están completas en la SPA:
 
 **Recomendación:** SVG choropleth lazy-loaded al entrar a sub-ruta `/app/world/map`. 4-6h de trabajo.
 
-### [2026-04-18 04:20] · media · Jobs pipeline kanban (paralelo a opps)
-WorkPipeline ahora solo muestra opportunities. Añadir toggle source o
-tab independiente para jobs con status new/saved/applied/rejected.
+### ~~[2026-04-18 04:20] · media · Jobs pipeline kanban~~ ✅ DONE 2026-04-18 07:07
+Source toggle Opportunities/Jobs en WorkPipeline. Jobs branch con 4
+columnas (new/saved/applied/rejected) + useJobs + jobToMatch en
+DetailDrawer. Commit 1996a65.
 
 ### ~~[2026-04-18 04:20] · media · Edit logistics (form completo)~~ ✅ DONE
 `LogisticsEditModal` expone todos los campos (type, title, date,
@@ -80,11 +81,13 @@ colaron 3 archivos untracked que no eran míos:
 - `ultra-engine/src/jobspy_massive.js` — JobSpy massive multi-site
 - `ultra-engine/src/routes/admin.js` — admin router P0-1.3
 
-**Estado:** Ninguno está mounted en server.js — son dead code. No rompen nada.
+**Estado 2026-04-18 07:25:**
+- `admin.js` → **WIRED** en /api/admin/status + 4 tests (commit b94d933)
+- `country_detect.js` y `jobspy_massive.js` → siguen dead code, pending wiring.
 
-**Cómo desbloquear:** Decidir si los wireas o los borras. El código
-parece production-ready por estilo (comentarios, docstrings, estructura
-coherente con resto del codebase).
+**Cómo desbloquear:** El usuario decide si wirea jobspy_massive.js
+(probable uso en jobs/search) y country_detect.js (normalización ISO
+para jobs) o si los borra.
 
 ---
 
