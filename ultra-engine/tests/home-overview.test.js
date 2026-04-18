@@ -23,6 +23,7 @@ const Section = z.object({
     id: z.string(),
     text: z.string(),
     meta: z.string().nullable(),
+    href: z.string().nullable().optional(),
   })).max(5).nullable(),
   priorityScore: z.number().int().min(0).max(100),
   error: z.string().nullable(),
