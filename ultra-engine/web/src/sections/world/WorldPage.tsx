@@ -7,6 +7,7 @@ import { LoadingState } from '@/ui/LoadingState';
 import { ErrorState } from '@/ui/ErrorState';
 import { EmptyState } from '@/ui/EmptyState';
 import { NewsPulseSchema, HealthAlertsSchema } from './types';
+import { WorldNews } from './WorldNews';
 
 function toNum(v: string | number | null | undefined): number {
   if (v === null || v === undefined) return 0;
@@ -112,6 +113,8 @@ export default function WorldPage() {
           )}
         </div>
       </section>
+
+      <WorldNews />
 
       <section className="mt-6" aria-label="health-alerts">
         <h2 className="mb-3 text-card-title text-fg-muted">Health alerts (WHO/CDC/ECDC)</h2>
