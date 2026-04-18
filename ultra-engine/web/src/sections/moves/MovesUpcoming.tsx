@@ -7,6 +7,7 @@ import { EmptyState } from '@/ui/EmptyState';
 import { useToast } from '@/ui/Toast';
 import { useUpcoming } from './useMovesData';
 import { LogisticsAddModal } from './LogisticsAddModal';
+import { LogisticsEditModal } from './LogisticsEditModal';
 import type { LogisticsItem } from './types';
 
 function daysNum(v: string | number | null | undefined): number | null {
@@ -28,6 +29,7 @@ async function setStatus(id: number, status: 'done' | 'confirmed' | 'pending') {
 export function MovesUpcoming() {
   const list = useUpcoming();
   const [addOpen, setAddOpen] = useState(false);
+  const [editItem, setEditItem] = useState<LogisticsItem | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [params, setParams] = useSearchParams();
   const toast = useToast();
@@ -86,6 +88,14 @@ export function MovesUpcoming() {
         }}
       />
 
+      <LogisticsEditModal
+        item={editItem}
+        onClose={() => setEditItem(null)}
+        onSaved={() => {
+          if (list.status === 'ok') list.refetch();
+        }}
+      />
+
       {list.status === 'loading' && <LoadingState />}
       {list.status === 'error' && <ErrorState message={list.error} />}
       {list.status === 'ok' && list.data.length === 0 && (
@@ -116,6 +126,15 @@ export function MovesUpcoming() {
                   {days !== null ? `T-${days}d` : ''}
                 </span>
                 <div className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    disabled={busy === i.id}
+                    data-testid={`moves-up-${i.id}-edit`}
+                    onClick={() => setEditItem(i)}
+                    className="rounded border border-border px-2 py-0.5 text-meta text-fg-muted hover:border-accent hover:text-fg disabled:opacity-50"
+                  >
+                    ✎ editar
+                  </button>
                   {i.status !== 'confirmed' && (
                     <button
                       type="button"
