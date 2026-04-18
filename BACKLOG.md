@@ -43,6 +43,35 @@
     2. Scrapear subdomain `issues.issuehunt.io` que es server-rendered por repo.
   - Prioridad: **baja** (Algora + GitHubFund cubren parcialmente el OSS bounty space).
 
+- [ ] **TSC-EMIT-LEAK** — [2026-04-16] detectado en validación Fase 1.2 React.
+  - **Síntoma**: `web/tsconfig.json` no tiene `noEmit: true`, así que `tsc -b` (en `npm run build`) emite `.js` al lado de cada `.ts/.tsx` dentro de `src/`. Resultado: `src/main.js`, `src/lib/zod-schemas.js`, `src/test/HomePage.test.js`, etc., conviven con sus `.ts(x)` originales.
+  - **Impacto**: el root `vitest run` (desde `ultra-engine/`) descubre los `.js` de `web/src/test/` y peta porque el alias `@/` no está resuelto en ese contexto. La suite web aislada (`cd web && npm test`) funciona. También: ruido en disco + tests duplicados ejecutados (uno en `.tsx` y otro en `.js`).
+  - **Fix propuesto**: añadir `"noEmit": true` en `compilerOptions` de `web/tsconfig.json`. Si se necesitan `.d.ts` para algún consumidor, usar build aparte con `--emitDeclarationOnly --outDir dist-types`. Borrar los `.js` ya emitidos en `web/src/`.
+  - Prioridad: **media** (no bloquea producción, pero ensucia tests + repo).
+
+- [ ] **P2-JOBS-STALE-ASSERTION** — [2026-04-16] detectado al correr suite full.
+  - **Síntoma**: `tests/p2-jobs.test.js` línea 110 (`expect(row.mining).toBeGreaterThan(0)`) falla porque ningún job DPW/BHP/RCG/Torre fue scrapeado en últimas 2h. El test asume que el cron de mining/logistics corre en ventana ≤2h.
+  - **Impacto**: falla intermitente del CI / suite local según cuándo se corra vs cron timing.
+  - **Investigar**: ¿el cron está caído? ¿la ventana 2h es realista? ¿el test debería medir contra el último timestamp de cron en lugar de NOW()?
+  - Prioridad: **baja** (test flaky, no producción).
+
+- [ ] **LOGIN-RATE-LIMIT-TEST-FRICTION** — [2026-04-16] detectado al correr suite full dos veces.
+  - **Síntoma**: `/api/auth/login` tiene rate-limit de 5/min. Tests que loguean (finances-endpoints, wm-endpoints, home-overview) fallan con 429 si se corre la suite varias veces seguidas en <60s.
+  - **Opciones de fix**:
+    1. Bypass del rate-limit cuando `NODE_ENV=test`.
+    2. Tests usan `Authorization: Bearer <JWT>` con un token pre-generado fuera del flujo `/login`.
+    3. Subir el límite en test env y registrar el endpoint con un keyGenerator distinto.
+  - Decisión a tomar en una fase de **test hardening** aparte; de momento se mitiga reiniciando engine antes de re-correr.
+  - Prioridad: **media** (afecta DX, no producción).
+
+- [ ] **AUTH-REDIRECT-MISMATCH** — [2026-04-15] detectado en validación Fase 1.1 React.
+  - **Síntoma**: middleware devuelve `401 JSON {"ok":false,"error":"Missing authentication"}` en rutas HTML sin cookie. CLAUDE.md especifica redirect a `/login.html`.
+  - **Rutas afectadas**: `/`, `/worldmap.html`, `/money.html`, `/app/*`.
+  - **Origen**: preexistente, NO introducido por Fase 1.1 (la SPA sólo aplicó el patrón vigente del site).
+  - **Fix propuesto (tarea aparte, no tocar en fase actual)**: en `src/middleware/jwt-auth.js` diferenciar por header `Accept`: `text/html` → `302 /login.html?next=<orig>`; `application/json` (o `/api/*`) → `401 JSON`.
+  - **Criterio de éxito**: sin cookie, navegar a `/worldmap.html` en browser redirige a login; `curl /api/home/overview` sigue dando 401 JSON.
+  - Prioridad: **media** (UX login, no bloqueante; con cookie válida todo funciona).
+
 ---
 
 ## 💀 Investigated dead-ends (R6 2026-04-08)
