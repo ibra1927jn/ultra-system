@@ -39,11 +39,18 @@ export function useSchengen() {
   return { ...res, data: res.data.data } as Refetchable<Schengen>;
 }
 
+type MoodAverages = { mood: number | string | null; energy: number | string | null };
+type RecentMood = { count: number; averages: MoodAverages | null; data: MoodEntry[] };
+
 export function useRecentMood(limit = 7) {
   const res = useEndpoint(`/api/bio/mood?limit=${limit}`, MoodListSchema);
-  if (res.status !== 'ok') return res as Refetchable<{ count: number; data: MoodEntry[] }>;
+  if (res.status !== 'ok') return res as Refetchable<RecentMood>;
   return {
     ...res,
-    data: { count: res.data.count, data: res.data.data },
-  } as Refetchable<{ count: number; data: MoodEntry[] }>;
+    data: {
+      count: res.data.count,
+      averages: res.data.averages ?? null,
+      data: res.data.data,
+    },
+  } as Refetchable<RecentMood>;
 }

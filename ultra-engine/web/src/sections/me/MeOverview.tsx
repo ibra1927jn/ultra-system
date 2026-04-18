@@ -54,7 +54,17 @@ export function MeOverview() {
     : [];
 
   const schengenDays = schengen.status === 'ok' ? schengen.data.days_remaining : null;
-  const moodAvg = mood.status === 'ok' && mood.data.count > 0 ? mood.data.count : null;
+  // mood.data.averages.mood es el promedio (1-5 típicamente). El count es
+  // cantidad de entries, no sirve como "moodAvg".
+  const moodAvgRaw =
+    mood.status === 'ok' && mood.data.count > 0 && mood.data.averages
+      ? mood.data.averages.mood
+      : null;
+  const moodAvg = (() => {
+    if (moodAvgRaw === null || moodAvgRaw === undefined) return null;
+    const n = typeof moodAvgRaw === 'number' ? moodAvgRaw : parseFloat(moodAvgRaw);
+    return Number.isFinite(n) ? n.toFixed(1) : null;
+  })();
 
   return (
     <div className="space-y-6">
