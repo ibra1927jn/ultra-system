@@ -3,9 +3,10 @@ import { Outlet } from 'react-router-dom';
 import { TopBar } from '@/ui/TopBar';
 import { CommandPalette, usePaletteItems } from '@/ui/CommandPalette';
 import { ToastProvider } from '@/ui/Toast';
+import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useKeyboardNav } from '@/lib/useKeyboardNav';
 
-// Shell global de la SPA: Topbar + atajos g+letra + Cmd+K palette.
+// Shell global de la SPA: Topbar + atajos g+letra + Cmd+K palette + ErrorBoundary.
 // Cmd+K (Meta) en mac, Ctrl+K en linux/windows. ESC cierra.
 export default function App() {
   useKeyboardNav();
@@ -41,7 +42,9 @@ export default function App() {
     <ToastProvider>
       <div className="min-h-full bg-bg-base text-fg">
         <TopBar onOpenPalette={() => setPaletteOpen(true)} />
-        <Outlet />
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
