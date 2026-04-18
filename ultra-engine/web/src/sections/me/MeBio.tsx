@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { t } from '@/i18n/t';
 import { ListRow } from '@/ui/ListRow';
 import { StatBlock } from '@/ui/StatBlock';
@@ -15,8 +16,6 @@ function numOrNull(v: string | number | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// Chronological reverso de las entradas + series de mood/energy/anxiety.
-// logged_at en DB viene descendente; invertimos para leer izq→der = pasado→presente.
 function MoodTrend({
   entries,
 }: {
@@ -89,6 +88,16 @@ export function MeBio() {
   const mood = useRecentMood(30);
   const schengen = useSchengen();
   const [logOpen, setLogOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+
+  useEffect(() => {
+    if (params.get('action') === 'log') {
+      setLogOpen(true);
+      const next = new URLSearchParams(params);
+      next.delete('action');
+      setParams(next, { replace: true });
+    }
+  }, [params, setParams]);
 
   const schengenKpi = schengen.status === 'ok' ? schengen.data.days_used : null;
 

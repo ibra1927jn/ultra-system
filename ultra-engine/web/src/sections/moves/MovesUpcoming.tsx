@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { t } from '@/i18n/t';
 import { ListRow } from '@/ui/ListRow';
 import { LoadingState } from '@/ui/LoadingState';
@@ -16,6 +17,16 @@ function daysNum(v: string | number | null | undefined): number | null {
 export function MovesUpcoming() {
   const list = useUpcoming();
   const [addOpen, setAddOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+
+  useEffect(() => {
+    if (params.get('action') === 'add') {
+      setAddOpen(true);
+      const next = new URLSearchParams(params);
+      next.delete('action');
+      setParams(next, { replace: true });
+    }
+  }, [params, setParams]);
 
   return (
     <div className="space-y-4">

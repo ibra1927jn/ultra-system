@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { t } from '@/i18n/t';
 import { useEndpoint } from '@/lib/useEndpoint';
 import { SectionShell } from '@/ui/SectionShell';
@@ -40,6 +41,16 @@ export default function MoneyPage() {
   const markets = useEndpoint('/api/wm/markets/snapshot', MarketsSnapshotSchema);
   const fx = useEndpoint('/api/finances/fx', FxSchema);
   const [addOpen, setAddOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+
+  useEffect(() => {
+    if (params.get('action') === 'add') {
+      setAddOpen(true);
+      const next = new URLSearchParams(params);
+      next.delete('action');
+      setParams(next, { replace: true });
+    }
+  }, [params, setParams]);
 
   const refetchAll = () => {
     if (summary.status === 'ok') summary.refetch();
