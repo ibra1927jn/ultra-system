@@ -154,23 +154,27 @@ router.get('/overview', async (_req, res) => {
     err => { console.error(`home/${key} failed:`, err.message); return { ok: false, error: err }; }
   );
 
-  // Datos crudos en paralelo (los necesitamos para mustDo además de las secciones)
+  // Datos crudos en paralelo. TTLs calibrados 2026-04-18: 30-60s por clave.
+  // Home es la primera vista; un hit rate alto reduce latencia percibida sin
+  // sacrificar frescura relevante. POST desde SPA (mood/finances/logistics)
+  // podría invalidar claves específicas — queda como deuda técnica (llamar
+  // homeCache.clear() desde los endpoints de escritura).
   const [meAlertsRes, moodRes, oppsRes, monthSummary, budgetAlerts, next48Res, taxesRes] = await Promise.all([
-    safe('me.alerts', 0, () => bio.getOpenHealthAlerts()),
-    safe('me.mood',   0, () => bio.getRecentMood({ days: 7 })),
-    safe('work',      0, () => opps.getHighScoreOpps({ minScore: 8, limit: 5 })),
-    safe('money.sum', 0, () => fin.getMonthSummary()),
-    safe('money.bud', 0, () => fin.getBudgetAlerts()),
-    safe('moves.48',  0, () => log.getNext48h()),
-    safe('moves.tax', 0, () => bur.listTaxDeadlines({ daysAhead: 14 })),
+    safe('me.alerts', 60_000, () => bio.getOpenHealthAlerts()),
+    safe('me.mood',   30_000, () => bio.getRecentMood({ days: 7 })),
+    safe('work',      60_000, () => opps.getHighScoreOpps({ minScore: 8, limit: 5 })),
+    safe('money.sum', 30_000, () => fin.getMonthSummary()),
+    safe('money.bud', 60_000, () => fin.getBudgetAlerts()),
+    safe('moves.48',  60_000, () => log.getNext48h()),
+    safe('moves.tax', 60_000, () => bur.listTaxDeadlines({ daysAhead: 14 })),
   ]);
 
   // Schengen es opcional (no rompe moves)
   let schengenStatus = null;
   try { schengenStatus = await bur.getSchengenStatus(); } catch (e) { /* silencioso */ }
 
-  // World en una sola coroutine porque depende sólo de wm-news + cache opportunistic
-  const worldRes = await safe('world', 0, () => buildWorld());
+  // World en una sola coroutine — news/pulse ya cambia poco entre calls.
+  const worldRes = await safe('world', 60_000, () => buildWorld());
 
   // Construir secciones a partir de los crudos (reutilizando los builders)
   const me = (meAlertsRes.ok && moodRes.ok)
