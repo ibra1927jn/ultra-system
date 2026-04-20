@@ -10,7 +10,6 @@ const telegram = require('./telegram');
 const freelanceScraper = require('./freelance_scraper');
 const newsApis = require('./news_apis');
 const fx = require('./fx');
-const wise = require('./wise');
 const weatherMod = require('./weather');
 const docNz = require('./doc_nz');
 const healthScrapers = require('./health_scrapers');
