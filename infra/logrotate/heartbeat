@@ -1,0 +1,27 @@
+# US-QUAL-02 (AUDIT-ultra-2026-04.md): log rotation for heartbeat + watchdog + dashboard.
+# Place at /etc/logrotate.d/heartbeat and logrotate will pick it up daily.
+#
+# Rationale: /opt/heartbeat/cron.log and /opt/heartbeat/logs/*.log were
+# growing unbounded. With 15-min heartbeat + 5-min watchdog, a year of logs
+# can easily exceed 1 GB.
+
+/opt/heartbeat/cron.log
+/opt/heartbeat/logs/*.log
+{
+    weekly
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+
+/var/log/n8n-backup.log {
+    monthly
+    rotate 6
+    compress
+    missingok
+    notifempty
+    copytruncate
+}

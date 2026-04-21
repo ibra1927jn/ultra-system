@@ -1,0 +1,25 @@
+[Unit]
+Description=Dashboard HTTP Server (heartbeat + agent state)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/dashboard
+# US-SEC-01 fix (AUDIT-ultra-2026-04.md): bind to 127.0.0.1 only. Previously was
+# unbounded (0.0.0.0) — currently blocked by UFW but one rule change away from
+# public exposure. Access from host remains via SSH tunnel:
+#   ssh -L 9988:127.0.0.1:9988 ct4-bot
+ExecStart=/usr/bin/python3 -m http.server 9988 --bind 127.0.0.1
+Restart=always
+RestartSec=5
+
+# Additional hardening (no privilege escalation, no new privileges)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/var/www/dashboard
+
+[Install]
+WantedBy=multi-user.target
