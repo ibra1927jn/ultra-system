@@ -24,7 +24,7 @@ Sistema de inteligencia personal para Ibrahim (dual ES/DZ citizen, digital nomad
 - **Scheduler**: `node-cron` with **85 registered jobs** (every 5min–daily)
 - **Frontend**: vanilla HTML/CSS/JS, glassmorphism, cacheable split
   (worldmap.html 26KB shell + worldmap.css 88KB + worldmap.js ~180KB + worldmap-utils.js)
-- **Tests**: vitest, **113+ tests** (16 smoke + 56 wm + 20 frontend utils + 21 finances)
+- **Tests**: vitest. **305 tests** al 2026-04-21 — 153 backend (`ultra-engine/tests/`, 9 files) + 152 web (`ultra-engine/web/src/test/`, 30 files). Endpoint coverage sigue fino: solo `/api/admin/status`, `/api/auth/login`, `/api/home/overview`, `/api/jobs/search-local` tienen integration tests dedicados (el resto son unit/data tests).
 
 ## Commands
 
