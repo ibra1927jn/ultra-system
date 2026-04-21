@@ -597,8 +597,12 @@ CREATE INDEX IF NOT EXISTS idx_finances_currency ON finances(currency);
 CREATE TABLE IF NOT EXISTS fin_exchange_rates (
     id              SERIAL PRIMARY KEY,
     date            DATE NOT NULL,
-    base            VARCHAR(3) NOT NULL,
-    quote           VARCHAR(3) NOT NULL,
+    -- VARCHAR(10) en lugar de VARCHAR(3): crypto tickers como USDC/USDT/AVAX
+    -- tienen 4+ chars. Bug documentado en ERRORES.md 2026-04-14; ALTER
+    -- aplicado en prod en esa fecha; init.sql actualizado 2026-04-21 para
+    -- que fresh installs (nuevo container) no reintroduzcan el bug.
+    base            VARCHAR(10) NOT NULL,
+    quote           VARCHAR(10) NOT NULL,
     rate            NUMERIC(18, 8) NOT NULL,
     source          VARCHAR(30) DEFAULT 'frankfurter',
     fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
