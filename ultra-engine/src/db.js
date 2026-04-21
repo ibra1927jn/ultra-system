@@ -11,9 +11,12 @@ const pool = new Pool({
   database: process.env.POSTGRES_DB || 'ultra_db',
   user: process.env.POSTGRES_USER || 'ultra_user',
   password: process.env.POSTGRES_PASSWORD,
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  // Pool tuneable via env. Default 20 (antes 10, insuficiente para 85 crons
+  // + API concurrente; `feed-auto-disable` petó el 2026-04-20 con pool timeout).
+  // pg max_connections=100, así que 20 es safe margin.
+  max: parseInt(process.env.DB_POOL_MAX || '20'),
+  idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_MS || '30000'),
+  connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECT_MS || '5000'),
 });
 
 pool.on('error', (err) => {
