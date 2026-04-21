@@ -43,19 +43,22 @@
     2. Scrapear subdomain `issues.issuehunt.io` que es server-rendered por repo.
   - Prioridad: **baja** (Algora + GitHubFund cubren parcialmente el OSS bounty space).
 
-- [ ] **TSC-EMIT-LEAK** — [2026-04-16] detectado en validación Fase 1.2 React.
+- [x] **TSC-EMIT-LEAK** — ✅ resuelto pre-2026-04-21. `web/tsconfig.json` ya tiene `"noEmit": true` y no quedan `.js` emitidos en `web/src/`.
+- [x-ORIGINAL] **TSC-EMIT-LEAK** — [2026-04-16] detectado en validación Fase 1.2 React.
   - **Síntoma**: `web/tsconfig.json` no tiene `noEmit: true`, así que `tsc -b` (en `npm run build`) emite `.js` al lado de cada `.ts/.tsx` dentro de `src/`. Resultado: `src/main.js`, `src/lib/zod-schemas.js`, `src/test/HomePage.test.js`, etc., conviven con sus `.ts(x)` originales.
   - **Impacto**: el root `vitest run` (desde `ultra-engine/`) descubre los `.js` de `web/src/test/` y peta porque el alias `@/` no está resuelto en ese contexto. La suite web aislada (`cd web && npm test`) funciona. También: ruido en disco + tests duplicados ejecutados (uno en `.tsx` y otro en `.js`).
   - **Fix propuesto**: añadir `"noEmit": true` en `compilerOptions` de `web/tsconfig.json`. Si se necesitan `.d.ts` para algún consumidor, usar build aparte con `--emitDeclarationOnly --outDir dist-types`. Borrar los `.js` ya emitidos en `web/src/`.
   - Prioridad: **media** (no bloquea producción, pero ensucia tests + repo).
 
-- [ ] **P2-JOBS-STALE-ASSERTION** — [2026-04-16] detectado al correr suite full.
+- [x] **P2-JOBS-STALE-ASSERTION** — ✅ resuelto 2026-04-21 en branch `lab/2026-04-21-backlog-test-friction` (commit `14940dd`). El test ahora mide contra `MAX(scraped_at)` ± 30min en lugar de `NOW() - 2h`. Si la DB no tiene rows scraped, el test se salta limpio.
+- [x-ORIGINAL] **P2-JOBS-STALE-ASSERTION** — [2026-04-16] detectado al correr suite full.
   - **Síntoma**: `tests/p2-jobs.test.js` línea 110 (`expect(row.mining).toBeGreaterThan(0)`) falla porque ningún job DPW/BHP/RCG/Torre fue scrapeado en últimas 2h. El test asume que el cron de mining/logistics corre en ventana ≤2h.
   - **Impacto**: falla intermitente del CI / suite local según cuándo se corra vs cron timing.
   - **Investigar**: ¿el cron está caído? ¿la ventana 2h es realista? ¿el test debería medir contra el último timestamp de cron en lugar de NOW()?
   - Prioridad: **baja** (test flaky, no producción).
 
-- [ ] **LOGIN-RATE-LIMIT-TEST-FRICTION** — [2026-04-16] detectado al correr suite full dos veces.
+- [x] **LOGIN-RATE-LIMIT-TEST-FRICTION** — ✅ resuelto 2026-04-21 en branch `lab/2026-04-21-backlog-test-friction` (commit `14940dd`). `loginLimiter` añade `skip: () => process.env.NODE_ENV === 'test'`. En prod el rate limit sigue idéntico (5/min).
+- [x-ORIGINAL] **LOGIN-RATE-LIMIT-TEST-FRICTION** — [2026-04-16] detectado al correr suite full dos veces.
   - **Síntoma**: `/api/auth/login` tiene rate-limit de 5/min. Tests que loguean (finances-endpoints, wm-endpoints, home-overview) fallan con 429 si se corre la suite varias veces seguidas en <60s.
   - **Opciones de fix**:
     1. Bypass del rate-limit cuando `NODE_ENV=test`.
@@ -64,7 +67,8 @@
   - Decisión a tomar en una fase de **test hardening** aparte; de momento se mitiga reiniciando engine antes de re-correr.
   - Prioridad: **media** (afecta DX, no producción).
 
-- [ ] **AUTH-REDIRECT-MISMATCH** — [2026-04-15] detectado en validación Fase 1.1 React.
+- [x] **AUTH-REDIRECT-MISMATCH** — ✅ resuelto 2026-04-21 en branch `lab/2026-04-21-auth-redirect-html` (commit `1ad6450`). El redirect HTML/JSON ya estaba implementado; faltaba el `?next=<orig>` para volver tras login. Hecho en jwt-auth.js + login.html. Verificado live antes del fix: `Accept: text/html` → 302, sin Accept → 401 JSON. Ahora además preserva la URL original.
+- [x-ORIGINAL] **AUTH-REDIRECT-MISMATCH** — [2026-04-15] detectado en validación Fase 1.1 React.
   - **Síntoma**: middleware devuelve `401 JSON {"ok":false,"error":"Missing authentication"}` en rutas HTML sin cookie. CLAUDE.md especifica redirect a `/login.html`.
   - **Rutas afectadas**: `/`, `/worldmap.html`, `/money.html`, `/app/*`.
   - **Origen**: preexistente, NO introducido por Fase 1.1 (la SPA sólo aplicó el patrón vigente del site).
