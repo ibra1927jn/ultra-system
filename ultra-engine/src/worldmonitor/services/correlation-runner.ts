@@ -378,13 +378,18 @@ export async function runCorrelationDetectors(db: DbLike): Promise<{
 }> {
   const t0 = Date.now();
 
-  const detectors: Array<[string, Promise<CorrelationSignalRow[]>]> = [
-    ['marketMoves',      detectMarketMoves(db)],
-    ['cryptoMoves',      detectCryptoMoves(db)],
-    ['fxMoves',          detectFxMoves(db)],
-    ['predictionSwings', detectPredictionSwings(db)],
-    ['cveCriticals',     detectCriticalCves(db)],
-    ['newOutages',       detectNewOutages(db)],
+  // Detectores por referencia (lazy). Si los instanciásemos eager aquí
+  // (p.ej. `detectMarketMoves(db)` en el array), una rejection en un detector
+  // antes de que el await del loop le adjunte handler provocaría
+  // UnhandledPromiseRejection. Al pasar la función y llamarla dentro del try,
+  // cualquier rejection queda capturada sin ventana de exposición.
+  const detectors: Array<[string, (db: DbLike) => Promise<CorrelationSignalRow[]>]> = [
+    ['marketMoves',      detectMarketMoves],
+    ['cryptoMoves',      detectCryptoMoves],
+    ['fxMoves',          detectFxMoves],
+    ['predictionSwings', detectPredictionSwings],
+    ['cveCriticals',     detectCriticalCves],
+    ['newOutages',       detectNewOutages],
   ];
 
   const results: Record<string, number> = {
@@ -394,10 +399,10 @@ export async function runCorrelationDetectors(db: DbLike): Promise<{
   let emitted = 0;
   let skippedDup = 0;
 
-  for (const [name, p] of detectors) {
+  for (const [name, fn] of detectors) {
     let candidates: CorrelationSignalRow[] = [];
     try {
-      candidates = await p;
+      candidates = await fn(db);
     } catch (err) {
       console.warn(`[correlation] detector ${name} failed:`, (err as Error).message);
       continue;
