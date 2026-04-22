@@ -15,7 +15,6 @@
 // ╚══════════════════════════════════════════════════════════╝
 
 const db = require('./db');
-const cheerio = require('cheerio');
 
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; UltraSystem/1.0)' };
 const TIMEOUT = 25000;

@@ -11,7 +11,6 @@
 // ╚══════════════════════════════════════════════════════════╝
 
 const crypto = require('crypto');
-const db = require('./db');
 const jobApis = require('./job_apis');
 
 // Tenants VERIFICADOS live — params: { tenant, site, subdomain, name, sector }
