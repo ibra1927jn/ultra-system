@@ -197,8 +197,6 @@ const Z_HIGH = 3.5;
 const Z_CRITICAL = 5.0;
 const BASELINE_DAYS = 28;
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
 function severityFromZ(z) {
   if (z >= Z_CRITICAL) return 'critical';
   if (z >= Z_HIGH) return 'high';

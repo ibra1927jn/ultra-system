@@ -15,8 +15,6 @@
 const crypto = require('crypto');
 const jobApis = require('./job_apis');
 
-const TIMEOUT = 90000;
-
 function makeFingerprint(company, title, location) {
   return crypto.createHash('sha256').update(`${company}|${title}|${location}`.toLowerCase()).digest('hex').slice(0, 32);
 }
