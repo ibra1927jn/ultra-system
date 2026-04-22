@@ -21,12 +21,6 @@ const TIMING = {
   SEARCH_DEBOUNCE:   400,             // 400ms — wait after typing before searching
   SUGGEST_DEBOUNCE:  200,             // 200ms — wait before fetching suggestions
 };
-const LIMITS = {
-  NEWS_PAGE_SIZE:    80,
-  SEARCH_RESULTS:    80,
-  SIBLING_ARTICLES:  5,
-  TRANSLATE_MAX_CHARS: 7500,
-};
 
 const abort = {};
 const staticCache = {};
