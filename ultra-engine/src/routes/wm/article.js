@@ -1,6 +1,5 @@
 const express = require('express');
 const db = require('../../db');
-const { COUNTRY_ALIASES, TOPIC_KEYWORDS, getCountryTerms, buildTopicRegex, buildCountryRegex } = require('./constants');
 const { validateOutboundUrl } = require('./url-safety');
 const { scrapeLimiter } = require('./rate-limit');
 const router = express.Router();

@@ -1,6 +1,5 @@
 const express = require('express');
 const db = require('../../db');
-const { COUNTRY_ALIASES, TOPIC_KEYWORDS, getCountryTerms, buildTopicRegex, buildCountryRegex } = require('./constants');
 const { cacheMiddleware, snapshotCache, briefCache } = require('./cache');
 const router = express.Router();
 
