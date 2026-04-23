@@ -13,7 +13,6 @@
 const db = require('./db');
 
 const CG_BASE = 'https://api.coingecko.com/api/v3';
-const PRICE_TTL_MIN = 15;
 
 // Mapping ticker → coingecko id (los más comunes para usuario)
 const COIN_IDS = {
