@@ -158,9 +158,7 @@ app.use('/webhooks', webhookLimiter, webhooksRouter);
 app.use('/api/public', webhooksRouter);
 
 // ─── Health endpoint (publico, sin auth para monitoreo) ───
-// Devuelve: estado DB, estado Telegram, pilares cargados, uptime
-const startTime = Date.now();
-
+// Devuelve: estado DB, estado Telegram, pilares cargados
 app.get('/api/health', async (req, res) => {
   // Estado de PostgreSQL
   const dbHealth = await db.healthCheck();
@@ -179,12 +177,6 @@ app.get('/api/health', async (req, res) => {
     { name: 'P7 Bio-Check', route: '/api/bio', loaded: !!bioRouter },
   ];
   const allPillarsLoaded = pillars.every(p => p.loaded);
-
-  // Uptime del proceso
-  const uptimeMs = Date.now() - startTime;
-  const uptimeSec = Math.floor(uptimeMs / 1000);
-  const uptimeHours = Math.floor(uptimeSec / 3600);
-  const uptimeMinutes = Math.floor((uptimeSec % 3600) / 60);
 
   // Health público mínimo — nada de métricas sensibles (db_size, table_count,
   // uptime exacto, versión node, nombre db, lista de pilares). Solo lo
