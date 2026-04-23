@@ -239,41 +239,7 @@ async function detectTrends() {
   let spikes = 0, total = 0;
 
   for (const hours of windows) {
-    // Current window counts by topic
-    const current = await db.queryAll(`
-      SELECT e.classify_topics, a.title
-      FROM rss_articles a
-      JOIN rss_articles_enrichment e ON e.article_id = a.id
-      WHERE a.created_at > NOW() - INTERVAL '${hours} hours'
-        AND e.classify_topics IS NOT NULL
-    `);
-
-    // Previous window for comparison
-    const prev = await db.queryAll(`
-      SELECT e.classify_topics
-      FROM rss_articles a
-      JOIN rss_articles_enrichment e ON e.article_id = a.id
-      WHERE a.created_at BETWEEN NOW() - INTERVAL '${hours * 2} hours'
-                              AND NOW() - INTERVAL '${hours} hours'
-        AND e.classify_topics IS NOT NULL
-    `);
-
-    // Count topics
-    const countTopics = (rows) => {
-      const counts = {};
-      for (const r of rows) {
-        const topics = typeof r.classify_topics === 'string' ? JSON.parse(r.classify_topics) : r.classify_topics;
-        if (!Array.isArray(topics)) continue;
-        for (const t of topics) {
-          if (t.score > 0.3) {
-            counts[t.label] = (counts[t.label] || 0) + 1;
-          }
-        }
-      }
-      return counts;
-    };
-
-    // Also count from feed primary_topic for articles without classify_topics
+    // Count from feed primary_topic
     const feedTopics = await db.queryAll(`
       SELECT f.primary_topic as topic, COUNT(*) as cnt,
         ARRAY_AGG(a.title ORDER BY a.relevance_score DESC) as titles
