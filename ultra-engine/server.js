@@ -167,16 +167,10 @@ app.get('/api/health', async (req, res) => {
   const telegramOk = telegram.isActive ? telegram.isActive() : false;
 
   // Verificar que los 7 pilares estan cargados (rutas registradas)
-  const pillars = [
-    { name: 'P1 Noticias', route: '/api/feeds', loaded: !!feedsRouter },
-    { name: 'P2 Empleo', route: '/api/jobs', loaded: !!jobsRouter },
-    { name: 'P3 Finanzas', route: '/api/finances', loaded: !!financesRouter },
-    { name: 'P4 Burocracia', route: '/api/documents', loaded: !!documentsRouter },
-    { name: 'P5 Oportunidades', route: '/api/opportunities', loaded: !!opportunitiesRouter },
-    { name: 'P6 Logistica', route: '/api/logistics', loaded: !!logisticsRouter },
-    { name: 'P7 Bio-Check', route: '/api/bio', loaded: !!bioRouter },
-  ];
-  const allPillarsLoaded = pillars.every(p => p.loaded);
+  const allPillarsLoaded = [
+    feedsRouter, jobsRouter, financesRouter, documentsRouter,
+    opportunitiesRouter, logisticsRouter, bioRouter,
+  ].every(Boolean);
 
   // Health público mínimo — nada de métricas sensibles (db_size, table_count,
   // uptime exacto, versión node, nombre db, lista de pilares). Solo lo
