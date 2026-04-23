@@ -665,7 +665,6 @@ function renderReaderContent(data){
   const flag = iso && iso.length===2 ? isoToFlag(iso) : '';
   const sentClass = a.sentiment_label === 'positive' ? 'reader-sent-pos' : a.sentiment_label === 'negative' ? 'reader-sent-neg' : 'reader-sent-neu';
   const sentLabel = a.sentiment_label || 'neutral';
-  const published = a.published_at ? new Date(a.published_at).toLocaleString() : '';
   const timeAgo = a.published_at ? getTimeAgo(a.published_at) : '';
   const watched = isWatched('country', iso);
 
@@ -3141,7 +3140,6 @@ async function init() {
     });
   });
   // Dyslexia font + calm mode toggles (special handling for a11y-related toggles)
-  const origSetToggle = setToggle;
   document.querySelectorAll('.sd-toggle input[type="checkbox"]').forEach(cb=>{
     if(cb.dataset.toggle === 'dyslexia-font'){
       cb.addEventListener('change',()=>{ const a = getA11y(); a.dyslexiaFont = cb.checked; saveA11y(a); applyA11y(a); });
