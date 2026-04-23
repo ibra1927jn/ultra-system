@@ -117,7 +117,6 @@ router.get('/intelligence-brief', cacheMiddleware(briefCache), async (req, res) 
 
     for (const mover of marketMovers) {
       const sym = (mover.display || mover.symbol || '').toLowerCase();
-      const chg = parseFloat(mover.change_pct) || 0;
 
       // Determine which keyword group applies
       let matchKws = [];
