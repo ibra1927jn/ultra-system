@@ -36,7 +36,6 @@ let connecting = false;
 let stopped = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
-let connectStartedAt = null;
 let lastMessageAt = null;
 
 // ─── Stats counters ───────────────────────────────────────
@@ -117,7 +116,6 @@ async function handlePost(post) {
   // jetstream payload (only the DID), so use did directly — bsky.app
   // resolves did URLs.
   const url = `https://bsky.app/profile/${post.did}/post/${post.rkey}`;
-  const topHit = hits[0].keyword;
   const title = `[bsky] ${post.text.slice(0, 200)}`;
   const summary = `Bsky jetstream · matched: ${hits.map(h => h.keyword).slice(0,3).join(',')} · ${post.did}`;
   const publishedAt = post.createdAt ? new Date(post.createdAt) : new Date();
@@ -172,7 +170,6 @@ function connect() {
   if (stopped || connecting || ws) return;
 
   connecting = true;
-  connectStartedAt = Date.now();
 
   try {
     ws = new WebSocket(JETSTREAM_URL);

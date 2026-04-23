@@ -70,7 +70,6 @@ let stopped = false;
 let messagesReceived = 0;
 let messagesProcessed = 0;
 let messagesFiltered = 0;
-let connectStartedAt = null;
 let lastMessageAt = null;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
@@ -186,14 +185,13 @@ function mapMessageToAisData(msg) {
  */
 function connect() {
   if (stopped || connecting || ws) return;
-  const apiKey = process.env.AISSTREAM_API_KEY;
-  if (!apiKey) {
+  const aisKey = process.env.AISSTREAM_API_KEY;
+  if (!aisKey) {
     console.warn('⚠️  AISstream subscriber: AISSTREAM_API_KEY not set, subscriber disabled');
     return;
   }
 
   connecting = true;
-  connectStartedAt = Date.now();
 
   try {
     ws = new WebSocket(AISSTREAM_URL);
@@ -208,7 +206,7 @@ function connect() {
     connecting = false;
     reconnectAttempts = 0;
     try {
-      const sub = buildSubscriptionMessage(apiKey);
+      const sub = buildSubscriptionMessage(aisKey);
       ws.send(JSON.stringify(sub));
       console.log(`🚢 AISstream connected: subscribed to ${CHOKEPOINT_BBOXES.length} chokepoint bboxes (duty ${DUTY_ON_MS/1000}s ON / ${DUTY_OFF_MS/1000}s OFF)`);
       // Tell military-vessels.ts that tracking is now active so its
