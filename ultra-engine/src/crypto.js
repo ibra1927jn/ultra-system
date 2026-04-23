@@ -119,9 +119,9 @@ async function getHoldings() {
  * Si ccxt no instalado o keys missing, devuelve {configured:false}.
  */
 async function fetchBinanceBalances() {
-  const apiKey = process.env.BINANCE_API_KEY;
-  const apiSecret = process.env.BINANCE_API_SECRET;
-  if (!apiKey || !apiSecret) {
+  const binanceKey = process.env.BINANCE_API_KEY;
+  const binanceSecret = process.env.BINANCE_API_SECRET;
+  if (!binanceKey || !binanceSecret) {
     return { configured: false, reason: 'BINANCE_API_KEY/SECRET no configuradas' };
   }
   let ccxt;
@@ -131,7 +131,7 @@ async function fetchBinanceBalances() {
     return { configured: false, reason: 'ccxt npm package no instalado (npm i ccxt para activar)' };
   }
   try {
-    const ex = new ccxt.binance({ apiKey, secret: apiSecret, options: { defaultType: 'spot' } });
+    const ex = new ccxt.binance({ apiKey: binanceKey, secret: binanceSecret, options: { defaultType: 'spot' } });
     const balance = await ex.fetchBalance();
     const nonZero = Object.entries(balance.total || {})
       .filter(([_, v]) => v && v > 0)
